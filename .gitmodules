@@ -1,0 +1,3 @@
+[submodule "psoxide"]
+	path = psoxide
+	url = ./psoxide
