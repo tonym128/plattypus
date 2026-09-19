@@ -103,6 +103,10 @@ impl Game {
                 // Update player and entities
                 self.platty.update(buttons, self.prev_buttons, &mut self.level, &mut self.entities);
                 self.entities.update();
+                if self.platty.screen_shake > 0 {
+                    self.renderer.screen_shake = self.platty.screen_shake as i16;
+                    self.platty.screen_shake = 0;
+                }
                 self.renderer.update_camera(self.platty.x, self.platty.y);
 
                 // Check death (health 0 or fell off screen)

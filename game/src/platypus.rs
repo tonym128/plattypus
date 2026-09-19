@@ -43,6 +43,7 @@ pub struct Platypus {
     pub invuln_timer: u8,
     pub anim_frame: u8,
     pub waddle_audio_cooldown: u8,
+    pub screen_shake: u8,
 }
 
 impl Platypus {
@@ -68,6 +69,7 @@ impl Platypus {
             invuln_timer: 0,
             anim_frame: 0,
             waddle_audio_cooldown: 0,
+            screen_shake: 0,
         }
     }
 
@@ -82,6 +84,7 @@ impl Platypus {
         self.whip_timer = 0;
         self.electro_timer = 0;
         self.invuln_timer = 60;
+        self.screen_shake = 0;
     }
 
     pub fn update(
@@ -115,6 +118,7 @@ impl Platypus {
             if was_in_water && (self.vy < -Fixed::from_int(1) || buttons.is_held(button::CROSS)) {
                 self.vy = -Fixed::from_fraction(11, 2);
                 self.state = PlayerState::HydroBreach;
+                self.screen_shake = 3;
                 AudioManager::play_swoosh();
                 for sp in -2..=2 {
                     entities.spawn_particle(px + 8 + sp * 4, py + 12, (sp * 2) as i16, -3, 20, (160, 220, 255), 2);
@@ -479,6 +483,7 @@ impl Platypus {
                 self.vy = -Fixed::from_fraction(13, 2); // Massive spring launch!
                 self.on_ground = false;
                 self.state = PlayerState::Jumping;
+                self.screen_shake = 3;
                 AudioManager::play_jump();
                 entities.spawn_particle(px + 8, py + 14, -2, -1, 15, (100, 240, 100), 2);
                 entities.spawn_particle(px + 8, py + 14, 2, -1, 15, (100, 240, 100), 2);
@@ -492,6 +497,7 @@ impl Platypus {
                 if level.break_tile_at(hit_x, hit_y) || level.break_tile_at(px + 4, hit_y) || level.break_tile_at(px + 12, hit_y) {
                     AudioManager::play_hit();
                     self.score += 100;
+                    self.screen_shake = 4;
                     entities.spawn_particle(hit_x, hit_y, -2, -2, 20, (170, 110, 50), 3);
                     entities.spawn_particle(hit_x, hit_y, 2, -2, 20, (170, 110, 50), 3);
                     self.vy = Fixed::from_int(4); // Plunge downward through broken floor!
@@ -512,6 +518,7 @@ impl Platypus {
 
                 if self.state == PlayerState::SpurStomp {
                     self.state = PlayerState::Standing;
+                    self.screen_shake = 6;
                     AudioManager::play_hit();
                     entities.spawn_particle(px + 4, py + 14, -3, -1, 15, (230, 180, 255), 3);
                     entities.spawn_particle(px + 12, py + 14, 3, -1, 15, (230, 180, 255), 3);
@@ -626,6 +633,7 @@ impl Platypus {
                     AudioManager::play_hit();
                     stomp_pos = Some((ex + 8, ey + 6));
                     self.score += 200;
+                    self.screen_shake = 5;
                     // Rebound upward!
                     self.vy = -Fixed::from_fraction(11, 2);
                     self.state = PlayerState::Jumping;
@@ -681,6 +689,7 @@ impl Platypus {
             self.health = 0;
         }
         self.invuln_timer = 60; // 1 second invulnerability flash
+        self.screen_shake = 7;
         AudioManager::play_hit();
     }
 }
