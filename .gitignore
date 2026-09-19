@@ -8,3 +8,4 @@
 .cargo-artifact-lock
 .cargo-build-lock
 .cargo-lock
+.worktrees/
