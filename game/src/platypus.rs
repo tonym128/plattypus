@@ -15,6 +15,9 @@ pub enum PlayerState {
     BellySlide,
     Swimming,
     TailWhip,
+    SpurStomp,
+    WallSlide,
+    HydroBreach,
 }
 
 pub struct Platypus {
@@ -26,6 +29,7 @@ pub struct Platypus {
     pub state: PlayerState,
     pub on_ground: bool,
     pub in_water: bool,
+    pub wall_slide_side: i8,
 
     pub health: u8,
     pub max_health: u8,
@@ -52,6 +56,7 @@ impl Platypus {
             state: PlayerState::Standing,
             on_ground: false,
             in_water: false,
+            wall_slide_side: 0,
             health: 3,
             max_health: 3,
             air: 100,
@@ -72,6 +77,7 @@ impl Platypus {
         self.vx = Fixed::ZERO;
         self.vy = Fixed::ZERO;
         self.state = PlayerState::Standing;
+        self.wall_slide_side = 0;
         self.slide_timer = 0;
         self.whip_timer = 0;
         self.electro_timer = 0;
@@ -98,12 +104,22 @@ impl Platypus {
         let px = self.x.to_int();
         let py = self.y.to_int();
 
+        let was_in_water = self.in_water;
         // Check if currently immersed in water
         self.in_water = level.is_water_at(px + 8, py + 8) || level.is_water_at(px + 8, py + 14);
 
         if self.in_water {
             self.update_swimming(buttons, prev_buttons, level, entities);
         } else {
+            // Hydro-Breach Launch when rocketing out of water!
+            if was_in_water && (self.vy < -Fixed::from_int(1) || buttons.is_held(button::CROSS)) {
+                self.vy = -Fixed::from_fraction(11, 2);
+                self.state = PlayerState::HydroBreach;
+                AudioManager::play_swoosh();
+                for sp in -2..=2 {
+                    entities.spawn_particle(px + 8 + sp * 4, py + 12, (sp * 2) as i16, -3, 20, (160, 220, 255), 2);
+                }
+            }
             self.update_land(buttons, prev_buttons, level, entities);
         }
 
@@ -125,7 +141,7 @@ impl Platypus {
         // Check collectibles collision
         self.check_collectibles(entities);
 
-        // Check enemy collision & tail whip
+        // Check enemy collision & tail whip / spur stomp
         self.check_enemies(entities);
 
         // Check hazards
@@ -146,6 +162,9 @@ impl Platypus {
             self.air = 100;
         }
 
+        let px = self.x.to_int();
+        let py = self.y.to_int();
+
         let btn_left = buttons.is_held(button::LEFT);
         let btn_right = buttons.is_held(button::RIGHT);
         let btn_down = buttons.is_held(button::DOWN);
@@ -153,8 +172,8 @@ impl Platypus {
         let just_cross = btn_cross && !prev_buttons.is_held(button::CROSS);
         let just_square = buttons.is_held(button::SQUARE) && !prev_buttons.is_held(button::SQUARE);
 
-        // Tail whip attack (Square)
-        if just_square && self.whip_timer == 0 {
+        // Tail whip attack (Square) on ground or normal jump
+        if just_square && self.whip_timer == 0 && !btn_down {
             self.whip_timer = 12;
             self.state = PlayerState::TailWhip;
             AudioManager::play_swoosh();
@@ -164,8 +183,25 @@ impl Platypus {
             self.whip_timer -= 1;
         }
 
-        // Belly slide (Down + Cross or Down when moving fast)
-        if self.on_ground && btn_down && (just_cross || self.vx.abs() > Fixed::from_int(1)) && self.slide_timer == 0 {
+        // Venom-Spur Stomp (Mid-air Down + Square)
+        if !self.on_ground && btn_down && just_square && self.state != PlayerState::SpurStomp {
+            self.state = PlayerState::SpurStomp;
+            self.vy = Fixed::from_int(7); // High-velocity drop
+            self.vx = Fixed::ZERO;
+            AudioManager::play_swoosh();
+            entities.spawn_particle(px + 8, py + 4, 0, -2, 18, (210, 90, 255), 2);
+        }
+
+        // Slide momentum jump: launch forward from belly slide!
+        if self.state == PlayerState::BellySlide && just_cross {
+            self.vy = -Fixed::from_fraction(7, 2);
+            self.state = PlayerState::Jumping;
+            self.slide_timer = 0;
+            self.on_ground = false;
+            AudioManager::play_jump();
+            entities.spawn_particle(px + 8, py + 14, 0, 1, 12, (230, 200, 140), 2);
+        } else if self.on_ground && btn_down && (just_cross || self.vx.abs() > Fixed::from_int(1)) && self.slide_timer == 0 {
+            // Initiate Belly slide (Down + Cross or Down at speed)
             self.slide_timer = 30;
             self.state = PlayerState::BellySlide;
             AudioManager::play_swoosh();
@@ -179,80 +215,136 @@ impl Platypus {
 
             // Spawn mud/dust particles while sliding
             if self.anim_frame % 3 == 0 {
-                let px = self.x.to_int();
-                let py = self.y.to_int();
                 let p_vx = if self.facing_right { -1 } else { 1 };
                 entities.spawn_particle(px + 8, py + 14, p_vx, -1, 10, (180, 140, 90), 2);
             }
 
             // Friction while sliding is low
             self.vx = self.vx * Fixed::from_fraction(95, 100);
+        } else if self.state == PlayerState::SpurStomp {
+            // Keep dropping fast until collision handles landing
+            self.vy = Fixed::from_int(7);
+            if self.anim_frame % 2 == 0 {
+                entities.spawn_particle(px + 8, py + 4, 0, -1, 8, (190, 80, 240), 2);
+            }
         } else {
-            // Normal walking / running movement
-            let accel = Fixed::from_fraction(1, 4);
-            let max_speed = Fixed::from_fraction(9, 4);
+            // Check Tail Wall-Slide in mid-air
+            let mut is_wall_sliding = false;
+            if !self.on_ground && self.vy > Fixed::ZERO {
+                let left_wall = level.is_solid_at(px, py + 4) || level.is_solid_at(px, py + 12);
+                let right_wall = level.is_solid_at(px + 16, py + 4) || level.is_solid_at(px + 16, py + 12);
 
-            if btn_left {
-                self.facing_right = false;
-                self.vx -= accel;
-                if self.vx < -max_speed {
-                    self.vx = -max_speed;
+                if left_wall && btn_left {
+                    is_wall_sliding = true;
+                    self.state = PlayerState::WallSlide;
+                    self.wall_slide_side = -1;
+                    self.facing_right = true; // Tail flat against left wall, looking right
+                    self.vy = Fixed::from_fraction(1, 2); // Slow descent
+                    if self.anim_frame % 4 == 0 {
+                        entities.spawn_particle(px + 2, py + 10, 1, -1, 8, (180, 160, 140), 2);
+                    }
+                    if just_cross {
+                        // Wall-Jump kicking off left wall!
+                        self.vy = -Fixed::from_fraction(9, 2);
+                        self.vx = Fixed::from_fraction(13, 4);
+                        self.facing_right = true;
+                        self.state = PlayerState::Jumping;
+                        self.wall_slide_side = 0;
+                        AudioManager::play_jump();
+                        entities.spawn_particle(px + 2, py + 12, 2, 1, 10, (255, 255, 255), 2);
+                    }
+                } else if right_wall && btn_right {
+                    is_wall_sliding = true;
+                    self.state = PlayerState::WallSlide;
+                    self.wall_slide_side = 1;
+                    self.facing_right = false; // Tail flat against right wall, looking left
+                    self.vy = Fixed::from_fraction(1, 2);
+                    if self.anim_frame % 4 == 0 {
+                        entities.spawn_particle(px + 14, py + 10, -1, -1, 8, (180, 160, 140), 2);
+                    }
+                    if just_cross {
+                        // Wall-Jump kicking off right wall!
+                        self.vy = -Fixed::from_fraction(9, 2);
+                        self.vx = -Fixed::from_fraction(13, 4);
+                        self.facing_right = false;
+                        self.state = PlayerState::Jumping;
+                        self.wall_slide_side = 0;
+                        AudioManager::play_jump();
+                        entities.spawn_particle(px + 14, py + 12, -2, 1, 10, (255, 255, 255), 2);
+                    }
                 }
-                if self.on_ground && self.waddle_audio_cooldown == 0 {
-                    AudioManager::play_waddle();
-                    self.waddle_audio_cooldown = 18;
-                }
-            } else if btn_right {
-                self.facing_right = true;
-                self.vx += accel;
-                if self.vx > max_speed {
-                    self.vx = max_speed;
-                }
-                if self.on_ground && self.waddle_audio_cooldown == 0 {
-                    AudioManager::play_waddle();
-                    self.waddle_audio_cooldown = 18;
-                }
-            } else {
-                // Ground friction
-                self.vx = self.vx * Fixed::from_fraction(75, 100);
             }
 
-            // Jump / flutter
-            if just_cross && self.on_ground {
-                self.vy = -Fixed::from_fraction(9, 2); // jump impulse
-                self.on_ground = false;
-                self.state = PlayerState::Jumping;
-                AudioManager::play_jump();
-            } else if just_cross && !self.on_ground && self.vy > Fixed::ZERO {
-                // Flutter kick mid-air!
-                self.vy = -Fixed::from_fraction(2, 1);
-                self.state = PlayerState::Fluttering;
-                AudioManager::play_waddle();
-                // Bubble / flutter particle
-                let px = self.x.to_int();
-                let py = self.y.to_int();
-                entities.spawn_particle(px + 8, py + 12, 0, 1, 10, (200, 200, 255), 1);
+            if !is_wall_sliding {
+                self.wall_slide_side = 0;
+
+                // Normal walking / running movement
+                let accel = Fixed::from_fraction(1, 4);
+                let max_speed = Fixed::from_fraction(9, 4);
+
+                if btn_left {
+                    self.facing_right = false;
+                    self.vx -= accel;
+                    if self.vx < -max_speed {
+                        self.vx = -max_speed;
+                    }
+                    if self.on_ground && self.waddle_audio_cooldown == 0 {
+                        AudioManager::play_waddle();
+                        self.waddle_audio_cooldown = 18;
+                    }
+                } else if btn_right {
+                    self.facing_right = true;
+                    self.vx += accel;
+                    if self.vx > max_speed {
+                        self.vx = max_speed;
+                    }
+                    if self.on_ground && self.waddle_audio_cooldown == 0 {
+                        AudioManager::play_waddle();
+                        self.waddle_audio_cooldown = 18;
+                    }
+                } else {
+                    // Ground friction
+                    self.vx = self.vx * Fixed::from_fraction(75, 100);
+                }
+
+                // Jump / flutter
+                if just_cross && self.on_ground {
+                    self.vy = -Fixed::from_fraction(9, 2); // jump impulse
+                    self.on_ground = false;
+                    self.state = PlayerState::Jumping;
+                    AudioManager::play_jump();
+                } else if just_cross && !self.on_ground && self.vy > Fixed::ZERO {
+                    // Flutter kick mid-air!
+                    self.vy = -Fixed::from_fraction(2, 1);
+                    self.state = PlayerState::Fluttering;
+                    AudioManager::play_waddle();
+                    entities.spawn_particle(px + 8, py + 12, 0, 1, 10, (200, 200, 255), 1);
+                }
             }
         }
 
         // Gravity
-        let gravity = Fixed::from_fraction(1, 4);
-        let max_fall = Fixed::from_int(5);
-        self.vy += gravity;
-        if self.vy > max_fall {
-            self.vy = max_fall;
+        if self.state != PlayerState::WallSlide && self.state != PlayerState::SpurStomp {
+            let gravity = Fixed::from_fraction(1, 4);
+            let max_fall = Fixed::from_int(5);
+            self.vy += gravity;
+            if self.vy > max_fall {
+                self.vy = max_fall;
+            }
         }
 
         // Apply velocities and tile collision
-        self.apply_movement_land(level);
+        self.apply_movement_land(level, entities);
 
         // Update stance
-        if self.slide_timer == 0 && self.whip_timer == 0 {
+        if self.slide_timer == 0 && self.whip_timer == 0 && self.state != PlayerState::SpurStomp && self.state != PlayerState::WallSlide {
             if !self.on_ground {
-                if self.vy < Fixed::ZERO {
-                    self.state = PlayerState::Jumping;
-                } else {
-                    self.state = PlayerState::Fluttering;
+                if self.state != PlayerState::HydroBreach {
+                    if self.vy < Fixed::ZERO {
+                        self.state = PlayerState::Jumping;
+                    } else {
+                        self.state = PlayerState::Fluttering;
+                    }
                 }
             } else if self.vx.abs() > Fixed::from_fraction(1, 4) {
                 self.state = PlayerState::Running;
@@ -335,7 +427,7 @@ impl Platypus {
         }
     }
 
-    fn apply_movement_land(&mut self, level: &Level) {
+    fn apply_movement_land(&mut self, level: &Level, entities: &mut EntityManager) {
         // Horizontal movement
         self.x += self.vx;
         let px = self.x.to_int();
@@ -371,6 +463,15 @@ impl Platypus {
                 self.y = Fixed::from_int((py + 16) / TILE_SIZE * TILE_SIZE - 16);
                 self.vy = Fixed::ZERO;
                 self.on_ground = true;
+
+                if self.state == PlayerState::SpurStomp {
+                    self.state = PlayerState::Standing;
+                    AudioManager::play_hit();
+                    entities.spawn_particle(px + 4, py + 14, -3, -1, 15, (230, 180, 255), 3);
+                    entities.spawn_particle(px + 12, py + 14, 3, -1, 15, (230, 180, 255), 3);
+                } else if self.state == PlayerState::HydroBreach {
+                    self.state = PlayerState::Standing;
+                }
             } else if on_slope {
                 self.on_ground = true;
                 // Slopes accelerate belly slide!
@@ -433,8 +534,11 @@ impl Platypus {
         let py = self.y.to_int();
 
         let is_whipping = self.whip_timer > 0;
+        let is_stomping = self.state == PlayerState::SpurStomp;
         let whip_reach_x = if self.facing_right { px + 22 } else { px - 6 };
         let mut hit_pos = None;
+        let mut stomp_pos = None;
+        let mut electro_spark_pos = None;
 
         for i in 0..crate::entities::MAX_ENEMIES {
             let e = &mut entities.enemies[i];
@@ -443,6 +547,32 @@ impl Platypus {
             }
             let ex = e.x.to_int();
             let ey = e.y.to_int();
+
+            // Electro-reception radar pulse: disorients/stuns nearby enemies!
+            if self.electro_timer > 0 {
+                let edx = (px + 8) - (ex + 8);
+                let edy = (py + 8) - (ey + 8);
+                if edx.abs() < 42 && edy.abs() < 42 && e.stun_timer == 0 {
+                    e.stun_timer = 25;
+                    electro_spark_pos = Some((ex + 8, ey + 4));
+                }
+            }
+
+            // Venom-Spur Stomp strike!
+            if is_stomping {
+                let sdx = (px + 8) - (ex + 8);
+                let sdy = (py + 12) - (ey + 8);
+                if sdx.abs() < 16 && sdy.abs() < 14 {
+                    e.stun_timer = 90;
+                    AudioManager::play_hit();
+                    stomp_pos = Some((ex + 8, ey + 6));
+                    self.score += 200;
+                    // Rebound upward!
+                    self.vy = -Fixed::from_fraction(11, 2);
+                    self.state = PlayerState::Jumping;
+                    continue;
+                }
+            }
 
             // Tail whip strike check
             if is_whipping {
@@ -470,6 +600,13 @@ impl Platypus {
             }
         }
 
+        if let Some((sx, sy)) = electro_spark_pos {
+            entities.spawn_particle(sx, sy, 0, -1, 12, (100, 255, 255), 1);
+        }
+        if let Some((sx, sy)) = stomp_pos {
+            entities.spawn_particle(sx, sy, -2, -2, 18, (255, 100, 240), 3);
+            entities.spawn_particle(sx, sy, 2, -2, 18, (255, 100, 240), 3);
+        }
         if let Some((sx, sy)) = hit_pos {
             entities.spawn_particle(sx, sy, 1, -1, 15, (255, 100, 100), 2);
         }

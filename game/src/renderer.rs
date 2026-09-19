@@ -330,6 +330,80 @@ impl Renderer {
                     gpu::draw_rect_flat(body_x + 10, body_y - 3, 3, 2, letter_col.0, letter_col.1, letter_col.2);
                 }
             }
+            PlayerState::SpurStomp => {
+                // Venomous spur stomp dive - curled offensive sphere with venom spikes
+                let body_x = px;
+                let body_y = py;
+                // Curled body
+                gpu::draw_rect_flat(body_x + 2, body_y + 2, 12, 10, body_col.0, body_col.1, body_col.2);
+                gpu::draw_rect_flat(body_x + 4, body_y + 3, 8, 6, belly_col.0, belly_col.1, belly_col.2);
+
+                // Tail curled upward
+                gpu::draw_rect_flat(body_x + 4, body_y - 4, 8, 6, tail_col.0, tail_col.1, tail_col.2);
+
+                // Bill tucked down
+                gpu::draw_rect_flat(body_x + 5, body_y + 8, 6, 4, bill_col.0, bill_col.1, bill_col.2);
+                // Eyes focused down
+                gpu::draw_rect_flat(body_x + 4, body_y + 5, 2, 2, 255, 255, 255);
+                gpu::draw_rect_flat(body_x + 10, body_y + 5, 2, 2, 255, 255, 255);
+
+                // Venomous spur spikes extended downward from hind feet!
+                gpu::draw_rect_flat(body_x + 2, body_y + 12, 3, 5, 220, 80, 255);
+                gpu::draw_rect_flat(body_x + 11, body_y + 12, 3, 5, 220, 80, 255);
+                gpu::draw_rect_flat(body_x + 3, body_y + 15, 1, 3, 255, 220, 255);
+                gpu::draw_rect_flat(body_x + 12, body_y + 15, 1, 3, 255, 220, 255);
+
+                // Satchel
+                gpu::draw_rect_flat(body_x + 5, body_y + 3, 6, 4, satchel_col.0, satchel_col.1, satchel_col.2);
+            }
+            PlayerState::WallSlide => {
+                let body_x = px;
+                let body_y = py;
+                if platty.wall_slide_side == -1 {
+                    // Left wall: tail pressed flat against wall
+                    gpu::draw_rect_flat(body_x, body_y + 2, 4, 12, tail_col.0, tail_col.1, tail_col.2);
+                    gpu::draw_rect_flat(body_x + 4, body_y + 3, 10, 10, body_col.0, body_col.1, body_col.2);
+                    gpu::draw_rect_flat(body_x + 6, body_y + 5, 7, 6, belly_col.0, belly_col.1, belly_col.2);
+                    // Bill looking right
+                    gpu::draw_rect_flat(body_x + 14, body_y + 5, 5, 4, bill_col.0, bill_col.1, bill_col.2);
+                    gpu::draw_rect_flat(body_x + 11, body_y + 4, 2, 2, 255, 255, 255);
+                    // Feet gripping wall
+                    gpu::draw_rect_flat(body_x + 1, body_y + 13, 4, 2, 60, 50, 45);
+                    // Satchel
+                    gpu::draw_rect_flat(body_x + 6, body_y + 4, 5, 4, satchel_col.0, satchel_col.1, satchel_col.2);
+                } else {
+                    // Right wall: tail pressed flat against right wall
+                    gpu::draw_rect_flat(body_x + 12, body_y + 2, 4, 12, tail_col.0, tail_col.1, tail_col.2);
+                    gpu::draw_rect_flat(body_x + 2, body_y + 3, 10, 10, body_col.0, body_col.1, body_col.2);
+                    gpu::draw_rect_flat(body_x + 3, body_y + 5, 7, 6, belly_col.0, belly_col.1, belly_col.2);
+                    // Bill looking left
+                    gpu::draw_rect_flat(body_x - 3, body_y + 5, 5, 4, bill_col.0, bill_col.1, bill_col.2);
+                    gpu::draw_rect_flat(body_x + 3, body_y + 4, 2, 2, 255, 255, 255);
+                    // Feet gripping wall
+                    gpu::draw_rect_flat(body_x + 11, body_y + 13, 4, 2, 60, 50, 45);
+                    // Satchel
+                    gpu::draw_rect_flat(body_x + 5, body_y + 4, 5, 4, satchel_col.0, satchel_col.1, satchel_col.2);
+                }
+            }
+            PlayerState::HydroBreach => {
+                // Rocket dolphin breach - torpedo upward
+                let body_x = px;
+                let body_y = py;
+                gpu::draw_rect_flat(body_x + 3, body_y + 2, 10, 12, body_col.0, body_col.1, body_col.2);
+                gpu::draw_rect_flat(body_x + 4, body_y + 4, 8, 7, belly_col.0, belly_col.1, belly_col.2);
+                // Bill pointed skyward
+                gpu::draw_rect_flat(body_x + 5, body_y - 4, 6, 6, bill_col.0, bill_col.1, bill_col.2);
+                // Eyes
+                gpu::draw_rect_flat(body_x + 4, body_y + 1, 2, 2, 255, 255, 255);
+                gpu::draw_rect_flat(body_x + 10, body_y + 1, 2, 2, 255, 255, 255);
+                // Tail trailing downward
+                gpu::draw_rect_flat(body_x + 4, body_y + 14, 8, 5, tail_col.0, tail_col.1, tail_col.2);
+                // Webbed flippers back
+                gpu::draw_rect_flat(body_x, body_y + 7, 3, 5, 50, 45, 40);
+                gpu::draw_rect_flat(body_x + 13, body_y + 7, 3, 5, 50, 45, 40);
+                // Satchel
+                gpu::draw_rect_flat(body_x + 5, body_y + 5, 6, 4, satchel_col.0, satchel_col.1, satchel_col.2);
+            }
             _ => {
                 // Standing, Running, Jumping, or TailWhip
                 let body_x = px;
