@@ -8,8 +8,9 @@ pub const MAX_PARTICLES: usize = 32;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum CollectibleType {
-    Yabby,      // Freshwater crayfish (heals 1 HP, 100 pts)
-    LetterPage, // Lost letter fragments (250 pts)
+    Yabby,       // Freshwater crayfish (heals 1 HP, 100 pts)
+    LetterPage,  // Lost letter fragments (250 pts)
+    BuriedYabby, // Secret buried yabby (revealed via electro-sense, heals 2 HP, 300 pts)
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -117,6 +118,7 @@ impl EntityManager {
                 self.add_collectible(42 * 16, 12 * 16, CollectibleType::Yabby);
                 self.add_collectible(48 * 16, 12 * 16, CollectibleType::Yabby);
                 self.add_collectible(62 * 16, 8 * 16, CollectibleType::LetterPage);
+                self.add_collectible(69 * 16, 12 * 16, CollectibleType::BuriedYabby); // Hidden behind mud wall!
                 self.add_collectible(84 * 16, 11 * 16, CollectibleType::Yabby);
 
                 // Zookeepers patrolling
@@ -127,6 +129,7 @@ impl EntityManager {
                 self.add_collectible(15 * 16, 9 * 16, CollectibleType::Yabby);
                 self.add_collectible(30 * 16, 12 * 16, CollectibleType::Yabby);
                 self.add_collectible(38 * 16, 11 * 16, CollectibleType::Yabby);
+                self.add_collectible(47 * 16, 13 * 16, CollectibleType::BuriedYabby); // Hidden in burrow!
                 self.add_collectible(50 * 16, 10 * 16, CollectibleType::LetterPage);
                 self.add_collectible(70 * 16, 10 * 16, CollectibleType::LetterPage);
                 self.add_collectible(88 * 16, 12 * 16, CollectibleType::Yabby);
@@ -140,6 +143,7 @@ impl EntityManager {
                 self.add_collectible(25 * 16, 8 * 16, CollectibleType::Yabby);
                 self.add_collectible(38 * 16, 5 * 16, CollectibleType::LetterPage);
                 self.add_collectible(54 * 16, 11 * 16, CollectibleType::Yabby);
+                self.add_collectible(67 * 16, 12 * 16, CollectibleType::BuriedYabby); // Hidden in drain silt!
                 self.add_collectible(76 * 16, 11 * 16, CollectibleType::Yabby);
                 self.add_collectible(82 * 16, 12 * 16, CollectibleType::Yabby);
 
@@ -153,6 +157,7 @@ impl EntityManager {
                 self.add_collectible(40 * 16, 11 * 16, CollectibleType::Yabby);
                 self.add_collectible(55 * 16, 10 * 16, CollectibleType::LetterPage);
                 self.add_collectible(74 * 16, 7 * 16, CollectibleType::LetterPage);
+                self.add_collectible(96 * 16, 13 * 16, CollectibleType::BuriedYabby); // Hidden family nest treasure!
                 self.add_collectible(102 * 16, 12 * 16, CollectibleType::Yabby);
 
                 // Crabs

@@ -200,6 +200,52 @@ impl Renderer {
                         let sparkle = if frame % 20 < 10 { 255 } else { 180 };
                         gpu::draw_rect_flat(screen_x + 8, screen_y + 2, 4, 4, sparkle, sparkle, 80);
                     }
+                    TileType::BouncyPad => {
+                        // Springy lily pad / bouncy mushroom cushion
+                        gpu::draw_rect_flat(screen_x + 6, screen_y + 11, 4, 5, 50, 120, 50); // stalk
+                        gpu::draw_rect_flat(screen_x + 1, screen_y + 6, 14, 6, 70, 210, 90); // pad
+                        gpu::draw_rect_flat(screen_x + 3, screen_y + 4, 10, 4, 140, 255, 130); // bouncy spring top
+                        gpu::draw_rect_flat(screen_x + 6, screen_y + 3, 4, 2, 255, 255, 200); // highlight dot
+                    }
+                    TileType::BreakableMud => {
+                        // Cracked mud / breakable masonry block
+                        gpu::draw_rect_flat(screen_x, screen_y, 16, 16, 125, 80, 45);
+                        // Fissure cracks
+                        gpu::draw_line_mono(screen_x + 3, screen_y + 2, screen_x + 8, screen_y + 8, 60, 35, 20);
+                        gpu::draw_line_mono(screen_x + 8, screen_y + 8, screen_x + 14, screen_y + 13, 60, 35, 20);
+                        gpu::draw_line_mono(screen_x + 8, screen_y + 8, screen_x + 4, screen_y + 14, 60, 35, 20);
+                        gpu::draw_rect_flat(screen_x + 11, screen_y + 4, 2, 2, 175, 130, 80);
+                    }
+                    TileType::WaterCurrentRight => {
+                        // Flume rushing right with animated chevron ripples
+                        gpu::draw_rect_flat(screen_x, screen_y, 16, 16, 30, 105, 185);
+                        let flow_x = screen_x + (((frame as i16 * 2) + (tx as i16 * 4)) % 16);
+                        gpu::draw_tri_flat(
+                            [(flow_x, screen_y + 4), (flow_x + 5, screen_y + 8), (flow_x, screen_y + 12)],
+                            180,
+                            230,
+                            255,
+                        );
+                    }
+                    TileType::WaterCurrentLeft => {
+                        // Flume rushing left
+                        gpu::draw_rect_flat(screen_x, screen_y, 16, 16, 30, 105, 185);
+                        let flow_x = screen_x + 16 - (((frame as i16 * 2) + (tx as i16 * 4)) % 16);
+                        gpu::draw_tri_flat(
+                            [(flow_x, screen_y + 4), (flow_x - 5, screen_y + 8), (flow_x, screen_y + 12)],
+                            180,
+                            230,
+                            255,
+                        );
+                    }
+                    TileType::FloatingLog => {
+                        // Floating wooden log on water
+                        gpu::draw_rect_flat(screen_x, screen_y + 6, 16, 10, 30, 90, 160); // water beneath
+                        gpu::draw_rect_flat(screen_x, screen_y + 3, 16, 7, 120, 75, 35); // log body
+                        gpu::draw_rect_flat(screen_x + 3, screen_y + 4, 2, 5, 80, 50, 20); // bark grain
+                        gpu::draw_rect_flat(screen_x + 11, screen_y + 4, 2, 5, 80, 50, 20);
+                        gpu::draw_rect_flat(screen_x, screen_y + 2, 16, 2, 70, 140, 55); // moss top
+                    }
                 }
             }
         }
@@ -517,6 +563,24 @@ impl Renderer {
                     // Glowing letter scrap
                     gpu::draw_rect_flat(cx + 3, cy + 3, 10, 10, 255, 255, 245);
                     gpu::draw_rect_flat(cx + 6, cy + 6, 4, 4, 220, 160, 40); // gold seal
+                }
+                CollectibleType::BuriedYabby => {
+                    if platty.electro_timer > 0 {
+                        // Fully illuminated golden treasure yabby!
+                        gpu::draw_rect_flat(cx + 4, cy + 4, 8, 6, 255, 215, 40);
+                        gpu::draw_rect_flat(cx + 2, cy + 2, 3, 3, 255, 180, 20);
+                        gpu::draw_rect_flat(cx + 11, cy + 2, 3, 3, 255, 180, 20);
+                        gpu::draw_rect_flat(cx + 6, cy + 10, 4, 4, 230, 150, 20);
+                        // Radiant pulse ring
+                        gpu::draw_line_mono(cx, cy + 8, cx + 8, cy, 120, 255, 255);
+                        gpu::draw_line_mono(cx + 8, cy, cx + 16, cy + 8, 120, 255, 255);
+                        gpu::draw_line_mono(cx + 16, cy + 8, cx + 8, cy + 16, 120, 255, 255);
+                        gpu::draw_line_mono(cx + 8, cy + 16, cx, cy + 8, 120, 255, 255);
+                    } else {
+                        // Subtle buried silt mound
+                        gpu::draw_rect_flat(cx + 5, cy + 10, 6, 4, 100, 75, 45);
+                        gpu::draw_rect_flat(cx + 7, cy + 8, 2, 2, 80, 60, 35);
+                    }
                 }
             }
         }

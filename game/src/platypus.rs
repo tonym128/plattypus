@@ -88,7 +88,7 @@ impl Platypus {
         &mut self,
         buttons: ButtonState,
         prev_buttons: ButtonState,
-        level: &Level,
+        level: &mut Level,
         entities: &mut EntityManager,
     ) {
         self.anim_frame = self.anim_frame.wrapping_add(1);
@@ -154,7 +154,7 @@ impl Platypus {
         &mut self,
         buttons: ButtonState,
         prev_buttons: ButtonState,
-        level: &Level,
+        level: &mut Level,
         entities: &mut EntityManager,
     ) {
         // Refill air on land
@@ -177,6 +177,16 @@ impl Platypus {
             self.whip_timer = 12;
             self.state = PlayerState::TailWhip;
             AudioManager::play_swoosh();
+
+            // Break cracked mud block with tail whip!
+            let whip_x = if self.facing_right { px + 20 } else { px - 6 };
+            if level.break_tile_at(whip_x, py + 8) || level.break_tile_at(whip_x, py + 12) {
+                AudioManager::play_hit();
+                self.score += 50;
+                let bx = (whip_x / 16) * 16 + 8;
+                entities.spawn_particle(bx, py + 8, 1, -2, 18, (160, 110, 60), 3);
+                entities.spawn_particle(bx, py + 8, -1, -2, 18, (160, 110, 60), 3);
+            }
         }
 
         if self.whip_timer > 0 {
@@ -362,6 +372,8 @@ impl Platypus {
         entities: &mut EntityManager,
     ) {
         self.state = PlayerState::Swimming;
+        let px = self.x.to_int();
+        let py = self.y.to_int();
 
         let btn_left = buttons.is_held(button::LEFT);
         let btn_right = buttons.is_held(button::RIGHT);
@@ -392,6 +404,15 @@ impl Platypus {
         } else {
             // Slight natural buoyancy upward in water
             self.vy = self.vy * Fixed::from_fraction(85, 100) - Fixed::from_fraction(1, 16);
+        }
+
+        // Water current pushing in flumes and ocean channels!
+        let current = level.get_water_current_at(px + 8, py + 8);
+        if current != 0 {
+            self.vx += Fixed::from_int(current as i32) * Fixed::from_fraction(7, 4);
+            if self.anim_frame % 3 == 0 {
+                entities.spawn_particle(px + 8, py + 8, current as i16 * 2, 0, 10, (180, 240, 255), 1);
+            }
         }
 
         // Spawn swimming bubbles
@@ -427,7 +448,7 @@ impl Platypus {
         }
     }
 
-    fn apply_movement_land(&mut self, level: &Level, entities: &mut EntityManager) {
+    fn apply_movement_land(&mut self, level: &mut Level, entities: &mut EntityManager) {
         // Horizontal movement
         self.x += self.vx;
         let px = self.x.to_int();
@@ -453,6 +474,31 @@ impl Platypus {
         let py = self.y.to_int();
 
         if self.vy > Fixed::ZERO {
+            // Check for bouncy lily pad / mushroom spring first!
+            if level.is_bouncy_at(px + 4, py + 16) || level.is_bouncy_at(px + 12, py + 16) || level.is_bouncy_at(px + 8, py + 16) {
+                self.vy = -Fixed::from_fraction(13, 2); // Massive spring launch!
+                self.on_ground = false;
+                self.state = PlayerState::Jumping;
+                AudioManager::play_jump();
+                entities.spawn_particle(px + 8, py + 14, -2, -1, 15, (100, 240, 100), 2);
+                entities.spawn_particle(px + 8, py + 14, 2, -1, 15, (100, 240, 100), 2);
+                return;
+            }
+
+            // Check if Spur Stomp breaks ground tile beneath Platty!
+            if self.state == PlayerState::SpurStomp {
+                let hit_x = px + 8;
+                let hit_y = py + 16;
+                if level.break_tile_at(hit_x, hit_y) || level.break_tile_at(px + 4, hit_y) || level.break_tile_at(px + 12, hit_y) {
+                    AudioManager::play_hit();
+                    self.score += 100;
+                    entities.spawn_particle(hit_x, hit_y, -2, -2, 20, (170, 110, 50), 3);
+                    entities.spawn_particle(hit_x, hit_y, 2, -2, 20, (170, 110, 50), 3);
+                    self.vy = Fixed::from_int(4); // Plunge downward through broken floor!
+                    return;
+                }
+            }
+
             // Falling / landing check
             let left_solid = level.is_solid_at(px + 4, py + 16);
             let right_solid = level.is_solid_at(px + 12, py + 16);
@@ -505,22 +551,35 @@ impl Platypus {
             let dx = (px + 8) - (c.x + 8);
             let dy = (py + 8) - (c.y + 8);
             if dx.abs() < 14 && dy.abs() < 14 {
-                c.active = false;
                 match c.kind {
                     crate::entities::CollectibleType::Yabby => {
+                        c.active = false;
                         self.yabbies_collected += 1;
                         self.score += 100;
                         if self.health < self.max_health {
                             self.health += 1;
                         }
                         AudioManager::play_yabby();
+                        spawn_pos = Some((c.x + 8, c.y + 8));
                     }
                     crate::entities::CollectibleType::LetterPage => {
+                        c.active = false;
                         self.score += 250;
                         AudioManager::play_fanfare();
+                        spawn_pos = Some((c.x + 8, c.y + 8));
+                    }
+                    crate::entities::CollectibleType::BuriedYabby => {
+                        // Only collectable if revealed by electro-reception radar!
+                        if self.electro_timer > 0 {
+                            c.active = false;
+                            self.yabbies_collected += 1;
+                            self.score += 300;
+                            self.health = (self.health + 2).min(self.max_health);
+                            AudioManager::play_fanfare();
+                            spawn_pos = Some((c.x + 8, c.y + 8));
+                        }
                     }
                 }
-                spawn_pos = Some((c.x + 8, c.y + 8));
             }
         }
 

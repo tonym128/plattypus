@@ -100,7 +100,7 @@ impl Game {
             }
             GameState::Playing => {
                 // Update player and entities
-                self.platty.update(buttons, self.prev_buttons, &self.level, &mut self.entities);
+                self.platty.update(buttons, self.prev_buttons, &mut self.level, &mut self.entities);
                 self.entities.update();
                 self.renderer.update_camera(self.platty.x);
 

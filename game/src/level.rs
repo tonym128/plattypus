@@ -16,6 +16,11 @@ pub enum TileType {
     Hazard = 4,
     Platform = 5,
     Exit = 6,
+    BouncyPad = 7,
+    BreakableMud = 8,
+    WaterCurrentRight = 9,
+    WaterCurrentLeft = 10,
+    FloatingLog = 11,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -97,13 +102,47 @@ impl Level {
         let tx = px / TILE_SIZE;
         let ty = py / TILE_SIZE;
         let t = self.get_tile(tx, ty);
-        t == TileType::Solid
+        t == TileType::Solid || t == TileType::BreakableMud || t == TileType::FloatingLog
     }
 
     pub fn is_water_at(&self, px: i32, py: i32) -> bool {
         let tx = px / TILE_SIZE;
         let ty = py / TILE_SIZE;
-        self.get_tile(tx, ty) == TileType::Water
+        let t = self.get_tile(tx, ty);
+        t == TileType::Water || t == TileType::WaterCurrentRight || t == TileType::WaterCurrentLeft
+    }
+
+    pub fn is_bouncy_at(&self, px: i32, py: i32) -> bool {
+        let tx = px / TILE_SIZE;
+        let ty = py / TILE_SIZE;
+        self.get_tile(tx, ty) == TileType::BouncyPad
+    }
+
+    pub fn is_breakable_at(&self, px: i32, py: i32) -> bool {
+        let tx = px / TILE_SIZE;
+        let ty = py / TILE_SIZE;
+        self.get_tile(tx, ty) == TileType::BreakableMud
+    }
+
+    pub fn break_tile_at(&mut self, px: i32, py: i32) -> bool {
+        let tx = px / TILE_SIZE;
+        let ty = py / TILE_SIZE;
+        if self.get_tile(tx, ty) == TileType::BreakableMud {
+            self.set_tile(tx, ty, TileType::Empty);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn get_water_current_at(&self, px: i32, py: i32) -> i8 {
+        let tx = px / TILE_SIZE;
+        let ty = py / TILE_SIZE;
+        match self.get_tile(tx, ty) {
+            TileType::WaterCurrentRight => 1,
+            TileType::WaterCurrentLeft => -1,
+            _ => 0,
+        }
     }
 
     pub fn is_hazard_at(&self, px: i32, py: i32) -> bool {
@@ -146,6 +185,9 @@ impl Level {
             self.set_tile(x, 10, TileType::Platform);
         }
 
+        // Bouncy spring lily pad to reach high boardwalk
+        self.set_tile(24, 12, TileType::BouncyPad);
+
         // Sanctuary keeper fence
         self.set_tile(32, 12, TileType::Solid);
         self.set_tile(32, 11, TileType::Solid);
@@ -156,20 +198,27 @@ impl Level {
             self.set_tile(x, 13, TileType::Water);
             self.set_tile(x, 12, TileType::Water);
         }
-        self.set_tile(40, 11, TileType::Platform);
-        self.set_tile(46, 11, TileType::Platform);
+        self.set_tile(40, 11, TileType::FloatingLog);
+        self.set_tile(46, 11, TileType::FloatingLog);
+
+        // Bouncy fern pad launching up to aviary
+        self.set_tile(54, 12, TileType::BouncyPad);
 
         // Aviary structure
         for x in 56..70 {
             self.set_tile(x, 9, TileType::Platform);
         }
+        // Breakable mud burrow wall hiding a secret passage
+        self.set_tile(68, 11, TileType::BreakableMud);
+        self.set_tile(68, 12, TileType::BreakableMud);
+
         for y in 9..13 {
             self.set_tile(70, y, TileType::Solid);
         }
 
-        // Water drain flume slide
+        // Fast water flume current rushing into the exit pipe
         for x in 76..92 {
-            self.set_tile(x, 13, TileType::Water);
+            self.set_tile(x, 13, TileType::WaterCurrentRight);
             self.set_tile(x, 12, TileType::SlopeDown);
         }
 
@@ -195,12 +244,17 @@ impl Level {
             }
         }
 
-        // Deep billabong swimming segment
+        // Deep billabong swimming segment with floating log
         for x in 24..44 {
             self.set_tile(x, 13, TileType::Water);
             self.set_tile(x, 12, TileType::Water);
             self.set_tile(x, 11, TileType::Water);
         }
+        self.set_tile(34, 10, TileType::FloatingLog);
+
+        // Breakable mud bank hiding buried secrets
+        self.set_tile(46, 12, TileType::BreakableMud);
+        self.set_tile(46, 13, TileType::BreakableMud);
 
         // Stepping stone platforms
         self.set_tile(48, 12, TileType::Solid);
@@ -211,6 +265,9 @@ impl Level {
         self.set_tile(60, 13, TileType::Hazard);
         self.set_tile(61, 13, TileType::Hazard);
 
+        // Springy tree mushroom pad
+        self.set_tile(64, 13, TileType::BouncyPad);
+
         // Wombat hill
         for x in 66..78 {
             self.set_tile(x, 11, TileType::Solid);
@@ -218,10 +275,10 @@ impl Level {
             self.set_tile(x, 13, TileType::Solid);
         }
 
-        // Creek crossing
+        // Fast rushing creek crossing
         for x in 82..98 {
-            self.set_tile(x, 13, TileType::Water);
-            self.set_tile(x, 12, TileType::Water);
+            self.set_tile(x, 13, TileType::WaterCurrentRight);
+            self.set_tile(x, 12, TileType::WaterCurrentRight);
         }
 
         // Culvert pipe leading to city
@@ -244,6 +301,9 @@ impl Level {
             }
         }
 
+        // Steam vent bouncy pad launching Platty up to fire escapes!
+        self.set_tile(21, 13, TileType::BouncyPad);
+
         // Fire escape platforms
         self.set_tile(22, 11, TileType::Platform);
         self.set_tile(25, 9, TileType::Platform);
@@ -259,7 +319,8 @@ impl Level {
         // Steam vent hazard on rooftop
         self.set_tile(37, 5, TileType::Hazard);
 
-        // Tram line gap below
+        // Tram line gap below with bouncy awning
+        self.set_tile(46, 13, TileType::BouncyPad);
         for x in 48..64 {
             self.set_tile(x, 13, TileType::Solid);
             // Electrified tram rail
@@ -268,10 +329,18 @@ impl Level {
             }
         }
 
-        // Stormwater drain intake
+        // Breakable masonry wall
+        self.set_tile(66, 11, TileType::BreakableMud);
+        self.set_tile(66, 12, TileType::BreakableMud);
+
+        // Stormwater drain intake with swift flume current
         for x in 68..88 {
             for y in 10..14 {
-                self.set_tile(x, y, TileType::Water);
+                if y == 13 {
+                    self.set_tile(x, y, TileType::WaterCurrentRight);
+                } else {
+                    self.set_tile(x, y, TileType::Water);
+                }
             }
         }
 
@@ -290,20 +359,21 @@ impl Level {
             self.set_tile(x, 14, TileType::Solid);
         }
 
-        // Sand dunes
+        // Sand dunes with springy kelp pad
         for x in 8..18 {
             self.set_tile(x, 12, TileType::Solid);
             self.set_tile(x, 13, TileType::Solid);
         }
+        self.set_tile(20, 13, TileType::BouncyPad);
 
-        // Tidal estuary swimming
+        // Tidal estuary swimming with fast ocean current
         for x in 22..46 {
             self.set_tile(x, 13, TileType::Water);
-            self.set_tile(x, 12, TileType::Water);
+            self.set_tile(x, 12, TileType::WaterCurrentRight);
             self.set_tile(x, 11, TileType::Water);
         }
 
-        // Rock pool pillars
+        // Rock pool pillars and driftwood floating logs
         for x in 50..64 {
             if x % 3 != 0 {
                 self.set_tile(x, 11, TileType::Solid);
@@ -311,8 +381,12 @@ impl Level {
                 self.set_tile(x, 13, TileType::Solid);
             } else {
                 self.set_tile(x, 13, TileType::Water);
+                self.set_tile(x, 11, TileType::FloatingLog);
             }
         }
+
+        // Bouncy sand dune
+        self.set_tile(66, 13, TileType::BouncyPad);
 
         // Coastal sandstone cliff
         for x in 68..80 {
@@ -329,6 +403,10 @@ impl Level {
                 self.set_tile(x, fill, TileType::Solid);
             }
         }
+
+        // Breakable sandstone burrow barrier
+        self.set_tile(95, 12, TileType::BreakableMud);
+        self.set_tile(95, 13, TileType::BreakableMud);
 
         // The Native Habitat River Estuary
         for x in 96..112 {
