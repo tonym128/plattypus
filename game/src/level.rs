@@ -2,8 +2,8 @@
 
 use crate::fixed::Fixed;
 
-pub const LEVEL_W: usize = 120;
-pub const LEVEL_H: usize = 15;
+pub const LEVEL_W: usize = 140;
+pub const LEVEL_H: usize = 24;
 pub const TILE_SIZE: i32 = 16;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -75,9 +75,9 @@ impl Level {
             act,
             tiles: [TileType::Empty; LEVEL_W * LEVEL_H],
             player_start_x: Fixed::from_int(32),
-            player_start_y: Fixed::from_int(160),
-            exit_x: (LEVEL_W as i32 - 4) * TILE_SIZE,
-            exit_y: 12 * TILE_SIZE,
+            player_start_y: Fixed::from_int(16 * 16),
+            exit_x: (LEVEL_W as i32 - 6) * TILE_SIZE,
+            exit_y: 19 * TILE_SIZE,
         };
         level.build_act();
         level
@@ -166,177 +166,78 @@ impl Level {
         }
     }
 
-    /// Act 1: Nocturnal sanctuary pond, wooden boardwalks, fences, water flume exit.
+    /// Act 1: Nocturnal sanctuary pond, tree canopy boardwalks, aviary roof, and water flumes.
     fn build_sanctuary(&mut self) {
-        // Base ground and pond
+        // Bedrock floor
         for x in 0..LEVEL_W as i32 {
-            self.set_tile(x, 14, TileType::Solid);
-            self.set_tile(x, 13, TileType::Solid);
+            self.set_tile(x, 23, TileType::Solid);
+            self.set_tile(x, 22, TileType::Solid);
+            self.set_tile(x, 21, TileType::Solid);
         }
 
-        // Starting pond
-        for x in 4..16 {
-            self.set_tile(x, 13, TileType::Water);
-            self.set_tile(x, 12, TileType::Water);
+        // Starting sanctuary platform
+        for x in 0..16 {
+            self.set_tile(x, 19, TileType::Solid);
+            self.set_tile(x, 20, TileType::Solid);
         }
 
-        // Boardwalk platforms
-        for x in 18..28 {
-            self.set_tile(x, 10, TileType::Platform);
+        // Bouncy spring lily pad to launch into upper canopy
+        self.set_tile(12, 18, TileType::BouncyPad);
+
+        // --- UPPER ROUTE: Tree Canopy & Aviary Walkways (y=6..11) ---
+        for x in 14..30 {
+            self.set_tile(x, 11, TileType::Platform);
         }
-
-        // Bouncy spring lily pad to reach high boardwalk
-        self.set_tile(24, 12, TileType::BouncyPad);
-
-        // Sanctuary keeper fence
-        self.set_tile(32, 12, TileType::Solid);
-        self.set_tile(32, 11, TileType::Solid);
-        self.set_tile(32, 10, TileType::Hazard); // barbed top
-
-        // Middle pond with floating logs
-        for x in 36..52 {
-            self.set_tile(x, 13, TileType::Water);
-            self.set_tile(x, 12, TileType::Water);
+        for x in 34..48 {
+            self.set_tile(x, 8, TileType::Platform);
         }
-        self.set_tile(40, 11, TileType::FloatingLog);
-        self.set_tile(46, 11, TileType::FloatingLog);
-
-        // Bouncy fern pad launching up to aviary
-        self.set_tile(54, 12, TileType::BouncyPad);
-
-        // Aviary structure
-        for x in 56..70 {
-            self.set_tile(x, 9, TileType::Platform);
+        // Aviary high glass rooftop
+        for x in 52..72 {
+            self.set_tile(x, 6, TileType::Platform);
         }
-        // Breakable mud burrow wall hiding a secret passage
-        self.set_tile(68, 11, TileType::BreakableMud);
-        self.set_tile(68, 12, TileType::BreakableMud);
-
-        for y in 9..13 {
-            self.set_tile(70, y, TileType::Solid);
-        }
-
-        // Fast water flume current rushing into the exit pipe
-        for x in 76..92 {
-            self.set_tile(x, 13, TileType::WaterCurrentRight);
-            self.set_tile(x, 12, TileType::SlopeDown);
-        }
-
-        // Exit gate
-        for y in 8..13 {
-            self.set_tile(LEVEL_W as i32 - 6, y, TileType::Solid);
-        }
-        self.set_tile(LEVEL_W as i32 - 4, 12, TileType::Exit);
-    }
-
-    /// Act 2: Winding bush tracks, steep hills for sliding, billabongs, wombat mounds.
-    fn build_bushland(&mut self) {
-        for x in 0..LEVEL_W as i32 {
-            self.set_tile(x, 14, TileType::Solid);
-        }
-
-        // Big downhill slope for high-speed belly slide!
-        for x in 10..22 {
-            let y = 8 + (x - 10) / 3;
+        // Huge downhill slide chute from aviary roof down to lagoon
+        for x in 74..90 {
+            let y = 6 + (x - 74) * 12 / 16;
             self.set_tile(x, y, TileType::SlopeDown);
-            for fill in (y + 1)..14 {
+            for fill in (y + 1)..21 {
                 self.set_tile(x, fill, TileType::Solid);
             }
         }
 
-        // Deep billabong swimming segment with floating log
-        for x in 24..44 {
-            self.set_tile(x, 13, TileType::Water);
-            self.set_tile(x, 12, TileType::Water);
-            self.set_tile(x, 11, TileType::Water);
-        }
-        self.set_tile(34, 10, TileType::FloatingLog);
-
-        // Breakable mud bank hiding buried secrets
-        self.set_tile(46, 12, TileType::BreakableMud);
-        self.set_tile(46, 13, TileType::BreakableMud);
-
-        // Stepping stone platforms
-        self.set_tile(48, 12, TileType::Solid);
-        self.set_tile(52, 11, TileType::Solid);
-        self.set_tile(56, 10, TileType::Solid);
-
-        // Prickly acacia bush hazards
-        self.set_tile(60, 13, TileType::Hazard);
-        self.set_tile(61, 13, TileType::Hazard);
-
-        // Springy tree mushroom pad
-        self.set_tile(64, 13, TileType::BouncyPad);
-
-        // Wombat hill
-        for x in 66..78 {
-            self.set_tile(x, 11, TileType::Solid);
-            self.set_tile(x, 12, TileType::Solid);
-            self.set_tile(x, 13, TileType::Solid);
-        }
-
-        // Fast rushing creek crossing
-        for x in 82..98 {
-            self.set_tile(x, 13, TileType::WaterCurrentRight);
-            self.set_tile(x, 12, TileType::WaterCurrentRight);
-        }
-
-        // Culvert pipe leading to city
-        for y in 9..14 {
-            self.set_tile(LEVEL_W as i32 - 8, y, TileType::Solid);
-        }
-        self.set_tile(LEVEL_W as i32 - 4, 13, TileType::Exit);
-    }
-
-    /// Act 3: Brick buildings, fire escapes, rooftop jumps, tram rails, storm drains.
-    fn build_city(&mut self) {
-        for x in 0..LEVEL_W as i32 {
-            self.set_tile(x, 14, TileType::Solid);
-        }
-
-        // First building
-        for x in 8..20 {
-            for y in 9..14 {
-                self.set_tile(x, y, TileType::Solid);
+        // --- LOWER ROUTE: Deep Lagoon & Drainage Culverts (y=18..21) ---
+        // Deep starting lagoon
+        for x in 16..38 {
+            for y in 18..22 {
+                self.set_tile(x, y, TileType::Water);
             }
         }
+        // Floating logs across lagoon
+        self.set_tile(22, 17, TileType::FloatingLog);
+        self.set_tile(30, 17, TileType::FloatingLog);
 
-        // Steam vent bouncy pad launching Platty up to fire escapes!
-        self.set_tile(21, 13, TileType::BouncyPad);
+        // Mid-lagoon keeper fence with barbed wire
+        for y in 14..21 {
+            self.set_tile(38, y, TileType::Solid);
+        }
+        self.set_tile(38, 13, TileType::Hazard); // barbed wire top
 
-        // Fire escape platforms
-        self.set_tile(22, 11, TileType::Platform);
-        self.set_tile(25, 9, TileType::Platform);
-        self.set_tile(28, 7, TileType::Platform);
-
-        // Second taller building
-        for x in 30..44 {
-            for y in 6..14 {
-                self.set_tile(x, y, TileType::Solid);
+        // Subterranean water pipe system
+        for x in 42..66 {
+            for y in 19..22 {
+                self.set_tile(x, y, TileType::WaterCurrentRight);
             }
+            self.set_tile(x, 18, TileType::Solid); // pipe ceiling
         }
 
-        // Steam vent hazard on rooftop
-        self.set_tile(37, 5, TileType::Hazard);
+        // Breakable mud burrow wall hiding secret cavern
+        self.set_tile(68, 19, TileType::BreakableMud);
+        self.set_tile(68, 20, TileType::BreakableMud);
+        self.set_tile(68, 21, TileType::BreakableMud);
 
-        // Tram line gap below with bouncy awning
-        self.set_tile(46, 13, TileType::BouncyPad);
-        for x in 48..64 {
-            self.set_tile(x, 13, TileType::Solid);
-            // Electrified tram rail
-            if x % 4 == 0 {
-                self.set_tile(x, 12, TileType::Hazard);
-            }
-        }
-
-        // Breakable masonry wall
-        self.set_tile(66, 11, TileType::BreakableMud);
-        self.set_tile(66, 12, TileType::BreakableMud);
-
-        // Stormwater drain intake with swift flume current
-        for x in 68..88 {
-            for y in 10..14 {
-                if y == 13 {
+        // Deep lagoon pool where both routes converge
+        for x in 92..120 {
+            for y in 18..22 {
+                if y == 21 {
                     self.set_tile(x, y, TileType::WaterCurrentRight);
                 } else {
                     self.set_tile(x, y, TileType::Water);
@@ -344,80 +245,262 @@ impl Level {
             }
         }
 
-        // Underground pipe slope
-        for x in 90..102 {
-            self.set_tile(x, 12, TileType::SlopeDown);
-            self.set_tile(x, 13, TileType::Solid);
+        // Exit sanctuary gate
+        for x in 122..LEVEL_W as i32 {
+            for y in 19..22 {
+                self.set_tile(x, y, TileType::Solid);
+            }
+        }
+        for y in 12..19 {
+            self.set_tile(LEVEL_W as i32 - 8, y, TileType::Solid);
+        }
+        self.set_tile(LEVEL_W as i32 - 6, 19, TileType::Exit);
+    }
+
+    /// Act 2: Mountain ridges, steep hills for sliding, billabongs, wombat mounds.
+    fn build_bushland(&mut self) {
+        // Bedrock floor
+        for x in 0..LEVEL_W as i32 {
+            self.set_tile(x, 23, TileType::Solid);
+            self.set_tile(x, 22, TileType::Solid);
+            self.set_tile(x, 21, TileType::Solid);
         }
 
-        self.set_tile(LEVEL_W as i32 - 4, 12, TileType::Exit);
+        // Starting meadow
+        for x in 0..12 {
+            self.set_tile(x, 19, TileType::Solid);
+            self.set_tile(x, 20, TileType::Solid);
+        }
+
+        // Stepping stone ascent to Mountain Ridge
+        self.set_tile(14, 17, TileType::Solid);
+        self.set_tile(18, 14, TileType::Solid);
+        self.set_tile(22, 11, TileType::Solid);
+        self.set_tile(26, 8, TileType::Solid);
+
+        // --- UPPER ROUTE: Mountain Ridge & High-Speed Slide Chute ---
+        for x in 28..40 {
+            for y in 6..21 {
+                self.set_tile(x, y, TileType::Solid);
+            }
+        }
+        // Massive 30-tile downhill belly slide slope!
+        for x in 40..66 {
+            let y = 6 + (x - 40) * 12 / 26;
+            self.set_tile(x, y, TileType::SlopeDown);
+            for fill in (y + 1)..21 {
+                self.set_tile(x, fill, TileType::Solid);
+            }
+        }
+        // Super springy tree mushroom launching over the acacia gorge
+        self.set_tile(67, 18, TileType::BouncyPad);
+
+        // Prickly acacia bush hazard gorge below
+        for x in 70..84 {
+            for y in 19..22 {
+                self.set_tile(x, y, TileType::Solid);
+            }
+            self.set_tile(x, 18, TileType::Hazard);
+        }
+
+        // High tree canopy platforms across gorge
+        for x in 72..86 {
+            self.set_tile(x, 10, TileType::Platform);
+        }
+
+        // --- LOWER ROUTE: Billabong & Wombat Tunnels ---
+        for x in 14..36 {
+            for y in 19..22 {
+                self.set_tile(x, y, TileType::Water);
+            }
+        }
+        self.set_tile(24, 18, TileType::FloatingLog);
+
+        // Wombat subterranean cavern sealed by breakable mud blocks
+        self.set_tile(46, 19, TileType::BreakableMud);
+        self.set_tile(46, 20, TileType::BreakableMud);
+
+        // Rushing creek flume
+        for x in 90..122 {
+            for y in 19..22 {
+                self.set_tile(x, y, TileType::WaterCurrentRight);
+            }
+        }
+        self.set_tile(106, 18, TileType::FloatingLog);
+
+        // Culvert pipe leading into Melbourne city
+        for x in 124..LEVEL_W as i32 {
+            for y in 19..22 {
+                self.set_tile(x, y, TileType::Solid);
+            }
+        }
+        for y in 12..19 {
+            self.set_tile(LEVEL_W as i32 - 8, y, TileType::Solid);
+        }
+        self.set_tile(LEVEL_W as i32 - 6, 19, TileType::Exit);
+    }
+
+    /// Act 3: Brick buildings, fire escapes, rooftop jumps, tram rails, storm drains.
+    fn build_city(&mut self) {
+        for x in 0..LEVEL_W as i32 {
+            self.set_tile(x, 23, TileType::Solid);
+            self.set_tile(x, 22, TileType::Solid);
+            self.set_tile(x, 21, TileType::Solid);
+        }
+
+        // Alley start
+        for x in 0..14 {
+            self.set_tile(x, 19, TileType::Solid);
+            self.set_tile(x, 20, TileType::Solid);
+        }
+
+        // Steam vent bouncy pad launching Platty up to fire escapes!
+        self.set_tile(12, 18, TileType::BouncyPad);
+
+        // --- UPPER ROUTE: Rooftops & Fire Escapes (y=4..12) ---
+        // First warehouse building
+        for x in 16..32 {
+            for y in 13..21 {
+                self.set_tile(x, y, TileType::Solid);
+            }
+        }
+        // Fire escape ladder platforms
+        self.set_tile(34, 15, TileType::Platform);
+        self.set_tile(37, 12, TileType::Platform);
+        self.set_tile(40, 9, TileType::Platform);
+
+        // High skyscraper tower
+        for x in 44..64 {
+            for y in 6..21 {
+                self.set_tile(x, y, TileType::Solid);
+            }
+        }
+        self.set_tile(54, 5, TileType::Hazard); // rooftop AC steam hazard
+
+        // Wall-jump shaft between two skyscrapers!
+        for y in 5..16 {
+            self.set_tile(66, y, TileType::Solid);
+            self.set_tile(72, y, TileType::Solid);
+        }
+
+        // Crane beam high platform
+        for x in 76..96 {
+            self.set_tile(x, 5, TileType::Platform);
+        }
+
+        // --- LOWER ROUTE: Street, Tram Lines & Storm Drains (y=18..22) ---
+        for x in 64..92 {
+            for y in 19..21 {
+                self.set_tile(x, y, TileType::Solid);
+            }
+            if x % 6 == 0 {
+                self.set_tile(x, 18, TileType::Hazard); // Electrified tram rails
+            }
+        }
+
+        // Breakable masonry wall into stormwater drainage main
+        self.set_tile(94, 19, TileType::BreakableMud);
+        self.set_tile(94, 20, TileType::BreakableMud);
+
+        // Stormwater drain intake with swift flume current
+        for x in 96..124 {
+            self.set_tile(x, 17, TileType::Solid); // drain ceiling
+            for y in 18..22 {
+                if y == 21 {
+                    self.set_tile(x, y, TileType::WaterCurrentRight);
+                } else {
+                    self.set_tile(x, y, TileType::Water);
+                }
+            }
+        }
+
+        // Exit stormwater pipe outfall
+        for x in 126..LEVEL_W as i32 {
+            for y in 19..22 {
+                self.set_tile(x, y, TileType::Solid);
+            }
+        }
+        for y in 12..19 {
+            self.set_tile(LEVEL_W as i32 - 8, y, TileType::Solid);
+        }
+        self.set_tile(LEVEL_W as i32 - 6, 19, TileType::Exit);
     }
 
     /// Act 4: Coastal cliffs, sandy beaches, tidal rockpools, breaking waves, family burrow!
     fn build_ocean(&mut self) {
         for x in 0..LEVEL_W as i32 {
-            self.set_tile(x, 14, TileType::Solid);
+            self.set_tile(x, 23, TileType::Solid);
+            self.set_tile(x, 22, TileType::Solid);
+            self.set_tile(x, 21, TileType::Solid);
         }
 
-        // Sand dunes with springy kelp pad
-        for x in 8..18 {
-            self.set_tile(x, 12, TileType::Solid);
-            self.set_tile(x, 13, TileType::Solid);
-        }
-        self.set_tile(20, 13, TileType::BouncyPad);
-
-        // Tidal estuary swimming with fast ocean current
-        for x in 22..46 {
-            self.set_tile(x, 13, TileType::Water);
-            self.set_tile(x, 12, TileType::WaterCurrentRight);
-            self.set_tile(x, 11, TileType::Water);
+        // Starting beach
+        for x in 0..14 {
+            self.set_tile(x, 19, TileType::Solid);
+            self.set_tile(x, 20, TileType::Solid);
         }
 
-        // Rock pool pillars and driftwood floating logs
-        for x in 50..64 {
-            if x % 3 != 0 {
-                self.set_tile(x, 11, TileType::Solid);
-                self.set_tile(x, 12, TileType::Solid);
-                self.set_tile(x, 13, TileType::Solid);
-            } else {
-                self.set_tile(x, 13, TileType::Water);
-                self.set_tile(x, 11, TileType::FloatingLog);
-            }
-        }
+        // Sea-kelp springy pad
+        self.set_tile(12, 18, TileType::BouncyPad);
 
-        // Bouncy sand dune
-        self.set_tile(66, 13, TileType::BouncyPad);
-
-        // Coastal sandstone cliff
-        for x in 68..80 {
-            for y in 8..14 {
+        // --- UPPER ROUTE: Sandstone Cliffs & Sandy Slide ---
+        for x in 16..38 {
+            for y in 11..21 {
                 self.set_tile(x, y, TileType::Solid);
             }
         }
-
-        // Big sandy slide down to the river mouth
-        for x in 82..94 {
-            let y = 8 + (x - 82) / 3;
+        // High coastal sandstone headland
+        for x in 40..58 {
+            for y in 6..21 {
+                self.set_tile(x, y, TileType::Solid);
+            }
+        }
+        // Mega sand slide descending to the estuary mouth
+        for x in 58..84 {
+            let y = 6 + (x - 58) * 12 / 26;
             self.set_tile(x, y, TileType::SlopeDown);
-            for fill in (y + 1)..14 {
+            for fill in (y + 1)..21 {
                 self.set_tile(x, fill, TileType::Solid);
             }
         }
 
-        // Breakable sandstone burrow barrier
-        self.set_tile(95, 12, TileType::BreakableMud);
-        self.set_tile(95, 13, TileType::BreakableMud);
+        // --- LOWER ROUTE: Tidal Rock Pools & Submerged Marine Grottos ---
+        for x in 16..42 {
+            for y in 18..22 {
+                self.set_tile(x, y, TileType::Water);
+            }
+        }
+        self.set_tile(24, 17, TileType::FloatingLog);
+        self.set_tile(32, 17, TileType::FloatingLog);
+
+        // Underwater cave system with fast tidal current
+        for x in 44..72 {
+            for y in 19..22 {
+                self.set_tile(x, y, TileType::WaterCurrentRight);
+            }
+        }
+
+        // Breakable sandstone barrier guarding family secret stash
+        self.set_tile(88, 19, TileType::BreakableMud);
+        self.set_tile(88, 20, TileType::BreakableMud);
 
         // The Native Habitat River Estuary
-        for x in 96..112 {
-            self.set_tile(x, 13, TileType::Water);
-            self.set_tile(x, 12, TileType::Water);
+        for x in 90..124 {
+            for y in 18..22 {
+                self.set_tile(x, y, TileType::Water);
+            }
         }
+        self.set_tile(104, 17, TileType::FloatingLog);
 
-        // The Family Burrow
-        for y in 10..14 {
-            self.set_tile(LEVEL_W as i32 - 5, y, TileType::Solid);
+        // The Family Burrow!
+        for x in 126..LEVEL_W as i32 {
+            for y in 18..22 {
+                self.set_tile(x, y, TileType::Solid);
+            }
         }
-        self.set_tile(LEVEL_W as i32 - 4, 12, TileType::Exit);
+        for y in 11..19 {
+            self.set_tile(LEVEL_W as i32 - 8, y, TileType::Solid);
+        }
+        self.set_tile(LEVEL_W as i32 - 6, 19, TileType::Exit);
     }
 }

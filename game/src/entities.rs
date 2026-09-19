@@ -111,58 +111,69 @@ impl EntityManager {
 
         match act {
             crate::level::Act::Act1Sanctuary => {
-                // Yabbies in ponds
-                self.add_collectible(8 * 16, 12 * 16, CollectibleType::Yabby);
-                self.add_collectible(12 * 16, 12 * 16, CollectibleType::Yabby);
-                self.add_collectible(22 * 16, 9 * 16, CollectibleType::LetterPage);
-                self.add_collectible(42 * 16, 12 * 16, CollectibleType::Yabby);
-                self.add_collectible(48 * 16, 12 * 16, CollectibleType::Yabby);
-                self.add_collectible(62 * 16, 8 * 16, CollectibleType::LetterPage);
-                self.add_collectible(69 * 16, 12 * 16, CollectibleType::BuriedYabby); // Hidden behind mud wall!
-                self.add_collectible(84 * 16, 11 * 16, CollectibleType::Yabby);
+                // Lagoon & mud cavern
+                self.add_collectible(8 * 16, 18 * 16, CollectibleType::Yabby);
+                self.add_collectible(24 * 16, 19 * 16, CollectibleType::Yabby);
+                self.add_collectible(36 * 16, 19 * 16, CollectibleType::Yabby);
+                self.add_collectible(70 * 16, 20 * 16, CollectibleType::BuriedYabby); // Hidden behind mud wall!
+                self.add_collectible(100 * 16, 19 * 16, CollectibleType::Yabby);
 
-                // Zookeepers patrolling
-                self.add_enemy(20 * 16, 12 * 16, 18 * 16, 28 * 16, EnemyType::Zookeeper);
-                self.add_enemy(58 * 16, 12 * 16, 54 * 16, 68 * 16, EnemyType::Zookeeper);
+                // High canopy & aviary roof
+                self.add_collectible(20 * 16, 10 * 16, CollectibleType::LetterPage);
+                self.add_collectible(40 * 16, 7 * 16, CollectibleType::LetterPage);
+                self.add_collectible(62 * 16, 5 * 16, CollectibleType::LetterPage);
+
+                // Zookeepers patrolling lower paths
+                self.add_enemy(22 * 16, 18 * 16, 18 * 16, 36 * 16, EnemyType::Zookeeper);
+                self.add_enemy(60 * 16, 18 * 16, 54 * 16, 70 * 16, EnemyType::Zookeeper);
             }
             crate::level::Act::Act2Bushland => {
-                self.add_collectible(15 * 16, 9 * 16, CollectibleType::Yabby);
-                self.add_collectible(30 * 16, 12 * 16, CollectibleType::Yabby);
-                self.add_collectible(38 * 16, 11 * 16, CollectibleType::Yabby);
-                self.add_collectible(47 * 16, 13 * 16, CollectibleType::BuriedYabby); // Hidden in burrow!
-                self.add_collectible(50 * 16, 10 * 16, CollectibleType::LetterPage);
-                self.add_collectible(70 * 16, 10 * 16, CollectibleType::LetterPage);
-                self.add_collectible(88 * 16, 12 * 16, CollectibleType::Yabby);
+                // Mountain ridge & high treetops
+                self.add_collectible(32 * 16, 5 * 16, CollectibleType::LetterPage);
+                self.add_collectible(50 * 16, 9 * 16, CollectibleType::Yabby);
+                self.add_collectible(78 * 16, 9 * 16, CollectibleType::LetterPage);
+
+                // Billabong, creek & wombat tunnels
+                self.add_collectible(20 * 16, 20 * 16, CollectibleType::Yabby);
+                self.add_collectible(30 * 16, 20 * 16, CollectibleType::Yabby);
+                self.add_collectible(48 * 16, 20 * 16, CollectibleType::BuriedYabby); // Hidden in burrow!
+                self.add_collectible(98 * 16, 20 * 16, CollectibleType::Yabby);
 
                 // Wombats
-                self.add_enemy(32 * 16, 13 * 16, 28 * 16, 42 * 16, EnemyType::Wombat);
-                self.add_enemy(68 * 16, 10 * 16, 66 * 16, 76 * 16, EnemyType::Wombat);
+                self.add_enemy(30 * 16, 18 * 16, 24 * 16, 38 * 16, EnemyType::Wombat);
+                self.add_enemy(70 * 16, 18 * 16, 68 * 16, 82 * 16, EnemyType::Wombat);
             }
             crate::level::Act::Act3City => {
-                self.add_collectible(14 * 16, 8 * 16, CollectibleType::LetterPage);
-                self.add_collectible(25 * 16, 8 * 16, CollectibleType::Yabby);
-                self.add_collectible(38 * 16, 5 * 16, CollectibleType::LetterPage);
-                self.add_collectible(54 * 16, 11 * 16, CollectibleType::Yabby);
-                self.add_collectible(67 * 16, 12 * 16, CollectibleType::BuriedYabby); // Hidden in drain silt!
-                self.add_collectible(76 * 16, 11 * 16, CollectibleType::Yabby);
-                self.add_collectible(82 * 16, 12 * 16, CollectibleType::Yabby);
+                // High rooftops & crane
+                self.add_collectible(24 * 16, 12 * 16, CollectibleType::LetterPage);
+                self.add_collectible(50 * 16, 5 * 16, CollectibleType::LetterPage);
+                self.add_collectible(84 * 16, 4 * 16, CollectibleType::LetterPage);
 
-                // Pigeons
-                self.add_enemy(12 * 16, 7 * 16, 10 * 16, 20 * 16, EnemyType::Pigeon);
-                self.add_enemy(34 * 16, 5 * 16, 32 * 16, 42 * 16, EnemyType::Pigeon);
+                // Street & stormwater culverts
+                self.add_collectible(30 * 16, 18 * 16, CollectibleType::Yabby);
+                self.add_collectible(70 * 16, 18 * 16, CollectibleType::Yabby);
+                self.add_collectible(98 * 16, 20 * 16, CollectibleType::BuriedYabby); // Hidden in drain silt!
+                self.add_collectible(112 * 16, 20 * 16, CollectibleType::Yabby);
+
+                // Pigeons flying high
+                self.add_enemy(22 * 16, 11 * 16, 18 * 16, 32 * 16, EnemyType::Pigeon);
+                self.add_enemy(52 * 16, 4 * 16, 46 * 16, 62 * 16, EnemyType::Pigeon);
             }
             crate::level::Act::Act4Ocean => {
-                self.add_collectible(12 * 16, 11 * 16, CollectibleType::Yabby);
-                self.add_collectible(32 * 16, 12 * 16, CollectibleType::Yabby);
-                self.add_collectible(40 * 16, 11 * 16, CollectibleType::Yabby);
-                self.add_collectible(55 * 16, 10 * 16, CollectibleType::LetterPage);
-                self.add_collectible(74 * 16, 7 * 16, CollectibleType::LetterPage);
-                self.add_collectible(96 * 16, 13 * 16, CollectibleType::BuriedYabby); // Hidden family nest treasure!
-                self.add_collectible(102 * 16, 12 * 16, CollectibleType::Yabby);
+                // High coastal sandstone headlands
+                self.add_collectible(28 * 16, 10 * 16, CollectibleType::LetterPage);
+                self.add_collectible(48 * 16, 5 * 16, CollectibleType::LetterPage);
+                self.add_collectible(74 * 16, 9 * 16, CollectibleType::LetterPage);
+
+                // Tidal rock pools, caves & estuary
+                self.add_collectible(22 * 16, 19 * 16, CollectibleType::Yabby);
+                self.add_collectible(36 * 16, 19 * 16, CollectibleType::Yabby);
+                self.add_collectible(92 * 16, 20 * 16, CollectibleType::BuriedYabby); // Hidden family nest treasure!
+                self.add_collectible(110 * 16, 19 * 16, CollectibleType::Yabby);
 
                 // Crabs
-                self.add_enemy(10 * 16, 11 * 16, 8 * 16, 16 * 16, EnemyType::Crab);
-                self.add_enemy(52 * 16, 10 * 16, 50 * 16, 62 * 16, EnemyType::Crab);
+                self.add_enemy(10 * 16, 18 * 16, 8 * 16, 16 * 16, EnemyType::Crab);
+                self.add_enemy(52 * 16, 17 * 16, 48 * 16, 62 * 16, EnemyType::Crab);
             }
         }
     }

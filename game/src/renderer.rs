@@ -24,6 +24,7 @@ pub struct Renderer {
     pub fb: FrameBuffer,
     pub font: FontAtlas,
     pub camera_x: i32,
+    pub camera_y: i32,
 }
 
 impl Renderer {
@@ -39,6 +40,7 @@ impl Renderer {
             fb,
             font,
             camera_x: 0,
+            camera_y: 0,
         }
     }
 
@@ -47,18 +49,30 @@ impl Renderer {
         self.fb.swap();
     }
 
-    pub fn update_camera(&mut self, player_x: Fixed) {
+    pub fn update_camera(&mut self, player_x: Fixed, player_y: Fixed) {
         let px = player_x.to_int();
-        // Camera centers on player
-        let target_x = px - (SCREEN_W as i32 / 2);
-        let max_cam = (LEVEL_W as i32 * TILE_SIZE) - SCREEN_W as i32;
+        let py = player_y.to_int();
 
+        // Horizontal camera centering
+        let target_x = px - (SCREEN_W as i32 / 2);
+        let max_cam_x = (LEVEL_W as i32 * TILE_SIZE) - SCREEN_W as i32;
         if target_x < 0 {
             self.camera_x = 0;
-        } else if target_x > max_cam {
-            self.camera_x = max_cam;
+        } else if target_x > max_cam_x {
+            self.camera_x = max_cam_x;
         } else {
             self.camera_x = target_x;
+        }
+
+        // Vertical camera centering
+        let target_y = py - (SCREEN_H as i32 / 2);
+        let max_cam_y = (LEVEL_H as i32 * TILE_SIZE) - SCREEN_H as i32;
+        if target_y < 0 {
+            self.camera_y = 0;
+        } else if target_y > max_cam_y {
+            self.camera_y = max_cam_y;
+        } else {
+            self.camera_y = target_y;
         }
     }
 
@@ -143,12 +157,14 @@ impl Renderer {
     pub fn draw_level(&self, level: &Level, frame: u8) {
         let start_col = (self.camera_x / TILE_SIZE).max(0);
         let end_col = ((self.camera_x + SCREEN_W as i32) / TILE_SIZE + 1).min(LEVEL_W as i32);
+        let start_row = (self.camera_y / TILE_SIZE).max(0);
+        let end_row = ((self.camera_y + SCREEN_H as i32) / TILE_SIZE + 1).min(LEVEL_H as i32);
 
         for tx in start_col..end_col {
             let screen_x = (tx * TILE_SIZE - self.camera_x) as i16;
 
-            for ty in 0..LEVEL_H as i32 {
-                let screen_y = (ty * TILE_SIZE) as i16;
+            for ty in start_row..end_row {
+                let screen_y = (ty * TILE_SIZE - self.camera_y) as i16;
                 let tile = level.get_tile(tx, ty);
 
                 match tile {
@@ -290,7 +306,7 @@ impl Renderer {
     /// Render Platty the Platypus with detailed animation states!
     pub fn draw_platypus(&self, platty: &Platypus) {
         let px = (platty.x.to_int() - self.camera_x) as i16;
-        let py = platty.y.to_int() as i16;
+        let py = (platty.y.to_int() - self.camera_y) as i16;
 
         // Invulnerability blink
         if platty.invuln_timer > 0 && (platty.invuln_timer / 4) % 2 == 1 {
@@ -540,11 +556,12 @@ impl Renderer {
                 continue;
             }
             let cx = (c.x - self.camera_x) as i16;
-            if cx < -16 || cx > SCREEN_W {
+            let cy_raw = (c.y - self.camera_y) as i16;
+            if cx < -16 || cx > SCREEN_W || cy_raw < -16 || cy_raw > SCREEN_H {
                 continue;
             }
             let bob = if (c.bob_timer / 10) % 2 == 0 { 1 } else { 0 };
-            let cy = (c.y as i16) + bob;
+            let cy = cy_raw + bob;
 
             match c.kind {
                 CollectibleType::Yabby => {
@@ -591,10 +608,10 @@ impl Renderer {
                 continue;
             }
             let ex = (e.x.to_int() - self.camera_x) as i16;
-            if ex < -32 || ex > SCREEN_W + 32 {
+            let ey = (e.y.to_int() - self.camera_y) as i16;
+            if ex < -32 || ex > SCREEN_W + 32 || ey < -32 || ey > SCREEN_H + 32 {
                 continue;
             }
-            let ey = e.y.to_int() as i16;
 
             match e.kind {
                 EnemyType::Zookeeper => {
@@ -645,7 +662,7 @@ impl Renderer {
                 continue;
             }
             let px = (p.x - self.camera_x) as i16;
-            let py = p.y as i16;
+            let py = (p.y - self.camera_y) as i16;
             if px >= 0 && px < SCREEN_W && py >= 0 && py < SCREEN_H {
                 gpu::draw_rect_flat(px, py, p.size as u16, p.size as u16, p.color.0, p.color.1, p.color.2);
             }

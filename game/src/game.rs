@@ -88,6 +88,7 @@ impl Game {
                     self.state = GameState::Playing;
                 }
 
+                self.renderer.update_camera(self.platty.x, self.platty.y);
                 self.renderer.begin_frame();
                 self.renderer.draw_background(self.level.act, self.frame);
                 self.renderer.draw_level(&self.level, self.frame);
@@ -102,10 +103,11 @@ impl Game {
                 // Update player and entities
                 self.platty.update(buttons, self.prev_buttons, &mut self.level, &mut self.entities);
                 self.entities.update();
-                self.renderer.update_camera(self.platty.x);
+                self.renderer.update_camera(self.platty.x, self.platty.y);
 
                 // Check death (health 0 or fell off screen)
-                if self.platty.health == 0 || self.platty.y.to_int() > 240 {
+                let max_fall_y = (crate::level::LEVEL_H as i32 * crate::level::TILE_SIZE) + 16;
+                if self.platty.health == 0 || self.platty.y.to_int() > max_fall_y {
                     // Respawn at stage start
                     self.platty.health = 3;
                     self.platty.reset_position(self.level.player_start_x, self.level.player_start_y);
@@ -167,6 +169,6 @@ impl Game {
         self.level = Level::new(act);
         self.platty.reset_position(self.level.player_start_x, self.level.player_start_y);
         self.entities.spawn_for_act(act);
-        self.renderer.camera_x = 0;
+        self.renderer.update_camera(self.platty.x, self.platty.y);
     }
 }
