@@ -1,20 +1,28 @@
-//! Main game coordinator and state machine for Plattypus.
+//! Main game loop and state machine for Plattypus MGS.
+//! Integrates 3D GTE stealth gameplay, Soliton Radar, and CODEC radio communication.
 
 use crate::audio::AudioManager;
+use crate::codec::{
+    CodecManager, ACT1_START_DIALOGUE, ACT2_START_DIALOGUE, ACT3_START_DIALOGUE,
+    ACT4_START_DIALOGUE, INTRO_DIALOGUE, RADIO_TIPS_DIALOGUE,
+};
 use crate::entities::EntityManager;
 use crate::level::{Act, Level};
-use crate::platypus::Platypus;
+use crate::platypus::{PlayerState, Platypus};
 use crate::renderer::Renderer;
+use psx_gpu as gpu;
 use psx_pad::{button, poll_port1, ButtonState};
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum GameState {
     Title,
-    Letter,
-    StageIntro(u8),
+    IntroCodec,
+    StageIntroCodec,
     Playing,
+    InGameCodec,
     StageClear,
     Ending,
+    GameOver,
 }
 
 pub struct Game {
@@ -23,6 +31,7 @@ pub struct Game {
     pub platty: Platypus,
     pub entities: EntityManager,
     pub renderer: Renderer,
+    pub codec: CodecManager,
     pub prev_buttons: ButtonState,
     pub frame: u8,
 }
@@ -30,10 +39,11 @@ pub struct Game {
 impl Game {
     pub fn new() -> Self {
         let level = Level::new(Act::Act1Sanctuary);
-        let platty = Platypus::new(level.player_start_x, level.player_start_y);
+        let platty = Platypus::new(level.player_start_x, level.player_start_z);
         let mut entities = EntityManager::new();
-        entities.spawn_for_act(Act::Act1Sanctuary);
+        entities.load_act(Act::Act1Sanctuary);
         let renderer = Renderer::new();
+        let codec = CodecManager::new();
 
         Self {
             state: GameState::Title,
@@ -41,6 +51,7 @@ impl Game {
             platty,
             entities,
             renderer,
+            codec,
             prev_buttons: ButtonState::NONE,
             frame: 0,
         }
@@ -60,109 +71,147 @@ impl Game {
 
         let just_start = buttons.is_held(button::START) && !self.prev_buttons.is_held(button::START);
         let just_cross = buttons.is_held(button::CROSS) && !self.prev_buttons.is_held(button::CROSS);
+        let just_select = buttons.is_held(button::SELECT) && !self.prev_buttons.is_held(button::SELECT);
 
         match self.state {
             GameState::Title => {
                 if just_start || just_cross {
-                    self.state = GameState::Letter;
-                    AudioManager::play_fanfare();
+                    // Launch Intro CODEC transmission from Burrow Command!
+                    self.codec.start_conversation(INTRO_DIALOGUE);
+                    self.state = GameState::IntroCodec;
                 }
 
                 self.renderer.begin_frame();
                 self.renderer.draw_title_screen(self.frame);
             }
-            GameState::Letter => {
+            GameState::IntroCodec => {
+                self.codec.update();
                 if just_cross || just_start {
-                    self.load_act(Act::Act1Sanctuary);
-                    self.state = GameState::StageIntro(90);
-                    AudioManager::play_jump();
-                }
-
-                self.renderer.begin_frame();
-                self.renderer.draw_letter_intro(self.frame);
-            }
-            GameState::StageIntro(timer) => {
-                if timer > 0 {
-                    self.state = GameState::StageIntro(timer - 1);
-                } else {
-                    self.state = GameState::Playing;
-                }
-
-                self.renderer.update_camera(self.platty.x, self.platty.y);
-                self.renderer.begin_frame();
-                self.renderer.draw_background(self.level.act, self.frame);
-                self.renderer.draw_level(&self.level, self.frame);
-                self.renderer.draw_platypus(&self.platty);
-                self.renderer.draw_hud(&self.platty, self.level.act);
-
-                // Stage intro banner
-                self.renderer.font.draw_text(60, 100, self.level.act.title(), (255, 230, 80));
-                self.renderer.font.draw_text(45, 120, self.level.act.subtitle(), (200, 240, 255));
-            }
-            GameState::Playing => {
-                // Update player and entities
-                self.platty.update(buttons, self.prev_buttons, &mut self.level, &mut self.entities);
-                self.entities.update();
-                if self.platty.screen_shake > 0 {
-                    self.renderer.screen_shake = self.platty.screen_shake as i16;
-                    self.platty.screen_shake = 0;
-                }
-                self.renderer.update_camera(self.platty.x, self.platty.y);
-
-                // Check death (health 0 or fell off screen)
-                let max_fall_y = (crate::level::LEVEL_H as i32 * crate::level::TILE_SIZE) + 16;
-                if self.platty.health == 0 || self.platty.y.to_int() > max_fall_y {
-                    // Respawn at stage start
-                    self.platty.health = 3;
-                    self.platty.reset_position(self.level.player_start_x, self.level.player_start_y);
-                    AudioManager::play_hit();
-                }
-
-                // Check exit reached
-                let px = self.platty.x.to_int();
-                let py = self.platty.y.to_int();
-                if self.level.is_exit_at(px + 8, py + 8) {
-                    if self.level.act == Act::Act4Ocean {
-                        self.state = GameState::Ending;
-                        AudioManager::play_fanfare();
-                    } else {
-                        self.state = GameState::StageClear;
-                        AudioManager::play_fanfare();
+                    if self.codec.on_action_button() {
+                        // Intro finished, start Act 1!
+                        self.load_act(Act::Act1Sanctuary);
+                        self.codec.start_conversation(ACT1_START_DIALOGUE);
+                        self.state = GameState::StageIntroCodec;
                     }
                 }
 
-                // Render frame
                 self.renderer.begin_frame();
-                self.renderer.draw_background(self.level.act, self.frame);
-                self.renderer.draw_level(&self.level, self.frame);
-                self.renderer.draw_entities(&self.entities, &self.platty);
-                self.renderer.draw_platypus(&self.platty);
-                self.renderer.draw_hud(&self.platty, self.level.act);
+                self.codec.draw(&self.renderer.font);
+            }
+            GameState::StageIntroCodec => {
+                self.codec.update();
+                if just_cross || just_start {
+                    if self.codec.on_action_button() {
+                        self.state = GameState::Playing;
+                        AudioManager::play_jump();
+                    }
+                }
+
+                self.renderer.begin_frame();
+                self.codec.draw(&self.renderer.font);
+            }
+            GameState::Playing => {
+                // Check if player presses SELECT to open in-game CODEC radio!
+                if just_select {
+                    self.codec.start_conversation(RADIO_TIPS_DIALOGUE);
+                    self.state = GameState::InGameCodec;
+                } else {
+                    // Update player and 3D entities
+                    let is_crawling = self.platty.state == PlayerState::BellyCrawl;
+                    let is_submerged = self.platty.state == PlayerState::Submerged;
+
+                    self.platty.update(buttons, self.prev_buttons, &self.level, &mut self.entities);
+                    self.entities.update(
+                        self.platty.x,
+                        self.platty.z,
+                        is_crawling,
+                        is_submerged,
+                        &self.level,
+                    );
+
+                    if self.platty.screen_shake > 0 {
+                        self.renderer.screen_shake = self.platty.screen_shake as i16;
+                        self.platty.screen_shake = 0;
+                    }
+                    self.renderer.update_camera(self.platty.x, self.platty.y, self.platty.z);
+
+                    // Check Game Over (health 0)
+                    if self.platty.health == 0 {
+                        self.state = GameState::GameOver;
+                        AudioManager::play_hit();
+                    }
+
+                    // Check exit infiltration hatch reached
+                    if self.level.is_exit_at(self.platty.x, self.platty.z) {
+                        if self.level.act == Act::Act4Ocean {
+                            self.state = GameState::Ending;
+                            AudioManager::play_fanfare();
+                        } else {
+                            self.state = GameState::StageClear;
+                            AudioManager::play_fanfare();
+                        }
+                    }
+
+                    // Render 3D World & HUD
+                    self.renderer.begin_frame();
+                    self.renderer.draw_3d_scene(&self.level, &self.platty, &self.entities, self.frame);
+                    self.renderer.draw_hud(&self.platty, &self.entities, self.level.act);
+                }
+            }
+            GameState::InGameCodec => {
+                self.codec.update();
+                if just_cross || just_select || just_start {
+                    if self.codec.on_action_button() {
+                        self.state = GameState::Playing;
+                    }
+                }
+
+                self.renderer.begin_frame();
+                self.codec.draw(&self.renderer.font);
             }
             GameState::StageClear => {
                 if just_cross || just_start {
                     if let Some(next_act) = self.level.act.next() {
                         self.load_act(next_act);
-                        self.state = GameState::StageIntro(90);
+                        let briefing = match next_act {
+                            Act::Act2Bushland => ACT2_START_DIALOGUE,
+                            Act::Act3City => ACT3_START_DIALOGUE,
+                            Act::Act4Ocean => ACT4_START_DIALOGUE,
+                            _ => ACT1_START_DIALOGUE,
+                        };
+                        self.codec.start_conversation(briefing);
+                        self.state = GameState::StageIntroCodec;
                     } else {
                         self.state = GameState::Ending;
                     }
                 }
 
                 self.renderer.begin_frame();
-                self.renderer.draw_background(self.level.act, self.frame);
-                self.renderer.draw_level(&self.level, self.frame);
                 self.renderer.draw_stage_clear(self.level.act, self.platty.score, self.platty.yabbies_collected);
             }
             GameState::Ending => {
                 if just_start || just_cross {
-                    // Return to title after beating game
                     self.load_act(Act::Act1Sanctuary);
                     self.state = GameState::Title;
                 }
 
                 self.renderer.begin_frame();
                 self.renderer.draw_ending(self.frame);
+            }
+            GameState::GameOver => {
+                // MGS Classic Game Over: "PLATTY? PLATTY? PLATTYYYYY!"
+                if just_cross || just_start {
+                    // Retry current stage
+                    let act = self.level.act;
+                    self.load_act(act);
+                    self.state = GameState::Playing;
+                }
+
+                self.renderer.begin_frame();
+                gpu::draw_rect_flat(0, 0, 320, 240, 16, 4, 4);
+                self.renderer.font.draw_text(115, 80, "GAME OVER", (255, 40, 40));
+                self.renderer.font.draw_text(60, 110, "BURROW HQ: PLATTY? PLATTYYYY!", (255, 220, 220));
+                self.renderer.font.draw_text(75, 150, "PRESS CROSS TO RETRY MISSION", (255, 255, 255));
             }
         }
 
@@ -171,8 +220,8 @@ impl Game {
 
     fn load_act(&mut self, act: Act) {
         self.level = Level::new(act);
-        self.platty.reset_position(self.level.player_start_x, self.level.player_start_y);
-        self.entities.spawn_for_act(act);
-        self.renderer.update_camera(self.platty.x, self.platty.y);
+        self.platty.reset_position(self.level.player_start_x, self.level.player_start_z);
+        self.entities.load_act(act);
+        self.renderer.update_camera(self.platty.x, self.platty.y, self.platty.z);
     }
 }

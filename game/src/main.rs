@@ -10,6 +10,7 @@
 extern crate psx_rt;
 
 mod audio;
+mod codec;
 mod entities;
 mod fixed;
 mod game;

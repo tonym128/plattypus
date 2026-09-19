@@ -15,6 +15,8 @@ dependencies = [
  "psx-asset",
  "psx-font",
  "psx-gpu",
+ "psx-gte",
+ "psx-gte-core",
  "psx-hw",
  "psx-math",
  "psx-pad",
