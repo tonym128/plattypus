@@ -1,10 +1,11 @@
 //! Tactical 3D Platypus player controller for Plattypus MGS.
-//! Full 3D movement in X/Z with elevation Y, Belly-Crawl stealth mode,
-//! Wall-Hug cover, Submersible swimming, and Electro-reception radar pulse.
+//! Full 3D movement in X/Z with elevation Y, jumping with gravity,
+//! belly-crawl stealth mode, water diving, and electro-reception radar pulse.
 
 use crate::audio::AudioManager;
-use crate::entities::{CollectibleType, EntityManager, SentryState};
-use crate::level::Level;
+use crate::entities::{CollectibleType, EntityManager, RiverObstacleType, SentryState};
+use crate::level::{Act, Level};
+use psx_gte_core::transform::{cos_1_3_12, sin_1_3_12};
 use psx_pad::{button, ButtonState};
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -12,16 +13,16 @@ pub enum PlayerState {
     Standing,
     Sneaking,
     Running,
+    Jumping,
     BellyCrawl,
     Swimming,
     Submerged,
-    WallHug,
     SpurStrike,
 }
 
 pub struct Platypus {
     pub x: i32,
-    pub y: i32, // 0 = ground, negative = jumping, positive = submerged
+    pub y: i32, // 0 = ground, negative = in air, positive = submerged
     pub z: i32,
     pub vx: i32,
     pub vy: i32,
@@ -42,6 +43,7 @@ pub struct Platypus {
     pub screen_shake: u8,
     pub anim_frame: u8,
     pub step_audio_timer: u8,
+    pub on_ground: bool,
 }
 
 impl Platypus {
@@ -53,7 +55,7 @@ impl Platypus {
             vx: 0,
             vy: 0,
             vz: 0,
-            angle: 64, // Facing South (+Z) initially
+            angle: 0, // Facing South (+Z)
             state: PlayerState::Standing,
             health: 3,
             max_health: 3,
@@ -67,6 +69,7 @@ impl Platypus {
             screen_shake: 0,
             anim_frame: 0,
             step_audio_timer: 0,
+            on_ground: true,
         }
     }
 
@@ -77,13 +80,14 @@ impl Platypus {
         self.vx = 0;
         self.vy = 0;
         self.vz = 0;
-        self.angle = 64;
+        self.angle = 0;
         self.state = PlayerState::Standing;
         self.crawl_mode = false;
         self.electro_timer = 0;
         self.strike_timer = 0;
         self.invuln_timer = 60;
         self.screen_shake = 0;
+        self.on_ground = true;
     }
 
     pub fn update(
@@ -108,15 +112,15 @@ impl Platypus {
             self.step_audio_timer -= 1;
         }
 
-        let in_water = level.is_water_at(self.x, self.z);
+        let in_water = level.is_water_at(self.x, self.z) && level.act != Act::Act4Ocean;
 
-        // Toggle Crawl / Stand (Cross button or Down while stationary)
         let just_cross = buttons.is_held(button::CROSS) && !prev_buttons.is_held(button::CROSS);
+        let just_circle = buttons.is_held(button::CIRCLE) && !prev_buttons.is_held(button::CIRCLE);
         let just_square = buttons.is_held(button::SQUARE) && !prev_buttons.is_held(button::SQUARE);
         let just_triangle = buttons.is_held(button::TRIANGLE) && !prev_buttons.is_held(button::TRIANGLE);
 
+        // Water submersion vs Land Jump/Crawl
         if in_water {
-            // In water: Cross toggles Submerged dive!
             if buttons.is_held(button::CROSS) {
                 self.state = PlayerState::Submerged;
                 self.y = 18; // Submerged depth
@@ -127,7 +131,6 @@ impl Platypus {
                 } else {
                     self.take_damage(1);
                 }
-                // Air bubbles
                 if self.anim_frame % 8 == 0 {
                     entities.spawn_particle(self.x, self.y, self.z, 0, -2, 0, 15, (180, 240, 255), 2);
                 }
@@ -135,21 +138,70 @@ impl Platypus {
                 self.state = PlayerState::Swimming;
                 self.y = 4;
                 if self.air < 100 {
-                    self.air = (self.air + 2).min(100); // Breathe at surface
+                    self.air = (self.air + 2).min(100);
                 }
             }
         } else {
-            // On land: Cross toggles Belly Crawl!
-            if just_cross {
+            // Jump on CROSS
+            if just_cross && self.on_ground {
+                self.vy = -11; // Jump impulse
+                self.on_ground = false;
+                self.state = PlayerState::Jumping;
+                AudioManager::play_jump();
+            }
+
+            // Crawl / Crouch on CIRCLE
+            if just_circle {
                 self.crawl_mode = !self.crawl_mode;
                 AudioManager::play_swoosh();
             }
 
-            if self.crawl_mode {
-                self.state = PlayerState::BellyCrawl;
-                self.y = 0;
+            // Gravity & Vertical physics
+            let mut target_ground_y = 0i32;
+
+            // In Act 4 (Beach platformer), check 3D elevated platforms
+            if level.act == Act::Act4Ocean {
+                for p in entities.beach_platforms.iter() {
+                    if p.active {
+                        let in_x = self.x >= p.x - 12 && self.x <= p.x + p.w + 12;
+                        let in_z = self.z >= p.z - 12 && self.z <= p.z + p.d + 12;
+                        if in_x && in_z {
+                            if p.is_parasol {
+                                // Bouncing umbrella launches Platty up!
+                                if self.vy > 0 && (self.y - p.y).abs() < 24 {
+                                    self.vy = -18; // Super Jump!
+                                    self.on_ground = false;
+                                    self.state = PlayerState::Jumping;
+                                    self.screen_shake = 4;
+                                    AudioManager::play_jump();
+                                }
+                            } else if self.y <= p.y + 4 {
+                                target_ground_y = target_ground_y.min(p.y);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !self.on_ground {
+                self.vy += 1; // Gravity
+                self.y += self.vy;
+
+                if self.y >= target_ground_y {
+                    self.y = target_ground_y;
+                    self.vy = 0;
+                    self.on_ground = true;
+                    if self.crawl_mode {
+                        self.state = PlayerState::BellyCrawl;
+                    } else {
+                        self.state = PlayerState::Standing;
+                    }
+                }
             } else {
-                self.y = 0;
+                self.y = target_ground_y;
+                if self.crawl_mode {
+                    self.state = PlayerState::BellyCrawl;
+                }
             }
 
             if self.air < 100 {
@@ -163,21 +215,20 @@ impl Platypus {
             AudioManager::play_electro();
             self.screen_shake = 3;
 
-            // Spawn circular shockwave particles in 3D
             for i in 0..8 {
                 let ang = (i as u16) * 32;
-                let vx = (psx_gte_core::transform::cos_1_3_12(ang) as i32 * 3) >> 12;
-                let vz = (psx_gte_core::transform::sin_1_3_12(ang) as i32 * 3) >> 12;
+                let vx = (cos_1_3_12(ang) as i32 * 3) >> 12;
+                let vz = (sin_1_3_12(ang) as i32 * 3) >> 12;
                 entities.spawn_particle(self.x, self.y - 10, self.z, vx as i16, 0, vz as i16, 20, (100, 255, 240), 2);
             }
 
-            // Stun nearby sentries & drones with electro-bill EMP!
+            // Stun nearby sentries & drones
             for s in entities.sentries.iter_mut() {
                 if s.active {
                     let dx = (self.x - s.x).abs();
                     let dz = (self.z - s.z).abs();
                     if dx < 140 && dz < 140 {
-                        s.stun_timer = 300; // 5 seconds stunned!
+                        s.stun_timer = 300;
                         s.state = SentryState::Stunned;
                     }
                 }
@@ -191,12 +242,11 @@ impl Platypus {
                     }
                 }
             }
-            // Reveal buried yabbies
             for c in entities.collectibles.iter_mut() {
-                if c.active && c.kind == CollectibleType::BuriedYabby {
+                if c.active && (c.kind == CollectibleType::BuriedYabby || c.kind == CollectibleType::StarYabby) {
                     let dx = (self.x - c.x).abs();
                     let dz = (self.z - c.z).abs();
-                    if dx < 120 && dz < 120 {
+                    if dx < 140 && dz < 140 {
                         c.revealed = true;
                     }
                 }
@@ -209,15 +259,13 @@ impl Platypus {
             self.state = PlayerState::SpurStrike;
             AudioManager::play_hit();
 
-            // Check stealth takedown behind guard
             let mut spark_pos = None;
             for s in entities.sentries.iter_mut() {
                 if s.active && s.stun_timer == 0 {
                     let dx = (self.x - s.x).abs();
                     let dz = (self.z - s.z).abs();
-                    if dx < 36 && dz < 36 {
-                        // Knock out sentry!
-                        s.stun_timer = 500; // Long tactical knockout
+                    if dx < 40 && dz < 40 {
+                        s.stun_timer = 500;
                         s.state = SentryState::Stunned;
                         self.score += 200;
                         self.screen_shake = 5;
@@ -254,61 +302,66 @@ impl Platypus {
             move_x += 1;
         }
 
-        let is_moving = move_x != 0 || move_z != 0;
+        // Automatic river current push in Act 2
+        if level.act == Act::Act2Bushland {
+            move_z += 2; // Rushing downriver!
+        }
 
-        if is_moving {
-            // Calculate movement angle
-            if move_x > 0 && move_z == 0 {
-                self.angle = 0; // East (+X)
-            } else if move_x > 0 && move_z > 0 {
-                self.angle = 32; // South-East
-            } else if move_x == 0 && move_z > 0 {
-                self.angle = 64; // South (+Z)
-            } else if move_x < 0 && move_z > 0 {
-                self.angle = 96; // South-West
-            } else if move_x < 0 && move_z == 0 {
-                self.angle = 128; // West (-X)
-            } else if move_x < 0 && move_z < 0 {
-                self.angle = 160; // North-West
-            } else if move_x == 0 && move_z < 0 {
-                self.angle = 192; // North (-Z)
-            } else if move_x > 0 && move_z < 0 {
-                self.angle = 224; // North-East
-            }
+        let speed = if self.crawl_mode {
+            2
+        } else if in_water {
+            if self.state == PlayerState::Submerged { 2 } else { 3 }
+        } else if !self.on_ground {
+            4 // Air mobility
+        } else {
+            4 // Normal run
+        };
 
-            let speed = if self.crawl_mode {
-                2 // Silent slow belly-crawl
-            } else if in_water {
-                if self.state == PlayerState::Submerged { 3 } else { 2 }
-            } else {
-                3 // Normal stealth jog
-            };
-
+        if move_x != 0 || move_z != 0 {
             self.vx = move_x * speed;
             self.vz = move_z * speed;
 
-            if !self.crawl_mode && !in_water {
-                self.state = PlayerState::Sneaking;
+            // Facing angle: 0=South (+Z), 64=East (+X), 128=North (-Z), 192=West (-X)
+            if move_x > 0 && move_z == 0 {
+                self.angle = 64;
+            } else if move_x < 0 && move_z == 0 {
+                self.angle = 192;
+            } else if move_z > 0 && move_x == 0 {
+                self.angle = 0;
+            } else if move_z < 0 && move_x == 0 {
+                self.angle = 128;
+            } else if move_x > 0 && move_z > 0 {
+                self.angle = 32;
+            } else if move_x > 0 && move_z < 0 {
+                self.angle = 96;
+            } else if move_x < 0 && move_z > 0 {
+                self.angle = 224;
+            } else if move_x < 0 && move_z < 0 {
+                self.angle = 160;
+            }
+
+            if self.on_ground && !self.crawl_mode && self.strike_timer == 0 {
+                self.state = PlayerState::Running;
                 if self.step_audio_timer == 0 {
-                    AudioManager::play_waddle();
-                    self.step_audio_timer = 20;
+                    self.step_audio_timer = 12;
+                    AudioManager::play_jump();
                 }
             }
         } else {
             self.vx = 0;
-            self.vz = 0;
-            if !self.crawl_mode && !in_water && self.strike_timer == 0 {
+            if level.act != Act::Act2Bushland {
+                self.vz = 0;
+            }
+            if self.on_ground && !self.crawl_mode && self.strike_timer == 0 && !in_water {
                 self.state = PlayerState::Standing;
             }
         }
 
-        // Apply 3D movement and collision check against level geometry
+        // Apply movement & collision
+        let col_radius = 12;
         let next_x = self.x + self.vx;
         let next_z = self.z + self.vz;
 
-        let col_radius = if self.crawl_mode { 8 } else { 12 };
-
-        // X collision
         if !level.is_solid_at(next_x + col_radius, self.z, self.crawl_mode)
             && !level.is_solid_at(next_x - col_radius, self.z, self.crawl_mode)
         {
@@ -317,7 +370,6 @@ impl Platypus {
             self.vx = 0;
         }
 
-        // Z collision
         if !level.is_solid_at(self.x, next_z + col_radius, self.crawl_mode)
             && !level.is_solid_at(self.x, next_z - col_radius, self.crawl_mode)
         {
@@ -333,7 +385,7 @@ impl Platypus {
             }
             let dx = (self.x - c.x).abs();
             let dz = (self.z - c.z).abs();
-            if dx < 20 && dz < 20 {
+            if dx < 22 && dz < 22 {
                 c.active = false;
                 match c.kind {
                     CollectibleType::YabbyRation => {
@@ -346,7 +398,7 @@ impl Platypus {
                     }
                     CollectibleType::ChaffBattery => {
                         self.score += 150;
-                        self.electro_timer = 0; // Instantly ready
+                        self.electro_timer = 0;
                         AudioManager::play_fanfare();
                     }
                     CollectibleType::LetterPage => {
@@ -359,20 +411,109 @@ impl Platypus {
                         self.health = self.max_health;
                         AudioManager::play_fanfare();
                     }
+                    CollectibleType::StarYabby => {
+                        self.yabbies_collected += 2;
+                        self.score += 500;
+                        AudioManager::play_fanfare();
+                    }
                 }
             }
         }
 
-        // Enemy collision damage
-        for s in entities.sentries.iter() {
-            if s.active && s.stun_timer == 0 {
-                let dx = (self.x - s.x).abs();
-                let dz = (self.z - s.z).abs();
-                if dx < 18 && dz < 18 {
-                    self.take_damage(1);
-                    self.vx = if self.x < s.x { -4 } else { 4 };
-                    self.vz = if self.z < s.z { -4 } else { 4 };
+        // Stage 1 Enemy Collision & Attack Check
+        if level.act == Act::Act1Sanctuary {
+            for s in entities.sentries.iter_mut() {
+                if s.active && s.stun_timer == 0 {
+                    let dx = (self.x - s.x).abs();
+                    let dz = (self.z - s.z).abs();
+                    if dx < 28 && dz < 28 && s.attack_cooldown == 0 {
+                        s.attack_cooldown = 45;
+                        self.take_damage(1);
+                        self.vx = if self.x < s.x { -6 } else { 6 };
+                        self.vz = if self.z < s.z { -6 } else { 6 };
+                    }
                 }
+            }
+        }
+
+        // Stage 2 River Obstacles Collision Check
+        if level.act == Act::Act2Bushland {
+            for obs in entities.river_obstacles.iter() {
+                if !obs.active {
+                    continue;
+                }
+                let dx = (self.x - obs.x).abs();
+                let dz = (self.z - obs.z).abs();
+                if dx < 24 && dz < 24 {
+                    match obs.kind {
+                        RiverObstacleType::LowBranch => {
+                            // Can only pass if ducking / crawling
+                            if !self.crawl_mode {
+                                self.take_damage(1);
+                                self.vz = -4;
+                            }
+                        }
+                        RiverObstacleType::TreeLog | RiverObstacleType::TigerSnake | RiverObstacleType::GiantSpider => {
+                            // Can jump over!
+                            if self.on_ground {
+                                self.take_damage(1);
+                                self.vz = -4;
+                            }
+                        }
+                        RiverObstacleType::RiverTuber | RiverObstacleType::PaddleBoarder | RiverObstacleType::Swimmer => {
+                            self.take_damage(1);
+                            self.vz = -4;
+                        }
+                        RiverObstacleType::Koala => {} // Harmless cute koala
+                    }
+                }
+            }
+        }
+
+        // Stage 3 City Traffic Collision Check
+        if level.act == Act::Act3City {
+            for v in entities.vehicles.iter() {
+                if !v.active {
+                    continue;
+                }
+                let dx = (self.x - v.x).abs();
+                let dz = (self.z - v.z).abs();
+                if dx < (v.length / 2 + 10) && dz < 18 {
+                    // Car hits Platty! Horn honks!
+                    self.take_damage(1);
+                    self.vz = 8; // Knock back toward south sidewalk
+                    AudioManager::play_metal();
+                }
+            }
+        }
+
+        // Stage 4 Beach Platformer Crabs Collision Check
+        if level.act == Act::Act4Ocean {
+            let mut crab_stomped_pos = None;
+            for crab in entities.beach_crabs.iter_mut() {
+                if !crab.active {
+                    continue;
+                }
+                let dx = (self.x - crab.x).abs();
+                let dz = (self.z - crab.z).abs();
+                if dx < 22 && dz < 22 {
+                    if !self.on_ground && self.vy > 0 {
+                        // Stomp on crab Mario style!
+                        crab.active = false;
+                        self.vy = -10; // Bounce up!
+                        self.score += 150;
+                        AudioManager::play_hit();
+                        crab_stomped_pos = Some((crab.x, crab.y, crab.z));
+                        break;
+                    } else {
+                        // Pinched by crab!
+                        self.take_damage(1);
+                        self.vx = if self.x < crab.x { -5 } else { 5 };
+                    }
+                }
+            }
+            if let Some((cx, cy, cz)) = crab_stomped_pos {
+                entities.spawn_particle(cx, cy, cz, 0, -2, 0, 20, (230, 80, 40), 3);
             }
         }
     }

@@ -7,7 +7,7 @@ use crate::codec::{
     ACT4_START_DIALOGUE, INTRO_DIALOGUE, RADIO_TIPS_DIALOGUE,
 };
 use crate::entities::EntityManager;
-use crate::level::{Act, Level};
+use crate::level::{Act, Level, TILE_SZ};
 use crate::platypus::{PlayerState, Platypus};
 use crate::renderer::Renderer;
 use psx_gpu as gpu;
@@ -122,7 +122,9 @@ impl Game {
 
                     self.platty.update(buttons, self.prev_buttons, &self.level, &mut self.entities);
                     self.entities.update(
+                        self.level.act,
                         self.platty.x,
+                        self.platty.y,
                         self.platty.z,
                         is_crawling,
                         is_submerged,
@@ -141,8 +143,12 @@ impl Game {
                         AudioManager::play_hit();
                     }
 
-                    // Check exit infiltration hatch reached
-                    if self.level.is_exit_at(self.platty.x, self.platty.z) {
+                    // Check exit or goal reached
+                    let reached_exit = self.level.is_exit_at(self.platty.x, self.platty.z)
+                        || (self.level.act == Act::Act2Bushland && self.platty.z >= 21 * TILE_SZ)
+                        || (self.level.act == Act::Act3City && self.platty.z <= 3 * TILE_SZ);
+
+                    if reached_exit {
                         if self.level.act == Act::Act4Ocean {
                             self.state = GameState::Ending;
                             AudioManager::play_fanfare();

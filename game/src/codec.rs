@@ -100,109 +100,129 @@ pub static ACT1_START_DIALOGUE: &[CodecPage] = &[
     CodecPage {
         speaker: Speaker::Dad,
         line1: "Platty, you're outside the",
-        line2: "Healesville night enclosure.",
+        line2: "Healesville compound gates.",
     },
     CodecPage {
         speaker: Speaker::Dad,
-        line1: "Watch sentry vision cones on",
-        line2: "your Soliton Radar top-right!",
+        line1: "Sentries patrol the area.",
+        line2: "Check radar vision cones!",
     },
     CodecPage {
         speaker: Speaker::Mom,
-        line1: "If you're spotted, it goes to",
-        line2: "RED ALERT! Hide until clear.",
+        line1: "Crawl under air vents and low",
+        line2: "lasers with CIRCLE or DOWN.",
     },
     CodecPage {
         speaker: Speaker::Dad,
-        line1: "Slip into the drainage duct",
-        line2: "to reach the Yarra wilderness!",
+        line1: "Ambush guards from behind with",
+        line2: "SQUARE for a stealth takedown!",
     },
 ];
 
 pub static ACT2_START_DIALOGUE: &[CodecPage] = &[
     CodecPage {
         speaker: Speaker::Mom,
-        line1: "You've broken out into the",
-        line2: "Yarra Valley wilderness!",
+        line1: "Platty! You're surfing down",
+        line2: "the wild Yarra River rapids!",
     },
     CodecPage {
         speaker: Speaker::Dad,
-        line1: "Ranger patrol teams and search",
-        line2: "towers comb the riverbanks.",
+        line1: "5 river lanes! Shift lanes",
+        line2: "with LEFT and RIGHT on D-Pad!",
     },
     CodecPage {
         speaker: Speaker::Mom,
-        line1: "Crawl through tall bushgrass",
-        line2: "and ride fast water flumes!",
+        line1: "Jump over logs and tiger",
+        line2: "snakes by pressing CROSS!",
     },
     CodecPage {
         speaker: Speaker::Dad,
-        line1: "Pulse TRIANGLE to electro-sense",
-        line2: "buried yabby rations in mud!",
+        line1: "Slide under hanging branches!",
+        line2: "Watch out for river tubers,",
+    },
+    CodecPage {
+        speaker: Speaker::Dad,
+        line1: "paddle boarders, swimmers, and",
+        line2: "koalas chilling in gum trees!",
     },
 ];
 
 pub static ACT3_START_DIALOGUE: &[CodecPage] = &[
     CodecPage {
         speaker: Speaker::Dad,
-        line1: "Industrial freight line ahead!",
-        line2: "Watch out for Cypher drones.",
+        line1: "You've surfaced in downtown",
+        line2: "Melbourne! Look at the towers!",
     },
     CodecPage {
         speaker: Speaker::Mom,
-        line1: "Security cameras sweep between",
-        line2: "shipping cargo containers.",
+        line1: "It's rush hour gridlock!",
+        line2: "Cars are zooming both ways!",
     },
     CodecPage {
         speaker: Speaker::Dad,
-        line1: "Stick to container shadows and",
-        line2: "crawl under forklift ramps!",
+        line1: "Cross avenues like a tactical",
+        line2: "frogger! Dodge yellow taxis,",
     },
     CodecPage {
-        speaker: Speaker::Platty,
-        line1: "Almost to the coast. I can",
-        line2: "smell the ocean breeze!",
+        speaker: Speaker::Dad,
+        line1: "green trams, and semi trucks!",
+        line2: "Rest on sidewalks and medians!",
+    },
+    CodecPage {
+        speaker: Speaker::Mom,
+        line1: "Reach Pier 9 at the far side",
+        line2: "to catch the coastal express!",
     },
 ];
 
 pub static ACT4_START_DIALOGUE: &[CodecPage] = &[
     CodecPage {
         speaker: Speaker::BurrowCommand,
-        line1: "Platty! You're at the estuary!",
-        line2: "The Coastal Burrow is close!",
+        line1: "Platty! You made it to the",
+        line2: "sunny coastline and dunes!",
     },
     CodecPage {
         speaker: Speaker::Dad,
-        line1: "Coastal patrol boats are",
-        line2: "sweeping seawall searchlights!",
+        line1: "Pip's nesting burrow is on top",
+        line2: "of the highest coastal dune!",
     },
     CodecPage {
         speaker: Speaker::Mom,
-        line1: "Submerge beneath the surf!",
-        line2: "Searchlights can't reach deep!",
+        line1: "Jump across rock platforms",
+        line2: "and dunes by pressing CROSS!",
     },
     CodecPage {
-        speaker: Speaker::Platty,
-        line1: "I see the burrow entrance!",
-        line2: "Coming in hot!",
+        speaker: Speaker::Dad,
+        line1: "Bounce on colorful beach",
+        line2: "umbrellas for mega jumps!",
+    },
+    CodecPage {
+        speaker: Speaker::Dad,
+        line1: "Watch out for beach crabs!",
+        line2: "Go meet your baby sister Pip!",
     },
 ];
 
 pub static RADIO_TIPS_DIALOGUE: &[CodecPage] = &[
     CodecPage {
         speaker: Speaker::Dad,
-        line1: "Stay out of sentry cones.",
-        line2: "Crawl low to hide behind boxes!",
+        line1: "Stage 1: Crawl in tall grass",
+        line2: "to stay invisible to guards.",
     },
     CodecPage {
         speaker: Speaker::Mom,
-        line1: "If radar jams, you're in ALERT!",
-        line2: "Break line of sight to escape!",
+        line1: "Stage 2: Shift between the 5",
+        line2: "river lanes to dodge tubers!",
     },
     CodecPage {
         speaker: Speaker::Dad,
-        line1: "Press SQUARE behind a guard",
-        line2: "for a silent spur sleeper hold!",
+        line1: "Stage 3: Time car gaps carefully",
+        line2: "before crossing city lanes.",
+    },
+    CodecPage {
+        speaker: Speaker::Mom,
+        line1: "Stage 4: Bounce on beach",
+        line2: "umbrellas to reach high dunes!",
     },
 ];
 

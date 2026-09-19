@@ -49,19 +49,19 @@ pub enum Act {
 impl Act {
     pub fn title(&self) -> &'static str {
         match self {
-            Act::Act1Sanctuary => "ACT 1: HEALESVILLE COMPOUND (NIGHT)",
-            Act::Act2Bushland => "ACT 2: YARRA VALLEY BUSHLAND",
-            Act::Act3City => "ACT 3: MELBOURNE CARGO DOCKS",
-            Act::Act4Ocean => "ACT 4: THE NATIVE COAST & ESTUARY",
+            Act::Act1Sanctuary => "ACT 1: HEALESVILLE COMPOUND (STEALTH)",
+            Act::Act2Bushland => "ACT 2: YARRA RIVER RAPIDS (RUNNER)",
+            Act::Act3City => "ACT 3: MELBOURNE DOWNTOWN (FROGGER)",
+            Act::Act4Ocean => "ACT 4: COASTAL DUNES & SURF (PLATFORMER)",
         }
     }
 
     pub fn subtitle(&self) -> &'static str {
         match self {
-            Act::Act1Sanctuary => "Execute tactical stealth escape past sentry searchlights!",
-            Act::Act2Bushland => "Crawl through scrub and ride water flumes under drone patrol!",
-            Act::Act3City => "Navigate shipping container maze and avoid surveillance lasers!",
-            Act::Act4Ocean => "Submerge beneath seawall searchlights and reach the family burrow!",
+            Act::Act1Sanctuary => "Infiltrate past guards, crawl through air vents, and escape!",
+            Act::Act2Bushland => "Surf 5 river lanes! Dodge tubers, boarders, trees, and snakes!",
+            Act::Act3City => "Cross multi-lane rush hour avenues! Dodge taxis, trams, & trucks!",
+            Act::Act4Ocean => "Platform across dunes & bounce on parasols to reach baby sister Pip!",
         }
     }
 
@@ -227,142 +227,105 @@ impl Level {
     }
 
     // -------------------------------------------------------------------------
-    // ACT 2: YARRA VALLEY BUSHLAND (WILDERNESS FLUMES)
+    // -------------------------------------------------------------------------
+    // ACT 2: YARRA RIVER RAPIDS (TEMPLE RUN 5-LANE RUNNER)
     // -------------------------------------------------------------------------
     fn generate_act2(&mut self) {
-        self.player_start_x = 2 * TILE_SZ + 32;
-        self.player_start_z = 21 * TILE_SZ + 32;
-        self.exit_x = 21 * TILE_SZ + 32;
-        self.exit_z = 2 * TILE_SZ + 32;
+        self.player_start_x = 11 * TILE_SZ + 32;
+        self.player_start_z = 2 * TILE_SZ + 32;
+        self.exit_x = 11 * TILE_SZ + 32;
+        self.exit_z = 22 * TILE_SZ + 32;
 
-        // River flume winding across the bushland
-        for x in 1..22 {
-            self.set_cell(x, 11, CellType::WaterCurrent);
-            self.set_cell(x, 12, CellType::Water);
-        }
-
-        // Red rock canyon ridges
-        for x in 3..10 {
-            self.set_cell(x, 6, CellType::Wall);
-            self.set_cell(x, 17, CellType::Wall);
-        }
-        for x in 14..21 {
-            self.set_cell(x, 6, CellType::Wall);
-            self.set_cell(x, 17, CellType::Wall);
-        }
-
-        // Timber suspension bridge / crossing
-        self.set_cell(11, 11, CellType::Floor);
-        self.set_cell(11, 12, CellType::Floor);
-
-        // Abundant Australian scrub & tall grass for crawl camouflage
-        for x in 2..22 {
-            if x % 3 == 0 {
-                self.set_cell(x, 4, CellType::TallGrass);
-                self.set_cell(x, 9, CellType::TallGrass);
-                self.set_cell(x, 14, CellType::TallGrass);
-                self.set_cell(x, 19, CellType::TallGrass);
+        // 5-lane rushing river corridor (Lanes 0..4 = gx 9, 10, 11, 12, 13)
+        for z in 1..23 {
+            // Left forested bank
+            for x in 1..9 {
+                self.set_cell(x, z, CellType::Wall);
+            }
+            // 5 rushing water flume lanes
+            for x in 9..=13 {
+                self.set_cell(x, z, CellType::WaterCurrent);
+            }
+            // Right forested bank
+            for x in 14..23 {
+                self.set_cell(x, z, CellType::Wall);
             }
         }
 
-        // Termite mounds and boulders (represented as crates/boulders)
-        let boulders = [
-            (5, 8), (6, 8), (17, 8), (18, 8),
-            (4, 15), (7, 15), (16, 15), (19, 15),
-            (10, 3), (12, 3), (14, 20),
-        ];
-        for (bx, bz) in boulders {
-            self.set_cell(bx, bz, CellType::Crate);
-        }
-
-        self.set_cell(21, 2, CellType::ExitBurrow);
+        // River exit flume leading into city storm drains
+        self.set_cell(11, 22, CellType::ExitBurrow);
     }
 
     // -------------------------------------------------------------------------
-    // ACT 3: MELBOURNE CARGO DOCKS (SHIPPING YARD)
+    // ACT 3: MELBOURNE DOWNTOWN (CITY FROGGER)
     // -------------------------------------------------------------------------
     fn generate_act3(&mut self) {
-        self.player_start_x = 2 * TILE_SZ + 32;
-        self.player_start_z = 12 * TILE_SZ + 32;
-        self.exit_x = 21 * TILE_SZ + 32;
-        self.exit_z = 12 * TILE_SZ + 32;
+        self.player_start_x = 12 * TILE_SZ + 32;
+        self.player_start_z = 21 * TILE_SZ + 32;
+        self.exit_x = 12 * TILE_SZ + 32;
+        self.exit_z = 2 * TILE_SZ + 32;
 
-        // Giant freight shipping containers (Container blocks)
-        let containers = [
-            (5, 3), (6, 3), (7, 3), (8, 3),
-            (5, 6), (6, 6), (7, 6), (8, 6),
-            (5, 17), (6, 17), (7, 17), (8, 17),
-            (5, 20), (6, 20), (7, 20), (8, 20),
-
-            (15, 3), (16, 3), (17, 3), (18, 3),
-            (15, 6), (16, 6), (17, 6), (18, 6),
-            (15, 17), (16, 17), (17, 17), (18, 17),
-            (15, 20), (16, 20), (17, 20), (18, 20),
-        ];
-        for (cx, cz) in containers {
-            self.set_cell(cx, cz, CellType::Container);
+        // Flanking illuminated skyscrapers
+        for z in 1..23 {
+            for x in 1..4 {
+                self.set_cell(x, z, CellType::Container); // West tower blocks
+            }
+            for x in 20..23 {
+                self.set_cell(x, z, CellType::Container); // East tower blocks
+            }
         }
 
-        // Central railway tracks & security gate
-        for z in 2..22 {
-            self.set_cell(11, z, CellType::Wall);
-        }
-        self.set_cell(11, 8, CellType::LaserTripwire);
-        self.set_cell(11, 12, CellType::AirDuct); // Ventilation pipe under tracks!
-        self.set_cell(11, 16, CellType::LaserTripwire);
-
-        // Forklift pallets and cargo crates
-        let crates = [
-            (3, 8), (3, 16),
-            (9, 9), (9, 15),
-            (13, 8), (13, 16),
-            (19, 9), (19, 15),
-        ];
-        for (cx, cz) in crates {
-            self.set_cell(cx, cz, CellType::Crate);
+        // Central Park median strip with trees and grass
+        for x in 4..20 {
+            self.set_cell(x, 15, CellType::TallGrass);
+            self.set_cell(x, 16, CellType::TallGrass);
+            self.set_cell(x, 9, CellType::TallGrass);
         }
 
-        self.set_cell(21, 12, CellType::ExitBurrow);
+        // Destination: Pier 9 Coastal Railway Terminal at north end
+        self.set_cell(12, 2, CellType::ExitBurrow);
     }
 
     // -------------------------------------------------------------------------
-    // ACT 4: THE NATIVE COAST & ESTUARY (FINAL INFILTRATION)
+    // ACT 4: COASTAL DUNES & SURF (MARIO 64 3D PLATFORMER)
     // -------------------------------------------------------------------------
     fn generate_act4(&mut self) {
-        self.player_start_x = 2 * TILE_SZ + 32;
-        self.player_start_z = 2 * TILE_SZ + 32;
+        self.player_start_x = 3 * TILE_SZ + 32;
+        self.player_start_z = 20 * TILE_SZ + 32;
         self.exit_x = 20 * TILE_SZ + 32;
-        self.exit_z = 20 * TILE_SZ + 32;
+        self.exit_z = 3 * TILE_SZ + 32;
 
-        // Seawall fortifications
-        for x in 1..18 {
-            self.set_cell(x, 8, CellType::Wall);
-        }
-        self.set_cell(8, 8, CellType::AirDuct); // Submerged drain conduit
-
-        // Deep ocean trench & surf
-        for z in 14..22 {
-            for x in 1..22 {
+        // Ocean surf and deep water along southwest
+        for z in 15..23 {
+            for x in 1..10 {
                 self.set_cell(x, z, CellType::Water);
             }
         }
 
-        // Seawall breakwater pillars
-        for x in (3..20).step_by(4) {
-            self.set_cell(x, 13, CellType::Container);
+        // Stepped rock cliffs & platforms to climb
+        let rock_cliffs = [
+            (6, 12), (7, 12), (8, 12),
+            (10, 8), (11, 8), (12, 8),
+            (14, 14), (15, 14), (16, 14),
+            (17, 9), (18, 9), (19, 9),
+            (12, 4), (13, 4), (14, 4),
+            (18, 4), (19, 4), (20, 4),
+        ];
+        for (rx, rz) in rock_cliffs {
+            self.set_cell(rx, rz, CellType::Container);
         }
 
-        // Coastal dune grass & pier pilings
+        // Coastal dune grass
         let grass = [
-            (3, 4), (4, 4), (5, 5), (6, 5),
-            (12, 4), (13, 4), (14, 5),
-            (8, 10), (9, 10), (14, 11),
+            (4, 18), (5, 18), (8, 17),
+            (11, 13), (12, 13), (16, 11),
+            (15, 6), (16, 6),
         ];
         for (gx, gz) in grass {
             self.set_cell(gx, gz, CellType::TallGrass);
         }
 
-        // The Family Burrow entrance right on the sandy shore!
-        self.set_cell(20, 20, CellType::ExitBurrow);
+        // Pip's Coastal Nesting Burrow atop the high dunes!
+        self.set_cell(20, 3, CellType::ExitBurrow);
     }
 }
