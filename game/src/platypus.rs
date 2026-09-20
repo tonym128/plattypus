@@ -257,7 +257,7 @@ impl Platypus {
         if just_square && self.strike_timer == 0 {
             self.strike_timer = 16;
             self.state = PlayerState::SpurStrike;
-            AudioManager::play_hit();
+            AudioManager::play_spur();
 
             let mut spark_pos = None;
             for s in entities.sentries.iter_mut() {
@@ -343,8 +343,14 @@ impl Platypus {
             if self.on_ground && !self.crawl_mode && self.strike_timer == 0 {
                 self.state = PlayerState::Running;
                 if self.step_audio_timer == 0 {
-                    self.step_audio_timer = 12;
-                    AudioManager::play_jump();
+                    self.step_audio_timer = 14;
+                    let surface = match level.act {
+                        Act::Act1Sanctuary => crate::audio::SurfaceType::Concrete,
+                        Act::Act2Bushland => crate::audio::SurfaceType::Grass,
+                        Act::Act3City => crate::audio::SurfaceType::Metal,
+                        Act::Act4Ocean => crate::audio::SurfaceType::Grass,
+                    };
+                    AudioManager::play_footstep(surface);
                 }
             }
         } else {

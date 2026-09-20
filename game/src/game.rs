@@ -1,7 +1,7 @@
 //! Main game loop and state machine for Plattypus MGS.
 //! Integrates 3D GTE stealth gameplay, Soliton Radar, and CODEC radio communication.
 
-use crate::audio::AudioManager;
+use crate::audio::{AudioManager, BgmTrack};
 use crate::codec::{
     CodecManager, ACT1_START_DIALOGUE, ACT2_START_DIALOGUE, ACT3_START_DIALOGUE,
     ACT4_START_DIALOGUE, INTRO_DIALOGUE, RADIO_TIPS_DIALOGUE,
@@ -68,6 +68,7 @@ impl Game {
 
     pub fn tick(&mut self) {
         self.frame = self.frame.wrapping_add(1);
+        AudioManager::update();
 
         let pad = poll_port1();
         let buttons = pad.buttons;
@@ -78,6 +79,7 @@ impl Game {
 
         match self.state {
             GameState::Title => {
+                AudioManager::set_bgm(BgmTrack::Title);
                 self.idle_timer += 1;
                 if just_start || just_cross {
                     // Launch Intro CODEC transmission from Burrow Command!
@@ -330,5 +332,12 @@ impl Game {
         self.platty.reset_position(self.level.player_start_x, self.level.player_start_z);
         self.entities.load_act(act);
         self.renderer.update_camera(self.platty.x, self.platty.y, self.platty.z);
+        let track = match act {
+            Act::Act1Sanctuary => crate::audio::BgmTrack::Stealth,
+            Act::Act2Bushland => crate::audio::BgmTrack::River,
+            Act::Act3City => crate::audio::BgmTrack::City,
+            Act::Act4Ocean => crate::audio::BgmTrack::Beach,
+        };
+        AudioManager::set_bgm(track);
     }
 }

@@ -257,8 +257,8 @@ impl CodecManager {
         self.text_progress = 0;
         self.is_active = true;
         self.anim_timer = 0;
-        self.call_chime_timer = 20;
-        AudioManager::play_electro();
+        self.call_chime_timer = 24;
+        AudioManager::play_codec_chime();
     }
 
     /// Advance or complete typewriter text. Returns true if conversation just finished.
@@ -294,19 +294,12 @@ impl CodecManager {
         }
         self.anim_timer = self.anim_timer.wrapping_add(1);
 
-        if self.call_chime_timer > 0 {
-            self.call_chime_timer -= 1;
-            if self.call_chime_timer == 10 {
-                AudioManager::play_electro();
-            }
-        }
-
         let page = &self.pages[self.current_page_idx];
         let total_chars = page.line1.len() + page.line2.len();
         if self.text_progress < total_chars {
             self.text_progress += 1;
-            if self.text_progress % 3 == 0 {
-                AudioManager::play_waddle();
+            if self.text_progress % 2 == 0 {
+                AudioManager::play_codec_chirp(self.text_progress);
             }
         }
     }

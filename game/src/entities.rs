@@ -4,7 +4,7 @@
 //! Act 3: Melbourne City Frogger traffic (Taxis, sedans, trams, trucks, sports cars).
 //! Act 4: Coastal Beach 3D platformer (Stepped rock ledges, bouncing parasols, beach crabs).
 
-use crate::audio::AudioManager;
+use crate::audio::{AudioManager, BgmTrack};
 use crate::level::{Act, Level, TILE_SZ};
 use psx_gte_core::transform::{cos_1_3_12, sin_1_3_12};
 
@@ -358,7 +358,8 @@ impl EntityManager {
     pub fn trigger_alert(&mut self) {
         if !matches!(self.alert_state, AlertState::Alert(_)) {
             self.alert_state = AlertState::Alert(600); // 10 seconds of RED ALERT
-            AudioManager::play_metal();
+            AudioManager::play_alert();
+            AudioManager::set_bgm(BgmTrack::Alert);
         } else if let AlertState::Alert(ref mut timer) = self.alert_state {
             *timer = 600;
         }
@@ -717,6 +718,7 @@ impl EntityManager {
                     *t -= 1;
                 } else {
                     self.alert_state = AlertState::Caution(300);
+                    AudioManager::set_bgm(BgmTrack::Stealth);
                 }
             }
         }
