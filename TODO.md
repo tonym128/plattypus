@@ -17,10 +17,10 @@ These 5 items form the core technical foundation required for a commercial-grade
   - [x] Design and embed 16x16 3-frame animated icon for the PlayStation BIOS Memory Card manager
   - [x] Add save checkpoint triggers after each completed act and boss encounter
 
-- [ ] **3. DualShock Controller & Rumble Support**
-  - [ ] Implement DualShock analog stick input protocol (smooth 360° walking/crawling analog speed control)
-  - [ ] Implement dual-motor vibration feedback (small motor for heartbeats/alerts; heavy motor for explosions/hits)
-  - [ ] Support controller unplug / replug detection without game freeze
+- [x] **3. DualShock Controller & Rumble Support**
+  - [x] Implement DualShock analog stick input protocol (smooth 360° walking/crawling analog speed control)
+  - [x] Implement dual-motor vibration feedback (small motor for heartbeats/alerts; heavy motor for explosions/hits)
+  - [x] Support controller unplug / replug detection without game freeze
 
 - [ ] **4. VRAM Texturing & Gouraud Shading**
   - [ ] Create VRAM atlas layout (`0..1024x512`) with 4-bit / 8-bit color lookup tables (CLUT)
