@@ -11,11 +11,11 @@ These 5 items form the core technical foundation required for a commercial-grade
   - [x] Compose/integrate ambient stealth BGM and high-intensity alert BGM
   - [x] Implement CODEC chime audio and digitized voice transmission clips for Burrow Command
 
-- [ ] **2. Memory Card System (1 Block)**
-  - [ ] Implement PS1 BIOS memory card read/write routines
-  - [ ] Define save game data struct (act progression, high scores, codename records, settings)
-  - [ ] Design and embed 16x16 3-frame animated icon for the PlayStation BIOS Memory Card manager
-  - [ ] Add save checkpoint triggers after each completed act and boss encounter
+- [x] **2. Memory Card System (1 Block)**
+  - [x] Implement PS1 BIOS memory card read/write routines
+  - [x] Define save game data struct (act progression, high scores, codename records, settings)
+  - [x] Design and embed 16x16 3-frame animated icon for the PlayStation BIOS Memory Card manager
+  - [x] Add save checkpoint triggers after each completed act and boss encounter
 
 - [ ] **3. DualShock Controller & Rumble Support**
   - [ ] Implement DualShock analog stick input protocol (smooth 360° walking/crawling analog speed control)
