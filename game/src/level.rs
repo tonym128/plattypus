@@ -41,6 +41,7 @@ impl CellType {
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Act {
     Act1Sanctuary,
+    Act1Boss,
     Act2Bushland,
     Act3City,
     Act4Ocean,
@@ -50,6 +51,7 @@ impl Act {
     pub fn title(&self) -> &'static str {
         match self {
             Act::Act1Sanctuary => "ACT 1: HEALESVILLE COMPOUND (STEALTH)",
+            Act::Act1Boss => "ACT 1 CLIMAX: PERIMETER WALL (BOSS)",
             Act::Act2Bushland => "ACT 2: YARRA RIVER RAPIDS (RUNNER)",
             Act::Act3City => "ACT 3: MELBOURNE DOWNTOWN (FROGGER)",
             Act::Act4Ocean => "ACT 4: COASTAL DUNES & SURF (PLATFORMER)",
@@ -59,6 +61,7 @@ impl Act {
     pub fn subtitle(&self) -> &'static str {
         match self {
             Act::Act1Sanctuary => "Infiltrate past guards, crawl through air vents, and escape!",
+            Act::Act1Boss => "Disable 3 power conduits, dodge dual searchlights, and strike the Mech!",
             Act::Act2Bushland => "Surf 5 river lanes! Dodge tubers, boarders, trees, and snakes!",
             Act::Act3City => "Cross multi-lane rush hour avenues! Dodge taxis, trams, & trucks!",
             Act::Act4Ocean => "Platform across dunes & bounce on parasols to reach baby sister Pip!",
@@ -67,7 +70,8 @@ impl Act {
 
     pub fn next(&self) -> Option<Act> {
         match self {
-            Act::Act1Sanctuary => Some(Act::Act2Bushland),
+            Act::Act1Sanctuary => Some(Act::Act1Boss),
+            Act::Act1Boss => Some(Act::Act2Bushland),
             Act::Act2Bushland => Some(Act::Act3City),
             Act::Act3City => Some(Act::Act4Ocean),
             Act::Act4Ocean => None,
@@ -164,6 +168,7 @@ impl Level {
 
         match self.act {
             Act::Act1Sanctuary => self.generate_act1(),
+            Act::Act1Boss => self.generate_act1_boss(),
             Act::Act2Bushland => self.generate_act2(),
             Act::Act3City => self.generate_act3(),
             Act::Act4Ocean => self.generate_act4(),
@@ -224,6 +229,72 @@ impl Level {
 
         // Exit burrow in far corner
         self.set_cell(21, 21, CellType::ExitBurrow);
+    }
+
+    // -------------------------------------------------------------------------
+    // ACT 1 CLIMAX: PERIMETER WALL (SEARCHLIGHT MECH BOSS)
+    // -------------------------------------------------------------------------
+    fn generate_act1_boss(&mut self) {
+        self.player_start_x = 12 * TILE_SZ + 32;
+        self.player_start_z = 21 * TILE_SZ + 32;
+        self.exit_x = 12 * TILE_SZ + 32;
+        self.exit_z = 1 * TILE_SZ + 32;
+
+        // North perimeter security wall with central heavy blast gate
+        for x in 1..GRID_W - 1 {
+            self.set_cell(x, 1, CellType::Wall);
+            self.set_cell(x, 2, CellType::Wall);
+        }
+        // Blast gate in center initially locked
+        self.set_cell(11, 1, CellType::Wall);
+        self.set_cell(12, 1, CellType::Wall);
+        self.set_cell(13, 1, CellType::Wall);
+        self.set_cell(11, 2, CellType::Wall);
+        self.set_cell(12, 2, CellType::Wall);
+        self.set_cell(13, 2, CellType::Wall);
+
+        // Three deep drainage crawl trenches (crawling in these protects Platty from sweeps and stomps!)
+        // 1. West generator trench (gx 3..6, gz 8..10)
+        for z in 8..=10 {
+            for x in 3..=6 {
+                self.set_cell(x, z, CellType::AirDuct);
+            }
+        }
+
+        // 2. East generator trench (gx 17..20, gz 8..10)
+        for z in 8..=10 {
+            for x in 17..=20 {
+                self.set_cell(x, z, CellType::AirDuct);
+            }
+        }
+
+        // 3. South generator trench (gx 9..14, gz 16..17)
+        for z in 16..=17 {
+            for x in 9..=14 {
+                self.set_cell(x, z, CellType::AirDuct);
+            }
+        }
+
+        // Concrete cover crates and blast barriers
+        let cover_crates = [
+            (5, 5), (6, 5), (17, 5), (18, 5),
+            (8, 11), (9, 11), (14, 11), (15, 11),
+            (5, 14), (6, 14), (17, 14), (18, 14),
+            (11, 13), (12, 13),
+        ];
+        for (cx, cz) in cover_crates {
+            self.set_cell(cx, cz, CellType::Crate);
+        }
+
+        // Camouflage tall grass patches near trenches
+        let grass = [
+            (7, 9), (7, 10),
+            (16, 9), (16, 10),
+            (8, 17), (15, 17),
+        ];
+        for (gx, gz) in grass {
+            self.set_cell(gx, gz, CellType::TallGrass);
+        }
     }
 
     // -------------------------------------------------------------------------

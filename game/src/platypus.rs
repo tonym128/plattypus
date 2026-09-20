@@ -3,8 +3,8 @@
 //! belly-crawl stealth mode, water diving, and electro-reception radar pulse.
 
 use crate::audio::AudioManager;
-use crate::entities::{CollectibleType, EntityManager, RiverObstacleType, SentryState};
-use crate::level::{Act, Level};
+use crate::entities::{CollectibleType, EntityManager, MechState, RiverObstacleType, SentryState};
+use crate::level::{Act, CellType, Level, TILE_SZ};
 use psx_gte_core::transform::{cos_1_3_12, sin_1_3_12};
 use psx_pad::{button, ButtonState, Deadzone, PadState};
 
@@ -320,6 +320,64 @@ impl Platypus {
                     }
                 }
             }
+
+            // Boss Act 1: Attack Power Conduits & Mech Rear Core
+            if level.act == Act::Act1Boss {
+                for c in entities.power_conduits.iter_mut() {
+                    if c.active && !c.destroyed {
+                        let dx = (self.x - c.x).abs();
+                        let dz = (self.z - c.z).abs();
+                        if dx < 48 && dz < 48 {
+                            if c.health > 1 {
+                                c.health -= 1;
+                                c.spark_timer = 20;
+                                self.score += 150;
+                                AudioManager::play_metal();
+                                self.trigger_rumble_small(8);
+                                spark_pos = Some((c.x, -20, c.z));
+                            } else {
+                                c.health = 0;
+                                c.destroyed = true;
+                                self.score += 500;
+                                self.screen_shake = 8;
+                                self.trigger_rumble_large(16, 255);
+                                AudioManager::play_hit();
+                                spark_pos = Some((c.x, -20, c.z));
+                            }
+                            break;
+                        }
+                    }
+                }
+
+                // Attack Mech Rear Coolant Core
+                let mech = &mut entities.boss_mech;
+                if mech.active && !mech.shield_active && !mech.is_defeated() {
+                    let dx = (self.x - mech.x).abs();
+                    // Behind the mech (closer to north than the mech body or within close proximity from behind)
+                    let is_behind = self.z <= mech.z + 16 && self.z >= mech.z - 44;
+                    if dx < 44 && is_behind && mech.hit_timer == 0 {
+                        mech.hit_timer = 30;
+                        if mech.health > 1 {
+                            mech.health -= 1;
+                            self.score += 1000;
+                            self.screen_shake = 10;
+                            self.trigger_rumble_large(20, 255);
+                            self.trigger_rumble_small(14);
+                            AudioManager::play_hit();
+                            spark_pos = Some((mech.x, -26, mech.z - 16));
+                        } else {
+                            mech.health = 0;
+                            mech.state = MechState::Defeated(120);
+                            self.score += 5000;
+                            self.screen_shake = 16;
+                            self.trigger_rumble_large(32, 255);
+                            AudioManager::play_fanfare();
+                            spark_pos = Some((mech.x, -26, mech.z - 16));
+                        }
+                    }
+                }
+            }
+
             if let Some((px, py, pz)) = spark_pos {
                 entities.spawn_particle(px, py, pz, 0, -2, 0, 25, (255, 230, 80), 3);
             }
@@ -384,7 +442,7 @@ impl Platypus {
                         if self.step_audio_timer == 0 {
                             self.step_audio_timer = 14;
                             let surface = match level.act {
-                                Act::Act1Sanctuary => crate::audio::SurfaceType::Concrete,
+                                Act::Act1Sanctuary | Act::Act1Boss => crate::audio::SurfaceType::Concrete,
                                 Act::Act2Bushland => crate::audio::SurfaceType::Grass,
                                 Act::Act3City => {
                                     self.trigger_rumble_small(3);
@@ -465,7 +523,7 @@ impl Platypus {
                     if self.step_audio_timer == 0 {
                         self.step_audio_timer = 14;
                         let surface = match level.act {
-                            Act::Act1Sanctuary => crate::audio::SurfaceType::Concrete,
+                            Act::Act1Sanctuary | Act::Act1Boss => crate::audio::SurfaceType::Concrete,
                             Act::Act2Bushland => crate::audio::SurfaceType::Grass,
                             Act::Act3City => {
                                 self.trigger_rumble_small(3);
@@ -562,6 +620,38 @@ impl Platypus {
                         self.vx = if self.x < s.x { -6 } else { 6 };
                         self.vz = if self.z < s.z { -6 } else { 6 };
                     }
+                }
+            }
+        }
+
+        // Stage 1 Climax Boss Collision & Shockwave Check
+        if level.act == Act::Act1Boss {
+            let mech = &entities.boss_mech;
+            if mech.active && !mech.is_defeated() {
+                // Shockwave Stomp check
+                if mech.shockwave_active {
+                    let dx = self.x - mech.x;
+                    let dz = self.z - mech.z;
+                    let dist = psx_math::int32::isqrt_i32(dx * dx + dz * dz);
+                    if (dist - mech.shockwave_radius).abs() < 24 {
+                        let gx = (self.x / TILE_SZ).clamp(0, 23) as usize;
+                        let gz = (self.z / TILE_SZ).clamp(0, 23) as usize;
+                        let in_trench = level.get_cell(gx, gz) == CellType::AirDuct && self.crawl_mode;
+                        if self.on_ground && !in_trench {
+                            self.take_damage(1);
+                            self.vz = 8;
+                            self.screen_shake = 6;
+                            self.trigger_rumble_large(16, 255);
+                        }
+                    }
+                }
+
+                // Physical Mech body collision
+                let dx = (self.x - mech.x).abs();
+                let dz = (self.z - mech.z).abs();
+                if dx < 36 && dz < 36 && mech.y >= -10 {
+                    self.take_damage(1);
+                    self.vz = 8;
                 }
             }
         }

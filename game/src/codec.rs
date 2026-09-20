@@ -119,6 +119,39 @@ pub static ACT1_START_DIALOGUE: &[CodecPage] = &[
     },
 ];
 
+pub static ACT1_BOSS_DIALOGUE: &[CodecPage] = &[
+    CodecPage {
+        speaker: Speaker::BurrowCommand,
+        line1: "Platty! Stop! Ahead is the",
+        line2: "automated Perimeter Walker!",
+    },
+    CodecPage {
+        speaker: Speaker::Dad,
+        line1: "The Searchlight Mech MK-I.",
+        line2: "Its energy shield is up!",
+    },
+    CodecPage {
+        speaker: Speaker::Mom,
+        line1: "Crawl in drainage trenches to",
+        line2: "hide from dual searchlights!",
+    },
+    CodecPage {
+        speaker: Speaker::Dad,
+        line1: "Strike all 3 power conduits",
+        line2: "to overload its shield matrix!",
+    },
+    CodecPage {
+        speaker: Speaker::BurrowCommand,
+        line1: "Once shields are down, sneak",
+        line2: "behind and hit its heat core!",
+    },
+    CodecPage {
+        speaker: Speaker::Platty,
+        line1: "Conduits first, core second.",
+        line2: "I'm taking this walker down!",
+    },
+];
+
 pub static ACT2_START_DIALOGUE: &[CodecPage] = &[
     CodecPage {
         speaker: Speaker::Mom,

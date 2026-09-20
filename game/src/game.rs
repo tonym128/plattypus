@@ -3,12 +3,12 @@
 
 use crate::audio::{AudioManager, BgmTrack};
 use crate::codec::{
-    CodecManager, ACT1_START_DIALOGUE, ACT2_START_DIALOGUE, ACT3_START_DIALOGUE,
+    CodecManager, ACT1_BOSS_DIALOGUE, ACT1_START_DIALOGUE, ACT2_START_DIALOGUE, ACT3_START_DIALOGUE,
     ACT4_START_DIALOGUE, INTRO_DIALOGUE, RADIO_TIPS_DIALOGUE,
 };
 use crate::dualshock::DualShockController;
 use crate::entities::EntityManager;
-use crate::level::{Act, Level, TILE_SZ};
+use crate::level::{Act, CellType, Level, TILE_SZ};
 use crate::platypus::{PlayerState, Platypus};
 use crate::renderer::Renderer;
 use psx_gpu as gpu;
@@ -139,7 +139,7 @@ impl Game {
 
                     // Simulated demo inputs for each act
                     let sim_buttons = match *act {
-                        Act::Act1Sanctuary => {
+                        Act::Act1Sanctuary | Act::Act1Boss => {
                             if *timer < 50 {
                                 ButtonState::from_bits(button::DOWN)
                             } else if *timer < 100 {
@@ -208,6 +208,10 @@ impl Game {
                         *timer = 0;
                         match *act {
                             Act::Act1Sanctuary => {
+                                *act = Act::Act1Boss;
+                                self.load_act(Act::Act1Boss);
+                            }
+                            Act::Act1Boss => {
                                 *act = Act::Act2Bushland;
                                 self.load_act(Act::Act2Bushland);
                             }
@@ -290,7 +294,14 @@ impl Game {
                     }
 
                     // Check exit or goal reached
+                    if self.level.act == Act::Act1Boss && self.entities.boss_mech.is_defeated() {
+                        self.level.set_cell(11, 1, CellType::ExitBurrow);
+                        self.level.set_cell(12, 1, CellType::ExitBurrow);
+                        self.level.set_cell(13, 1, CellType::ExitBurrow);
+                    }
+
                     let reached_exit = self.level.is_exit_at(self.platty.x, self.platty.z)
+                        || (self.level.act == Act::Act1Boss && self.entities.boss_mech.is_defeated() && self.platty.z <= 2 * TILE_SZ)
                         || (self.level.act == Act::Act2Bushland && self.platty.z >= 21 * TILE_SZ)
                         || (self.level.act == Act::Act3City && self.platty.z <= 3 * TILE_SZ);
 
@@ -349,6 +360,7 @@ impl Game {
                     if let Some(next_act) = self.level.act.next() {
                         self.load_act(next_act);
                         let briefing = match next_act {
+                            Act::Act1Boss => ACT1_BOSS_DIALOGUE,
                             Act::Act2Bushland => ACT2_START_DIALOGUE,
                             Act::Act3City => ACT3_START_DIALOGUE,
                             Act::Act4Ocean => ACT4_START_DIALOGUE,
@@ -400,6 +412,7 @@ impl Game {
         self.renderer.update_camera(self.platty.x, self.platty.y, self.platty.z);
         let track = match act {
             Act::Act1Sanctuary => crate::audio::BgmTrack::Stealth,
+            Act::Act1Boss => crate::audio::BgmTrack::Boss,
             Act::Act2Bushland => crate::audio::BgmTrack::River,
             Act::Act3City => crate::audio::BgmTrack::City,
             Act::Act4Ocean => crate::audio::BgmTrack::Beach,

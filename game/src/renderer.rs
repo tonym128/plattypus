@@ -13,7 +13,8 @@
 
 use crate::entities::{
     AlertState, BeachCrab, BeachPlatform, CityVehicle, Collectible, CollectibleType,
-    Drone, EntityManager, RiverObstacle, RiverObstacleType, Sentry, VehicleType,
+    Drone, EntityManager, PowerConduit, RiverObstacle, RiverObstacleType,
+    SearchlightMech, Sentry, VehicleType,
 };
 use crate::level::{Act, CellType, Level, GRID_D, GRID_W, TILE_SZ};
 use crate::platypus::{PlayerState, Platypus};
@@ -121,7 +122,7 @@ impl Renderer {
     ) {
         // Clear backdrop tailored to stage atmosphere
         match level.act {
-            Act::Act1Sanctuary => gpu::draw_rect_flat(0, 0, 320, 240, 10, 14, 20), // Dark military compound
+            Act::Act1Sanctuary | Act::Act1Boss => gpu::draw_rect_flat(0, 0, 320, 240, 10, 14, 20), // Dark military compound
             Act::Act2Bushland => gpu::draw_rect_flat(0, 0, 320, 240, 16, 40, 24),  // Yarra forest canopy
             Act::Act3City => gpu::draw_rect_flat(0, 0, 320, 240, 14, 16, 28),      // Melbourne night sky
             Act::Act4Ocean => gpu::draw_rect_flat(0, 0, 320, 240, 50, 130, 210),   // Coastal ocean sky
@@ -130,6 +131,8 @@ impl Renderer {
         // Draw ground searchlights & vision cones on floor (Blended)
         if level.act == Act::Act1Sanctuary {
             self.draw_vision_cones(entities);
+        } else if level.act == Act::Act1Boss {
+            self.draw_boss_searchlights(&entities.boss_mech);
         }
 
         // Row-based depth sorting (far to near) to eliminate clipping
@@ -162,6 +165,17 @@ impl Renderer {
                         if d.active && d.z >= row_z_min && d.z < row_z_max {
                             self.draw_drone(d, frame);
                         }
+                    }
+                }
+                Act::Act1Boss => {
+                    for c in entities.power_conduits.iter() {
+                        if c.active && c.z >= row_z_min && c.z < row_z_max {
+                            self.draw_power_conduit(c, frame);
+                        }
+                    }
+                    let mech = &entities.boss_mech;
+                    if mech.active && mech.z >= row_z_min && mech.z < row_z_max {
+                        self.draw_searchlight_mech(mech, frame);
                     }
                 }
                 Act::Act2Bushland => {
@@ -205,6 +219,11 @@ impl Renderer {
             }
         }
 
+        // Draw Shockwave Ground Ring if Boss Stomps
+        if level.act == Act::Act1Boss && entities.boss_mech.shockwave_active {
+            self.draw_shockwave_ring(&entities.boss_mech);
+        }
+
         // Draw 3D Particles
         self.draw_particles(entities);
     }
@@ -244,7 +263,7 @@ impl Renderer {
 
     fn draw_cell(&self, cell: CellType, wx: i32, wz: i32, act: Act, frame: u8) {
         let (floor_r, floor_g, floor_b) = match act {
-            Act::Act1Sanctuary => (30, 38, 44),   // Dark tarmac / concrete
+            Act::Act1Sanctuary | Act::Act1Boss => (30, 38, 44),   // Dark tarmac / concrete
             Act::Act2Bushland => (25, 75, 40),    // Lush Yarra riverbank moss & grass
             Act::Act3City => (48, 52, 58),        // City asphalt road
             Act::Act4Ocean => (220, 200, 145),    // Warm coastal sand
@@ -295,7 +314,7 @@ impl Renderer {
             CellType::Container => {
                 self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b, act);
                 let (c_tex, c_col, h) = match act {
-                    Act::Act1Sanctuary => (TextureId::ConcreteWall, (150, 150, 150), 70),
+                    Act::Act1Sanctuary | Act::Act1Boss => (TextureId::ConcreteWall, (150, 150, 150), 70),
                     Act::Act2Bushland => (TextureId::RiverLog, (140, 140, 140), 64),
                     Act::Act3City => (TextureId::CityBrick, (160, 160, 160), 110), // Giant illuminated skyscraper!
                     Act::Act4Ocean => (TextureId::RockCliff, (160, 160, 160), 55), // Stepped sandcliff
@@ -322,7 +341,7 @@ impl Renderer {
                             self.draw_gum_tree(wx, wz);
                         }
                     }
-                    Act::Act1Sanctuary => {
+                    Act::Act1Sanctuary | Act::Act1Boss => {
                         self.draw_box_3d_textured(wx, wz, 64, 80, 64, TextureId::ConcreteWall, (150, 150, 150));
                     }
                     Act::Act3City => {
@@ -356,7 +375,7 @@ impl Renderer {
         let v3 = Vec3I16::new((wx + TILE_SZ) as i16, 0, (wz + TILE_SZ) as i16);
 
         let floor_tex = match act {
-            Act::Act1Sanctuary => TextureId::MetalGrate,
+            Act::Act1Sanctuary | Act::Act1Boss => TextureId::MetalGrate,
             Act::Act2Bushland => TextureId::GumLeaves,
             Act::Act3City => TextureId::CityAsphalt,
             Act::Act4Ocean => TextureId::BeachSand,
@@ -725,6 +744,215 @@ impl Renderer {
         }
     }
 
+    fn draw_boss_searchlights(&self, mech: &SearchlightMech) {
+        if !mech.active {
+            return;
+        }
+
+        // Left searchlight ground pool
+        let rad = 42i16;
+        let lx = mech.left_beam_x as i16;
+        let lz = mech.left_beam_z as i16;
+
+        let lc0 = scene::project_vertex(Vec3I16::new(lx - rad, 1, lz));
+        let lc1 = scene::project_vertex(Vec3I16::new(lx, 1, lz - rad));
+        let lc2 = scene::project_vertex(Vec3I16::new(lx + rad, 1, lz));
+        let lc3 = scene::project_vertex(Vec3I16::new(lx, 1, lz + rad));
+
+        if lc0.sz > 20 && lc1.sz > 20 && lc2.sz > 20 && lc3.sz > 20 {
+            gpu::draw_tri_flat_blended([(lc0.sx, lc0.sy), (lc1.sx, lc1.sy), (lc2.sx, lc2.sy)], 140, 140, 70, BlendMode::Add);
+            gpu::draw_tri_flat_blended([(lc0.sx, lc0.sy), (lc2.sx, lc2.sy), (lc3.sx, lc3.sy)], 140, 140, 70, BlendMode::Add);
+        }
+
+        // Right searchlight ground pool
+        let rx = mech.right_beam_x as i16;
+        let rz = mech.right_beam_z as i16;
+
+        let rc0 = scene::project_vertex(Vec3I16::new(rx - rad, 1, rz));
+        let rc1 = scene::project_vertex(Vec3I16::new(rx, 1, rz - rad));
+        let rc2 = scene::project_vertex(Vec3I16::new(rx + rad, 1, rz));
+        let rc3 = scene::project_vertex(Vec3I16::new(rx, 1, rz + rad));
+
+        if rc0.sz > 20 && rc1.sz > 20 && rc2.sz > 20 && rc3.sz > 20 {
+            gpu::draw_tri_flat_blended([(rc0.sx, rc0.sy), (rc1.sx, rc1.sy), (rc2.sx, rc2.sy)], 140, 140, 70, BlendMode::Add);
+            gpu::draw_tri_flat_blended([(rc0.sx, rc0.sy), (rc2.sx, rc2.sy), (rc3.sx, rc3.sy)], 140, 140, 70, BlendMode::Add);
+        }
+
+        // Volumetric light beam quad from mech shoulder projectors to ground
+        let l_pod = scene::project_vertex(Vec3I16::new((mech.x - 24) as i16, (mech.y - 48) as i16, mech.z as i16));
+        if l_pod.sz > 20 && lc1.sz > 20 && lc3.sz > 20 {
+            gpu::draw_tri_flat_blended([(l_pod.sx, l_pod.sy), (lc1.sx, lc1.sy), (lc3.sx, lc3.sy)], 70, 70, 35, BlendMode::Add);
+        }
+
+        let r_pod = scene::project_vertex(Vec3I16::new((mech.x + 24) as i16, (mech.y - 48) as i16, mech.z as i16));
+        if r_pod.sz > 20 && rc1.sz > 20 && rc3.sz > 20 {
+            gpu::draw_tri_flat_blended([(r_pod.sx, r_pod.sy), (rc1.sx, rc1.sy), (rc3.sx, rc3.sy)], 70, 70, 35, BlendMode::Add);
+        }
+    }
+
+    fn draw_shockwave_ring(&self, mech: &SearchlightMech) {
+        if !mech.shockwave_active || mech.shockwave_radius <= 0 {
+            return;
+        }
+
+        let rad = mech.shockwave_radius;
+        let first_ang: u16 = 0;
+        let first_x = mech.x + ((cos_1_3_12(first_ang) as i32 * rad) >> 12);
+        let first_z = mech.z + ((sin_1_3_12(first_ang) as i32 * rad) >> 12);
+        let mut prev_p = scene::project_vertex(Vec3I16::new(first_x as i16, 0, first_z as i16));
+
+        for step in 1..=12 {
+            let ang = (step * 21) as u16; // 0..256 circle
+            let px = mech.x + ((cos_1_3_12(ang) as i32 * rad) >> 12);
+            let pz = mech.z + ((sin_1_3_12(ang) as i32 * rad) >> 12);
+            let cur_p = scene::project_vertex(Vec3I16::new(px as i16, 0, pz as i16));
+
+            if prev_p.sz > 20 && cur_p.sz > 20 {
+                gpu::draw_line_mono(prev_p.sx, prev_p.sy, cur_p.sx, cur_p.sy, 240, 220, 160);
+            }
+            prev_p = cur_p;
+        }
+    }
+
+    fn draw_searchlight_mech(&self, mech: &SearchlightMech, frame: u8) {
+        let mx = mech.x;
+        let my = mech.y;
+        let mz = mech.z;
+        let rot = Mat3I16::rotate_y(mech.angle);
+
+        let is_hit = mech.hit_timer > 0 && ((mech.hit_timer / 2) % 2 == 1);
+        let armor_col = if is_hit {
+            (255, 255, 200)
+        } else {
+            (65, 75, 60) // Military olive drab
+        };
+        let dark_metal = (40, 45, 45);
+
+        // Ground shadow beneath mech
+        let sp = scene::project_vertex(Vec3I16::new(mx as i16, 0, mz as i16));
+        if sp.sz > 20 {
+            gpu::draw_rect_flat(sp.sx - 24, sp.sy - 8, 48, 16, 12, 16, 20);
+        }
+
+        // Bipedal Walking Legs
+        let leg_swing = match mech.leg_anim {
+            0 => 6,
+            1 => 0,
+            2 => -6,
+            _ => 0,
+        };
+
+        // Left Leg: Hip, Thigh, Calf, Foot
+        self.draw_model_box(mx, my, mz, -22, -26, leg_swing - 4, 8, 16, 8, &rot, dark_metal);
+        self.draw_model_box(mx, my, mz, -22, -12, -leg_swing - 4, 8, 14, 8, &rot, dark_metal);
+        self.draw_model_box(mx, my, mz, -24, 0, -leg_swing - 6, 12, 4, 16, &rot, armor_col);
+
+        // Right Leg: Hip, Thigh, Calf, Foot
+        self.draw_model_box(mx, my, mz, 14, -26, -leg_swing - 4, 8, 16, 8, &rot, dark_metal);
+        self.draw_model_box(mx, my, mz, 14, -12, leg_swing - 4, 8, 14, 8, &rot, dark_metal);
+        self.draw_model_box(mx, my, mz, 12, 0, leg_swing - 6, 12, 4, 16, &rot, armor_col);
+
+        // Armoured Torso / Cockpit
+        self.draw_model_box_textured(mx, my, mz, -20, -52, -14, 40, 28, 28, &rot, Some(TextureId::Crate), armor_col);
+
+        // Reinforced Front Cockpit Visor / Armor Slit
+        let visor_col = if is_hit { (255, 255, 255) } else { (220, 50, 40) };
+        self.draw_model_box(mx, my, mz, -14, -44, 14, 28, 8, 4, &rot, visor_col);
+
+        // Left Shoulder Searchlight Pod
+        self.draw_model_box(mx, my, mz, -28, -50, -4, 8, 14, 12, &rot, dark_metal);
+        self.draw_model_box(mx, my, mz, -28, -48, 8, 8, 10, 2, &rot, (255, 250, 160)); // Lens
+
+        // Right Shoulder Searchlight Pod
+        self.draw_model_box(mx, my, mz, 20, -50, -4, 8, 14, 12, &rot, dark_metal);
+        self.draw_model_box(mx, my, mz, 20, -48, 8, 8, 10, 2, &rot, (255, 250, 160)); // Lens
+
+        // Rear Heat Coolant Core & Energy Shield
+        if mech.shield_active {
+            // Glowing Energy Shield surrounding rear core
+            let shield_glow = if (frame / 4) % 2 == 0 { 240 } else { 160 };
+            self.draw_model_box(mx, my, mz, -12, -46, -22, 24, 20, 8, &rot, (50, 120, shield_glow));
+        } else {
+            // Overheated / Vulnerable Exposed Core!
+            let pulse = if (frame / 3) % 2 == 0 { 255 } else { 140 };
+            self.draw_model_box(mx, my, mz, -10, -44, -22, 20, 16, 8, &rot, (pulse, 80, 20));
+            // Radiator fins
+            self.draw_model_box(mx, my, mz, -8, -42, -24, 16, 12, 2, &rot, (255, 220, 40));
+        }
+    }
+
+    fn draw_power_conduit(&self, conduit: &PowerConduit, frame: u8) {
+        let cx = conduit.x;
+        let cz = conduit.z;
+        let rot = Mat3I16::rotate_y(0);
+
+        if conduit.destroyed {
+            // Ruined blackened scrap pylon
+            self.draw_model_box(cx, 0, cz, -10, -10, -10, 20, 10, 20, &rot, (35, 35, 40));
+            self.draw_model_box(cx, 0, cz, -5, -18, -5, 10, 8, 10, &rot, (25, 25, 28));
+        } else {
+            // Heavy concrete pedestal
+            self.draw_model_box_textured(cx, 0, cz, -12, -10, -12, 24, 10, 24, &rot, Some(TextureId::Crate), (70, 75, 80));
+
+            // Central Transformer Core
+            self.draw_model_box(cx, 0, cz, -6, -32, -6, 12, 22, 12, &rot, (45, 50, 60));
+
+            // High-voltage glowing coil
+            let glow = if (frame / 4) % 2 == 0 { 255 } else { 180 };
+            self.draw_model_box(cx, 0, cz, -8, -26, -8, 16, 12, 16, &rot, (60, 200, glow));
+
+            // Insulator cap
+            self.draw_model_box(cx, 0, cz, -10, -36, -10, 20, 4, 20, &rot, (90, 95, 105));
+
+            // Lightning spark arc at top of pylon
+            let p = scene::project_vertex(Vec3I16::new(cx as i16, -38, cz as i16));
+            if p.sz > 20 {
+                let spark = if (frame / 2) % 2 == 0 { 255 } else { 80 };
+                gpu::draw_rect_flat(p.sx - 3, p.sy - 3, 6, 6, spark, 230, 255);
+            }
+        }
+    }
+
+    fn draw_boss_hud(&self, mech: &SearchlightMech, conduits: &[PowerConduit; 3]) {
+        // Dark tactical frame
+        let bx: i16 = 180;
+        let by: i16 = 8;
+        let bw: u16 = 134;
+        let bh: u16 = 36;
+
+        gpu::draw_rect_flat(bx, by, bw, bh, 12, 18, 24);
+        gpu::draw_rect_flat(bx + 2, by + 2, bw - 4, bh - 4, 4, 8, 12);
+
+        // Header: Boss name
+        self.font.draw_text(bx + 6, by + 4, "SEARCHLIGHT MECH", (255, 60, 60));
+
+        if mech.shield_active {
+            self.font.draw_text(bx + 6, by + 18, "SHIELD", (80, 210, 255));
+            // 3 Conduit Power Matrix Cells
+            for i in 0..3 {
+                let col = if !conduits[i].destroyed {
+                    (80, 220, 255) // Active cyan
+                } else {
+                    (60, 25, 25)   // Shattered dark red
+                };
+                let cx = bx + 58 + (i as i16 * 24);
+                gpu::draw_rect_flat(cx, by + 19, 20, 8, col.0, col.1, col.2);
+            }
+        } else {
+            self.font.draw_text(bx + 6, by + 18, "CORE HP", (255, 180, 40));
+            // 4 Segmented HP bars for the vulnerable coolant core
+            for i in 0..4 {
+                let col = if (i as u8) < mech.health {
+                    (255, 50, 40) // Bright orange-red
+                } else {
+                    (45, 15, 15)  // Depleted dark
+                };
+                let cx = bx + 64 + (i as i16 * 16);
+                gpu::draw_rect_flat(cx, by + 19, 13, 8, col.0, col.1, col.2);
+            }
+        }
+    }
+
     // -------------------------------------------------------------------------
     // 3D PLATYPUS CHARACTER MODEL
     // -------------------------------------------------------------------------
@@ -1056,6 +1284,7 @@ impl Renderer {
         } else {
             let stage_lbl = match act {
                 Act::Act1Sanctuary => "STAGE 1",
+                Act::Act1Boss => "STAGE 1.3",
                 Act::Act2Bushland => "STAGE 2",
                 Act::Act3City => "STAGE 3",
                 Act::Act4Ocean => "STAGE 4",
@@ -1089,6 +1318,10 @@ impl Renderer {
             Act::Act1Sanctuary => {
                 // Metal Gear Solid Soliton Radar
                 self.draw_soliton_radar(platty, entities);
+            }
+            Act::Act1Boss => {
+                // Searchlight Mech Boss Health Bar
+                self.draw_boss_hud(&entities.boss_mech, &entities.power_conduits);
             }
             Act::Act2Bushland => {
                 // Yarra River Runner distance HUD

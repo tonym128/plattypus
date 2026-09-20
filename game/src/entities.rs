@@ -5,7 +5,7 @@
 //! Act 4: Coastal Beach 3D platformer (Stepped rock ledges, bouncing parasols, beach crabs).
 
 use crate::audio::{AudioManager, BgmTrack};
-use crate::level::{Act, Level, TILE_SZ};
+use crate::level::{Act, CellType, Level, TILE_SZ};
 use psx_gte_core::transform::{cos_1_3_12, sin_1_3_12};
 
 pub const MAX_SENTRIES: usize = 6;
@@ -114,6 +114,95 @@ impl Searchlight {
             beam_z: 0,
             sweep_angle: 0,
             radius: 40,
+        }
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum MechState {
+    Patrolling,
+    Targeting(u16),
+    Stomping(u16),
+    Venting(u16),
+    Defeated(u16),
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct SearchlightMech {
+    pub active: bool,
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
+    pub angle: u16,
+    pub health: u8,
+    pub max_health: u8,
+    pub shield_active: bool,
+    pub state: MechState,
+    pub left_light_angle: u16,
+    pub right_light_angle: u16,
+    pub left_beam_x: i32,
+    pub left_beam_z: i32,
+    pub right_beam_x: i32,
+    pub right_beam_z: i32,
+    pub shockwave_radius: i32,
+    pub shockwave_active: bool,
+    pub walk_dir: i32,
+    pub hit_timer: u8,
+    pub stomp_cooldown: u16,
+    pub leg_anim: u8,
+}
+
+impl SearchlightMech {
+    pub const fn empty() -> Self {
+        Self {
+            active: false,
+            x: 0,
+            y: 0,
+            z: 0,
+            angle: 0,
+            health: 4,
+            max_health: 4,
+            shield_active: true,
+            state: MechState::Patrolling,
+            left_light_angle: 0,
+            right_light_angle: 128,
+            left_beam_x: 0,
+            left_beam_z: 0,
+            right_beam_x: 0,
+            right_beam_z: 0,
+            shockwave_radius: 0,
+            shockwave_active: false,
+            walk_dir: 1,
+            hit_timer: 0,
+            stomp_cooldown: 180,
+            leg_anim: 0,
+        }
+    }
+
+    pub fn is_defeated(&self) -> bool {
+        matches!(self.state, MechState::Defeated(0)) || (self.health == 0 && !self.active)
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct PowerConduit {
+    pub active: bool,
+    pub destroyed: bool,
+    pub x: i32,
+    pub z: i32,
+    pub health: u8,
+    pub spark_timer: u8,
+}
+
+impl PowerConduit {
+    pub const fn empty() -> Self {
+        Self {
+            active: false,
+            destroyed: false,
+            x: 0,
+            z: 0,
+            health: 3,
+            spark_timer: 0,
         }
     }
 }
@@ -307,6 +396,8 @@ pub struct EntityManager {
     pub sentries: [Sentry; MAX_SENTRIES],
     pub drones: [Drone; MAX_DRONES],
     pub searchlights: [Searchlight; MAX_SEARCHLIGHTS],
+    pub boss_mech: SearchlightMech,
+    pub power_conduits: [PowerConduit; 3],
     pub collectibles: [Collectible; MAX_COLLECTIBLES],
     pub particles: [Particle3D; MAX_PARTICLES],
     pub river_obstacles: [RiverObstacle; MAX_RIVER_OBSTACLES],
@@ -324,6 +415,8 @@ impl EntityManager {
             sentries: [Sentry::empty(); MAX_SENTRIES],
             drones: [Drone::empty(); MAX_DRONES],
             searchlights: [Searchlight::empty(); MAX_SEARCHLIGHTS],
+            boss_mech: SearchlightMech::empty(),
+            power_conduits: [PowerConduit::empty(); 3],
             collectibles: [Collectible::empty(); MAX_COLLECTIBLES],
             particles: [Particle3D::empty(); MAX_PARTICLES],
             river_obstacles: [RiverObstacle::empty(); MAX_RIVER_OBSTACLES],
@@ -370,6 +463,8 @@ impl EntityManager {
         self.sentries = [Sentry::empty(); MAX_SENTRIES];
         self.drones = [Drone::empty(); MAX_DRONES];
         self.searchlights = [Searchlight::empty(); MAX_SEARCHLIGHTS];
+        self.boss_mech = SearchlightMech::empty();
+        self.power_conduits = [PowerConduit::empty(); 3];
         self.collectibles = [Collectible::empty(); MAX_COLLECTIBLES];
         self.particles = [Particle3D::empty(); MAX_PARTICLES];
         self.river_obstacles = [RiverObstacle::empty(); MAX_RIVER_OBSTACLES];
@@ -380,6 +475,7 @@ impl EntityManager {
 
         match act {
             Act::Act1Sanctuary => self.load_act1(),
+            Act::Act1Boss => self.load_act1_boss(),
             Act::Act2Bushland => self.load_act2(),
             Act::Act3City => self.load_act3(),
             Act::Act4Ocean => self.load_act4(),
@@ -426,6 +522,65 @@ impl EntityManager {
         self.spawn_item(1, CollectibleType::LetterPage, 11 * TILE_SZ, 3 * TILE_SZ, true);
         self.spawn_item(2, CollectibleType::YabbyRation, 14 * TILE_SZ, 18 * TILE_SZ, true);
         self.spawn_item(3, CollectibleType::BuriedYabby, 3 * TILE_SZ, 12 * TILE_SZ, false);
+    }
+
+    fn load_act1_boss(&mut self) {
+        self.boss_mech = SearchlightMech {
+            active: true,
+            x: 12 * TILE_SZ,
+            y: 0,
+            z: 6 * TILE_SZ,
+            angle: 0,
+            health: 4,
+            max_health: 4,
+            shield_active: true,
+            state: MechState::Patrolling,
+            left_light_angle: 0,
+            right_light_angle: 128,
+            left_beam_x: 10 * TILE_SZ,
+            left_beam_z: 11 * TILE_SZ,
+            right_beam_x: 14 * TILE_SZ,
+            right_beam_z: 11 * TILE_SZ,
+            shockwave_radius: 0,
+            shockwave_active: false,
+            walk_dir: 1,
+            hit_timer: 0,
+            stomp_cooldown: 150,
+            leg_anim: 0,
+        };
+
+        // 3 Destructible Power Conduits
+        // 0: West generator bay (gx 5, gz 9)
+        self.power_conduits[0] = PowerConduit {
+            active: true,
+            destroyed: false,
+            x: 5 * TILE_SZ + 32,
+            z: 9 * TILE_SZ + 32,
+            health: 3,
+            spark_timer: 0,
+        };
+        // 1: East generator bay (gx 19, gz 9)
+        self.power_conduits[1] = PowerConduit {
+            active: true,
+            destroyed: false,
+            x: 19 * TILE_SZ + 32,
+            z: 9 * TILE_SZ + 32,
+            health: 3,
+            spark_timer: 0,
+        };
+        // 2: South generator bay (gx 12, gz 17)
+        self.power_conduits[2] = PowerConduit {
+            active: true,
+            destroyed: false,
+            x: 12 * TILE_SZ + 32,
+            z: 17 * TILE_SZ + 32,
+            health: 3,
+            spark_timer: 0,
+        };
+
+        // Emergency Yabby Rations in corner trenches
+        self.spawn_item(0, CollectibleType::YabbyRation, 3 * TILE_SZ + 32, 9 * TILE_SZ + 32, true);
+        self.spawn_item(1, CollectibleType::YabbyRation, 20 * TILE_SZ + 32, 9 * TILE_SZ + 32, true);
     }
 
     fn load_act2(&mut self) {
@@ -669,6 +824,9 @@ impl EntityManager {
             Act::Act1Sanctuary => {
                 self.update_act1(player_x, player_z, player_crawling, player_sneaking, player_submerged, level);
             }
+            Act::Act1Boss => {
+                self.update_act1_boss(player_x, player_z, player_crawling, level);
+            }
             Act::Act2Bushland => {
                 self.update_act2();
             }
@@ -879,6 +1037,177 @@ impl EntityManager {
 
         if alert_triggered {
             self.trigger_alert();
+        }
+    }
+
+    fn update_act1_boss(
+        &mut self,
+        player_x: i32,
+        player_z: i32,
+        player_crawling: bool,
+        level: &Level,
+    ) {
+        // 1. Update Power Conduits & Shield status
+        let mut active_conduits = 0;
+        let mut spark_pos = [(0, 0); 3];
+        let mut spark_count = 0;
+
+        for (i, c) in self.power_conduits.iter_mut().enumerate() {
+            if c.active && !c.destroyed {
+                active_conduits += 1;
+                if c.spark_timer > 0 {
+                    c.spark_timer -= 1;
+                }
+                // Electrical arcing particles
+                if (self.frame.wrapping_add(i as u16 * 17) % 8) == 0 {
+                    spark_pos[spark_count] = (c.x, c.z);
+                    spark_count += 1;
+                }
+            }
+        }
+
+        for i in 0..spark_count {
+            let (sx, sz) = spark_pos[i];
+            self.spawn_particle(sx, -16, sz, 0, -2, 0, 18, (80, 210, 255), 2);
+        }
+
+        let shields_were_active = self.boss_mech.shield_active;
+        self.boss_mech.shield_active = active_conduits > 0;
+
+        // Shield collapse event
+        if shields_were_active && !self.boss_mech.shield_active {
+            AudioManager::play_hit();
+            AudioManager::play_alert();
+            self.boss_mech.state = MechState::Venting(120);
+            for _ in 0..6 {
+                self.spawn_particle(self.boss_mech.x, -28, self.boss_mech.z, 0, -3, 0, 30, (255, 140, 40), 4);
+            }
+        }
+
+        // 2. Update Searchlight Mech
+        if !self.boss_mech.active {
+            return;
+        }
+
+        if self.boss_mech.hit_timer > 0 {
+            self.boss_mech.hit_timer -= 1;
+        }
+
+        // Searchlight Sweep
+        self.boss_mech.left_light_angle = self.boss_mech.left_light_angle.wrapping_add(1);
+        self.boss_mech.right_light_angle = self.boss_mech.right_light_angle.wrapping_sub(1);
+
+        let sweep_l_x = (cos_1_3_12(self.boss_mech.left_light_angle) as i32 * 80) >> 12;
+        let sweep_l_z = (sin_1_3_12(self.boss_mech.left_light_angle) as i32 * 60) >> 12;
+        self.boss_mech.left_beam_x = self.boss_mech.x - 30 + sweep_l_x;
+        self.boss_mech.left_beam_z = self.boss_mech.z + 100 + sweep_l_z;
+
+        let sweep_r_x = (cos_1_3_12(self.boss_mech.right_light_angle) as i32 * 80) >> 12;
+        let sweep_r_z = (sin_1_3_12(self.boss_mech.right_light_angle) as i32 * 60) >> 12;
+        self.boss_mech.right_beam_x = self.boss_mech.x + 30 + sweep_r_x;
+        self.boss_mech.right_beam_z = self.boss_mech.z + 100 + sweep_r_z;
+
+        // Check if player is detected by searchlights
+        let in_trench = level.get_cell((player_x / TILE_SZ) as usize, (player_z / TILE_SZ) as usize) == CellType::AirDuct && player_crawling;
+        let in_tall_grass = level.is_tall_grass_at(player_x, player_z) && player_crawling;
+        let hidden = in_trench || in_tall_grass;
+
+        let d_left = (player_x - self.boss_mech.left_beam_x).abs().max((player_z - self.boss_mech.left_beam_z).abs());
+        let d_right = (player_x - self.boss_mech.right_beam_x).abs().max((player_z - self.boss_mech.right_beam_z).abs());
+        let player_spotted = !hidden && (d_left < 36 || d_right < 36);
+
+        // Mech Stomp Cooldown
+        if self.boss_mech.stomp_cooldown > 0 {
+            self.boss_mech.stomp_cooldown -= 1;
+        }
+
+        // Mech state machine
+        match self.boss_mech.state {
+            MechState::Patrolling => {
+                // Walk back and forth along north perimeter
+                self.boss_mech.x += self.boss_mech.walk_dir * 2;
+                if self.boss_mech.x >= 17 * TILE_SZ {
+                    self.boss_mech.walk_dir = -1;
+                } else if self.boss_mech.x <= 7 * TILE_SZ {
+                    self.boss_mech.walk_dir = 1;
+                }
+                self.boss_mech.leg_anim = ((self.frame / 6) % 4) as u8;
+
+                if player_spotted || (self.boss_mech.stomp_cooldown == 0 && (player_z - self.boss_mech.z).abs() < 180) {
+                    AudioManager::play_alert();
+                    self.boss_mech.state = MechState::Targeting(40);
+                    self.boss_mech.stomp_cooldown = 220;
+                }
+            }
+            MechState::Targeting(ref mut t) => {
+                if *t > 0 {
+                    *t -= 1;
+                    // Pivot torso toward player
+                    if (player_x - self.boss_mech.x).abs() > 8 {
+                        self.boss_mech.x += if player_x > self.boss_mech.x { 1 } else { -1 };
+                    }
+                } else {
+                    // Leap into stomp!
+                    self.boss_mech.state = MechState::Stomping(32);
+                    self.boss_mech.y = -36;
+                }
+            }
+            MechState::Stomping(ref mut t) => {
+                if *t > 0 {
+                    *t -= 1;
+                    if *t == 12 {
+                        // Slam down!
+                        self.boss_mech.y = 0;
+                        self.boss_mech.shockwave_active = true;
+                        self.boss_mech.shockwave_radius = 8;
+                        AudioManager::play_metal();
+                        // Dust burst
+                        for i in 0..8 {
+                            let ang = (i * 32) as u16;
+                            let vx = (cos_1_3_12(ang) as i32 * 3) >> 12;
+                            let vz = (sin_1_3_12(ang) as i32 * 3) >> 12;
+                            self.spawn_particle(self.boss_mech.x, -2, self.boss_mech.z, vx as i16, -1, vz as i16, 25, (140, 130, 120), 3);
+                        }
+                    }
+                } else {
+                    let vent_time = if self.boss_mech.shield_active { 60 } else { 120 };
+                    self.boss_mech.state = MechState::Venting(vent_time);
+                }
+            }
+            MechState::Venting(ref mut t) => {
+                if *t > 0 {
+                    *t -= 1;
+                    // Puffs of steam and glowing coolant core
+                    if (self.frame % 6) == 0 {
+                        self.spawn_particle(self.boss_mech.x, -24, self.boss_mech.z - 20, 0, -2, -1, 20, (230, 230, 240), 3);
+                    }
+                } else {
+                    self.boss_mech.state = MechState::Patrolling;
+                }
+            }
+            MechState::Defeated(ref mut t) => {
+                if *t > 0 {
+                    *t -= 1;
+                    // Chain explosions
+                    if (self.frame % 8) == 0 {
+                        let rx = self.boss_mech.x + (((self.frame as i32 * 13) % 40) - 20);
+                        let ry = -10 - (((self.frame as i32 * 7) % 30));
+                        let rz = self.boss_mech.z + (((self.frame as i32 * 17) % 40) - 20);
+                        self.spawn_particle(rx, ry, rz, 0, -3, 0, 30, (255, 120, 30), 4);
+                        AudioManager::play_hit();
+                    }
+                } else {
+                    self.boss_mech.active = false;
+                }
+            }
+        }
+
+        // Expand shockwave ring
+        if self.boss_mech.shockwave_active {
+            self.boss_mech.shockwave_radius += 6;
+            if self.boss_mech.shockwave_radius > 200 {
+                self.boss_mech.shockwave_active = false;
+            }
         }
     }
 
