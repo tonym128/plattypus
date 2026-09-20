@@ -23,6 +23,7 @@ pub enum GameState {
     StageClear,
     Ending,
     GameOver,
+    AttractDemo { act: Act, timer: u16 },
 }
 
 pub struct Game {
@@ -34,6 +35,7 @@ pub struct Game {
     pub codec: CodecManager,
     pub prev_buttons: ButtonState,
     pub frame: u8,
+    pub idle_timer: u16,
 }
 
 impl Game {
@@ -54,6 +56,7 @@ impl Game {
             codec,
             prev_buttons: ButtonState::NONE,
             frame: 0,
+            idle_timer: 0,
         }
     }
 
@@ -75,14 +78,112 @@ impl Game {
 
         match self.state {
             GameState::Title => {
+                self.idle_timer += 1;
                 if just_start || just_cross {
                     // Launch Intro CODEC transmission from Burrow Command!
                     self.codec.start_conversation(INTRO_DIALOGUE);
                     self.state = GameState::IntroCodec;
+                } else if self.idle_timer > 90 {
+                    // Enter Attract Demo Mode to showcase stages
+                    self.load_act(Act::Act1Sanctuary);
+                    self.state = GameState::AttractDemo {
+                        act: Act::Act1Sanctuary,
+                        timer: 0,
+                    };
                 }
 
                 self.renderer.begin_frame();
                 self.renderer.draw_title_screen(self.frame);
+            }
+            GameState::AttractDemo { ref mut act, ref mut timer } => {
+                if just_start {
+                    self.load_act(Act::Act1Sanctuary);
+                    self.state = GameState::Title;
+                    self.idle_timer = 0;
+                } else {
+                    *timer += 1;
+
+                    // Simulated demo inputs for each act
+                    let sim_buttons = match *act {
+                        Act::Act1Sanctuary => {
+                            if *timer < 50 {
+                                ButtonState::from_bits(button::DOWN)
+                            } else if *timer < 100 {
+                                ButtonState::from_bits(button::RIGHT)
+                            } else {
+                                ButtonState::from_bits(button::CIRCLE | button::DOWN)
+                            }
+                        }
+                        Act::Act2Bushland => {
+                            if *timer < 50 {
+                                ButtonState::from_bits(button::LEFT)
+                            } else if *timer < 90 {
+                                ButtonState::from_bits(button::CROSS)
+                            } else {
+                                ButtonState::from_bits(button::RIGHT)
+                            }
+                        }
+                        Act::Act3City => {
+                            if (*timer / 25) % 2 == 0 {
+                                ButtonState::from_bits(button::UP)
+                            } else {
+                                ButtonState::NONE
+                            }
+                        }
+                        Act::Act4Ocean => {
+                            if (*timer / 30) % 2 == 0 {
+                                ButtonState::from_bits(button::CROSS | button::RIGHT | button::UP)
+                            } else {
+                                ButtonState::from_bits(button::RIGHT | button::UP)
+                            }
+                        }
+                    };
+
+                    let is_crawling = self.platty.state == PlayerState::BellyCrawl;
+                    let is_submerged = self.platty.state == PlayerState::Submerged;
+
+                    self.platty.update(sim_buttons, ButtonState::NONE, &self.level, &mut self.entities);
+                    self.platty.health = self.platty.max_health;
+                    self.entities.update(
+                        self.level.act,
+                        self.platty.x,
+                        self.platty.y,
+                        self.platty.z,
+                        is_crawling,
+                        is_submerged,
+                        &self.level,
+                    );
+                    self.renderer.update_camera(self.platty.x, self.platty.y, self.platty.z);
+
+                    // Render 3D Scene & HUD
+                    self.renderer.begin_frame();
+                    self.renderer.draw_3d_scene(&self.level, &self.platty, &self.entities, self.frame);
+                    self.renderer.draw_hud(&self.platty, &self.entities, self.level.act);
+
+                    // Cycle to next demo act every 180 frames (3 seconds)
+                    if *timer >= 180 {
+                        *timer = 0;
+                        match *act {
+                            Act::Act1Sanctuary => {
+                                *act = Act::Act2Bushland;
+                                self.load_act(Act::Act2Bushland);
+                            }
+                            Act::Act2Bushland => {
+                                *act = Act::Act3City;
+                                self.load_act(Act::Act3City);
+                            }
+                            Act::Act3City => {
+                                *act = Act::Act4Ocean;
+                                self.load_act(Act::Act4Ocean);
+                            }
+                            Act::Act4Ocean => {
+                                self.load_act(Act::Act1Sanctuary);
+                                self.codec.start_conversation(INTRO_DIALOGUE);
+                                self.state = GameState::IntroCodec;
+                            }
+                        }
+                    }
+                }
             }
             GameState::IntroCodec => {
                 self.codec.update();

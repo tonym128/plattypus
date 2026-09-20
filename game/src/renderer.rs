@@ -203,20 +203,71 @@ impl Renderer {
         self.draw_particles(entities);
     }
 
+    fn draw_gum_tree(&self, wx: i32, wz: i32) {
+        let rot = Mat3I16::rotate_y(0);
+        // Tall eucalyptus trunk
+        self.draw_model_box(wx + 26, 0, wz + 26, -5, -46, -5, 10, 46, 10, &rot, (175, 170, 155));
+        // Gum leaf canopy
+        self.draw_model_box(wx + 26, 0, wz + 26, -18, -66, -18, 36, 22, 36, &rot, (45, 100, 48));
+        self.draw_model_box(wx + 26, 0, wz + 26, -12, -76, -12, 24, 12, 24, &rot, (65, 130, 60));
+    }
+
+    fn draw_streetlamp(&self, wx: i32, wz: i32) {
+        let rot = Mat3I16::rotate_y(0);
+        // Sleek dark lamp post
+        self.draw_model_box(wx + 8, 0, wz + 8, -2, -52, -2, 4, 52, 4, &rot, (45, 50, 58));
+        // Overhanging lamp arm
+        self.draw_model_box(wx + 8, 0, wz + 8, -2, -54, 2, 4, 4, 10, &rot, (45, 50, 58));
+        // Glowing warm yellow light fixture
+        self.draw_model_box(wx + 8, 0, wz + 8, -3, -51, 8, 6, 4, 6, &rot, (255, 245, 140));
+        // Warm light puddle on asphalt
+        let lp = scene::project_vertex(Vec3I16::new((wx + 8) as i16, 0, (wz + 14) as i16));
+        if lp.sz > 20 {
+            gpu::draw_rect_flat(lp.sx - 8, lp.sy - 4, 16, 8, 85, 80, 50);
+        }
+    }
+
+    fn draw_palm_tree(&self, wx: i32, wz: i32) {
+        let rot = Mat3I16::rotate_y(0);
+        // Curved brown trunk
+        self.draw_model_box(wx + 28, 0, wz + 28, -4, -42, -4, 8, 42, 8, &rot, (140, 95, 55));
+        // Tropical palm fronds canopy
+        self.draw_model_box(wx + 28, 0, wz + 28, -22, -50, -22, 44, 10, 44, &rot, (42, 165, 58));
+        self.draw_model_box(wx + 28, 0, wz + 28, -14, -56, -14, 28, 8, 28, &rot, (70, 200, 80));
+    }
+
     fn draw_cell(&self, cell: CellType, wx: i32, wz: i32, act: Act, frame: u8) {
         let (floor_r, floor_g, floor_b) = match act {
             Act::Act1Sanctuary => (30, 38, 44),   // Dark tarmac / concrete
             Act::Act2Bushland => (25, 75, 40),    // Lush Yarra riverbank moss & grass
             Act::Act3City => (48, 52, 58),        // City asphalt road
-            Act::Act4Ocean => (215, 195, 140),    // Warm coastal sand
+            Act::Act4Ocean => (220, 200, 145),    // Warm coastal sand
         };
+
+        let gx = (wx / TILE_SZ) as usize;
+        let gz = (wz / TILE_SZ) as usize;
 
         match cell {
             CellType::Floor => {
                 self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b);
-                if act == Act::Act3City && (wz / TILE_SZ == 18 || wz / TILE_SZ == 7) {
-                    // White dashed road lines
-                    self.draw_box_3d(wx + 24, wz + 28, 16, 1, 8, (230, 230, 230));
+                match act {
+                    Act::Act3City => {
+                        // Road dividing dashed white lines
+                        if gz == 18 || gz == 12 || gz == 6 {
+                            self.draw_box_3d(wx + 24, wz + 28, 16, 1, 8, (230, 230, 230));
+                        }
+                        // Sidewalk curbs and streetlamps on pedestrian boundaries
+                        if (gx == 4 || gx == 19) && (gz % 4 == 0) {
+                            self.draw_streetlamp(wx, wz);
+                        }
+                    }
+                    Act::Act4Ocean => {
+                        // Palm trees on outer dunes
+                        if (gx == 1 || gx == 22) && (gz % 3 == 0) {
+                            self.draw_palm_tree(wx, wz);
+                        }
+                    }
+                    _ => {}
                 }
             }
             CellType::TallGrass => {
@@ -225,10 +276,10 @@ impl Renderer {
                 self.draw_grass_clump(wx + 44, wz + 36);
             }
             CellType::Water => {
-                self.draw_water_tile(wx, wz, frame, false);
+                self.draw_water_tile(wx, wz, act, frame, false);
             }
             CellType::WaterCurrent => {
-                self.draw_water_tile(wx, wz, frame, true);
+                self.draw_water_tile(wx, wz, act, frame, true);
             }
             CellType::Crate => {
                 self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b);
@@ -245,21 +296,36 @@ impl Renderer {
                 };
                 self.draw_box_3d(wx + 2, wz + 2, 60, h, 60, c_col);
 
-                // Add glowing windows on city skyscrapers
+                // Add glowing windows and beacons on city skyscrapers
                 if act == Act::Act3City {
                     let win_col = if (wx / 64) % 2 == 0 { (255, 230, 110) } else { (100, 210, 255) };
                     self.draw_box_3d(wx + 10, wz + 4, 12, 16, 2, win_col);
                     self.draw_box_3d(wx + 38, wz + 4, 12, 16, 2, win_col);
+                    if gz % 2 == 0 {
+                        let beacon_col = if (frame / 16) % 2 == 0 { (255, 40, 40) } else { (255, 120, 40) };
+                        self.draw_box_3d(wx + 26, wz + 26, 8, 12, 8, beacon_col);
+                    }
                 }
             }
             CellType::Wall => {
-                let w_col = match act {
-                    Act::Act1Sanctuary => (65, 70, 75),
-                    Act::Act2Bushland => (45, 90, 45), // Dense forest wall
-                    Act::Act3City => (50, 55, 65),
-                    Act::Act4Ocean => (140, 125, 95),
-                };
-                self.draw_box_3d(wx, wz, 64, 80, 64, w_col);
+                match act {
+                    Act::Act2Bushland => {
+                        // Bushland riverbank: mossy bank + gum tree
+                        self.draw_box_3d(wx, wz, 64, 32, 64, (45, 85, 40));
+                        if (gx + gz) % 2 == 0 {
+                            self.draw_gum_tree(wx, wz);
+                        }
+                    }
+                    Act::Act1Sanctuary => {
+                        self.draw_box_3d(wx, wz, 64, 80, 64, (65, 70, 75));
+                    }
+                    Act::Act3City => {
+                        self.draw_box_3d(wx, wz, 64, 80, 64, (50, 55, 65));
+                    }
+                    Act::Act4Ocean => {
+                        self.draw_box_3d(wx, wz, 64, 60, 64, (165, 145, 105));
+                    }
+                }
             }
             CellType::AirDuct => {
                 self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b);
@@ -285,7 +351,7 @@ impl Renderer {
         Self::draw_quad_3d(v0, v1, v2, v3, r, g, b);
     }
 
-    fn draw_water_tile(&self, wx: i32, wz: i32, frame: u8, is_current: bool) {
+    fn draw_water_tile(&self, wx: i32, wz: i32, act: Act, frame: u8, is_current: bool) {
         let bob = if (frame / 8) % 2 == 0 { 2 } else { 0 };
         let y = 14 + bob;
         let v0 = Vec3I16::new(wx as i16, y, wz as i16);
@@ -293,15 +359,20 @@ impl Renderer {
         let v2 = Vec3I16::new(wx as i16, y, (wz + TILE_SZ) as i16);
         let v3 = Vec3I16::new((wx + TILE_SZ) as i16, y, (wz + TILE_SZ) as i16);
 
-        let (r, g, b) = if is_current {
-            (35, 125, 210) // Rapid river flume
-        } else {
-            (25, 85, 160)
+        let (r, g, b) = match act {
+            Act::Act4Ocean => (28, 140, 210), // Azure tropical ocean
+            _ => {
+                if is_current {
+                    (35, 125, 210) // Rapid river flume
+                } else {
+                    (25, 85, 160)
+                }
+            }
         };
         Self::draw_quad_3d(v0, v1, v2, v3, r, g, b);
 
-        // Animated river foam lines
-        if is_current {
+        // Animated foam ripples
+        if is_current || act == Act::Act4Ocean {
             let foam_z = (wz + ((frame as i32 * 3) % TILE_SZ)) as i16;
             let p0 = scene::project_vertex(Vec3I16::new(wx as i16 + 8, y - 1, foam_z));
             let p1 = scene::project_vertex(Vec3I16::new(wx as i16 + 56, y - 1, foam_z));
@@ -481,7 +552,7 @@ impl Renderer {
         Self::draw_quad_3d(world_pts[6], world_pts[7], world_pts[4], world_pts[5], bot_col.0, bot_col.1, bot_col.2);
     }
 
-    /// Project and render a 3D quad using two triangles with screen backface culling.
+    /// Project and render a 3D quad using native PS1 GPU hardware quad GP0(0x28).
     #[inline]
     pub fn draw_quad_3d(v0: Vec3I16, v1: Vec3I16, v2: Vec3I16, v3: Vec3I16, r: u8, g: u8, b: u8) {
         let p0 = scene::project_vertex(v0);
@@ -502,8 +573,7 @@ impl Renderer {
             return;
         }
 
-        gpu::draw_tri_flat([(p0.sx, p0.sy), (p1.sx, p1.sy), (p2.sx, p2.sy)], r, g, b);
-        gpu::draw_tri_flat([(p1.sx, p1.sy), (p3.sx, p3.sy), (p2.sx, p2.sy)], r, g, b);
+        gpu::draw_quad_flat([(p0.sx, p0.sy), (p1.sx, p1.sy), (p2.sx, p2.sy), (p3.sx, p3.sy)], r, g, b);
     }
 
     // -------------------------------------------------------------------------
@@ -872,32 +942,41 @@ impl Renderer {
     // -------------------------------------------------------------------------
 
     pub fn draw_hud(&self, platty: &Platypus, entities: &EntityManager, act: Act) {
-        // TOP-LEFT: LIFE BAR & STATUS
-        gpu::draw_rect_flat(8, 8, 120, 36, 12, 18, 24);
-        gpu::draw_rect_flat(10, 10, 116, 32, 4, 8, 12);
+        // TOP-LEFT: LIFE BAR & STAGE LABEL (x: 8, y: 8, w: 100, h: 36)
+        gpu::draw_rect_flat(8, 8, 100, 36, 12, 18, 24);
+        gpu::draw_rect_flat(10, 10, 96, 32, 4, 8, 12);
 
         self.font.draw_text(14, 12, "LIFE", (230, 50, 50));
         for i in 0..platty.max_health {
-            let lx = 48 + i as i16 * 18;
+            let lx = 48 + i as i16 * 16;
             if i < platty.health {
-                gpu::draw_rect_flat(lx, 13, 14, 8, 235, 45, 45);
-                gpu::draw_rect_flat(lx + 1, 14, 12, 2, 255, 180, 180);
+                gpu::draw_rect_flat(lx, 13, 12, 8, 235, 45, 45);
+                gpu::draw_rect_flat(lx + 1, 14, 10, 2, 255, 180, 180);
             } else {
-                gpu::draw_rect_flat(lx, 13, 14, 8, 60, 30, 35);
+                gpu::draw_rect_flat(lx, 13, 12, 8, 60, 30, 35);
             }
         }
 
         if platty.y > 0 || platty.state == PlayerState::Swimming || platty.state == PlayerState::Submerged {
             self.font.draw_text(14, 26, "O2", (70, 210, 255));
-            gpu::draw_rect_flat(48, 27, 60, 7, 20, 35, 55);
+            gpu::draw_rect_flat(40, 27, 60, 7, 20, 35, 55);
             let o2_w = (platty.air as u32 * 58 / 100) as u16;
             let o2_col = if platty.air < 30 { (255, 60, 50) } else { (80, 220, 255) };
-            gpu::draw_rect_flat(49, 28, o2_w, 5, o2_col.0, o2_col.1, o2_col.2);
+            gpu::draw_rect_flat(41, 28, o2_w, 5, o2_col.0, o2_col.1, o2_col.2);
         } else {
-            self.font.draw_text(14, 26, act.title(), (240, 210, 100));
+            let stage_lbl = match act {
+                Act::Act1Sanctuary => "STAGE 1",
+                Act::Act2Bushland => "STAGE 2",
+                Act::Act3City => "STAGE 3",
+                Act::Act4Ocean => "STAGE 4",
+            };
+            self.font.draw_text(14, 26, stage_lbl, (240, 210, 100));
         }
 
-        // Score display
+        // TOP-CENTER: SCORE & YABBIES COUNTER (x: 114, y: 8, w: 96, h: 36)
+        gpu::draw_rect_flat(114, 8, 96, 36, 12, 18, 24);
+        gpu::draw_rect_flat(116, 10, 92, 32, 4, 8, 12);
+
         let mut score_str = [b'0'; 6];
         let mut sc = platty.score;
         for i in (0..6).rev() {
@@ -905,14 +984,14 @@ impl Renderer {
             sc /= 10;
         }
         if let Ok(s) = core::str::from_utf8(&score_str) {
-            self.font.draw_text(138, 12, s, (240, 240, 240));
+            self.font.draw_text(122, 12, s, (240, 240, 240));
         }
 
-        let mut yabbies_buf = [b'Y', b'A', b'B', b':', b'x', b'0', b'0', 0];
+        let mut yabbies_buf = [b'Y', b'A', b'B', b':', b'x', b'0', b'0'];
         yabbies_buf[5] = ((platty.yabbies_collected / 10) % 10) as u8 + b'0';
         yabbies_buf[6] = (platty.yabbies_collected % 10) as u8 + b'0';
-        if let Ok(s) = core::str::from_utf8(&yabbies_buf[..7]) {
-            self.font.draw_text(138, 26, s, (120, 210, 255));
+        if let Ok(s) = core::str::from_utf8(&yabbies_buf) {
+            self.font.draw_text(122, 26, s, (120, 210, 255));
         }
 
         // STAGE-SPECIFIC TOP-RIGHT HUD
