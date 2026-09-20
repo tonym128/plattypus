@@ -18,6 +18,8 @@ use crate::entities::{
 use crate::level::{Act, CellType, Level, GRID_D, GRID_W, TILE_SZ};
 use crate::platypus::{PlayerState, Platypus};
 
+use crate::texture::{FaceDirection, TextureAtlasManager, TextureId, gouraud_face_colors};
+
 use psx_font::{fonts::BASIC, FontAtlas};
 use psx_gpu::{
     self as gpu,
@@ -42,6 +44,7 @@ const CAM_PITCH: u16 = 34;
 pub struct Renderer {
     pub fb: FrameBuffer,
     pub font: FontAtlas,
+    pub textures: TextureAtlasManager,
     pub cam_x: i32,
     pub cam_y: i32,
     pub cam_z: i32,
@@ -56,6 +59,8 @@ impl Renderer {
         gpu::set_draw_offset(0, 0);
 
         let font = FontAtlas::upload(&BASIC, FONT_TPAGE, FONT_CLUT);
+        let textures = TextureAtlasManager::new();
+        textures.init_and_upload();
 
         scene::set_screen_offset(160 << 16, 120 << 16);
         scene::set_projection_plane(200);
@@ -63,6 +68,7 @@ impl Renderer {
         Self {
             fb,
             font,
+            textures,
             cam_x: 0,
             cam_y: -300,
             cam_z: -260,
@@ -249,7 +255,7 @@ impl Renderer {
 
         match cell {
             CellType::Floor => {
-                self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b);
+                self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b, act);
                 match act {
                     Act::Act3City => {
                         // Road dividing dashed white lines
@@ -271,7 +277,7 @@ impl Renderer {
                 }
             }
             CellType::TallGrass => {
-                self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b);
+                self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b, act);
                 self.draw_grass_clump(wx + 16, wz + 16);
                 self.draw_grass_clump(wx + 44, wz + 36);
             }
@@ -282,19 +288,19 @@ impl Renderer {
                 self.draw_water_tile(wx, wz, act, frame, true);
             }
             CellType::Crate => {
-                self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b);
-                // 48x48x48 cargo crate with all 6 faces rendered
-                self.draw_box_3d(wx + 8, wz + 8, 48, 48, 48, (145, 95, 48));
+                self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b, act);
+                // 48x48x48 cargo crate with texture & Gouraud shading
+                self.draw_box_3d_textured(wx + 8, wz + 8, 48, 48, 48, TextureId::Crate, (180, 180, 180));
             }
             CellType::Container => {
-                self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b);
-                let (c_col, h) = match act {
-                    Act::Act1Sanctuary => ((55, 80, 65), 70),
-                    Act::Act2Bushland => ((120, 70, 50), 64),
-                    Act::Act3City => ((40, 55, 85), 110), // Giant illuminated skyscraper!
-                    Act::Act4Ocean => ((160, 140, 100), 55), // Stepped sandcliff
+                self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b, act);
+                let (c_tex, c_col, h) = match act {
+                    Act::Act1Sanctuary => (TextureId::ConcreteWall, (150, 150, 150), 70),
+                    Act::Act2Bushland => (TextureId::RiverLog, (140, 140, 140), 64),
+                    Act::Act3City => (TextureId::CityBrick, (160, 160, 160), 110), // Giant illuminated skyscraper!
+                    Act::Act4Ocean => (TextureId::RockCliff, (160, 160, 160), 55), // Stepped sandcliff
                 };
-                self.draw_box_3d(wx + 2, wz + 2, 60, h, 60, c_col);
+                self.draw_box_3d_textured(wx + 2, wz + 2, 60, h, 60, c_tex, c_col);
 
                 // Add glowing windows and beacons on city skyscrapers
                 if act == Act::Act3City {
@@ -311,44 +317,51 @@ impl Renderer {
                 match act {
                     Act::Act2Bushland => {
                         // Bushland riverbank: mossy bank + gum tree
-                        self.draw_box_3d(wx, wz, 64, 32, 64, (45, 85, 40));
+                        self.draw_box_3d_textured(wx, wz, 64, 32, 64, TextureId::GumLeaves, (140, 140, 140));
                         if (gx + gz) % 2 == 0 {
                             self.draw_gum_tree(wx, wz);
                         }
                     }
                     Act::Act1Sanctuary => {
-                        self.draw_box_3d(wx, wz, 64, 80, 64, (65, 70, 75));
+                        self.draw_box_3d_textured(wx, wz, 64, 80, 64, TextureId::ConcreteWall, (150, 150, 150));
                     }
                     Act::Act3City => {
-                        self.draw_box_3d(wx, wz, 64, 80, 64, (50, 55, 65));
+                        self.draw_box_3d_textured(wx, wz, 64, 80, 64, TextureId::CityBrick, (160, 160, 160));
                     }
                     Act::Act4Ocean => {
-                        self.draw_box_3d(wx, wz, 64, 60, 64, (165, 145, 105));
+                        self.draw_box_3d_textured(wx, wz, 64, 60, 64, TextureId::RockCliff, (160, 160, 160));
                     }
                 }
             }
             CellType::AirDuct => {
-                self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b);
+                self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b, act);
                 // Low ventilation shaft passable only when crawling
-                self.draw_box_3d(wx + 8, wz + 8, 48, 24, 48, (80, 85, 95));
+                self.draw_box_3d_textured(wx + 8, wz + 8, 48, 24, 48, TextureId::MetalGrate, (150, 150, 150));
             }
             CellType::LaserTripwire => {
-                self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b);
+                self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b, act);
                 self.draw_laser_tripwire(wx, wz, frame);
             }
             CellType::ExitBurrow => {
-                self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b);
+                self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b, act);
                 self.draw_exit_hatch(wx + 12, wz + 12, frame);
             }
         }
     }
 
-    fn draw_floor_tile(&self, wx: i32, wz: i32, r: u8, g: u8, b: u8) {
+    fn draw_floor_tile(&self, wx: i32, wz: i32, r: u8, g: u8, b: u8, act: Act) {
         let v0 = Vec3I16::new(wx as i16, 0, wz as i16);
         let v1 = Vec3I16::new((wx + TILE_SZ) as i16, 0, wz as i16);
         let v2 = Vec3I16::new(wx as i16, 0, (wz + TILE_SZ) as i16);
         let v3 = Vec3I16::new((wx + TILE_SZ) as i16, 0, (wz + TILE_SZ) as i16);
-        Self::draw_quad_3d(v0, v1, v2, v3, r, g, b);
+
+        let floor_tex = match act {
+            Act::Act1Sanctuary => TextureId::MetalGrate,
+            Act::Act2Bushland => TextureId::GumLeaves,
+            Act::Act3City => TextureId::CityAsphalt,
+            Act::Act4Ocean => TextureId::BeachSand,
+        };
+        self.draw_quad_3d_textured_gouraud(v0, v1, v2, v3, floor_tex, FaceDirection::Top, (r, g, b));
     }
 
     fn draw_water_tile(&self, wx: i32, wz: i32, act: Act, frame: u8, is_current: bool) {
@@ -359,17 +372,17 @@ impl Renderer {
         let v2 = Vec3I16::new(wx as i16, y, (wz + TILE_SZ) as i16);
         let v3 = Vec3I16::new((wx + TILE_SZ) as i16, y, (wz + TILE_SZ) as i16);
 
-        let (r, g, b) = match act {
-            Act::Act4Ocean => (28, 140, 210), // Azure tropical ocean
+        let tint = match act {
+            Act::Act4Ocean => (160, 200, 240),
             _ => {
                 if is_current {
-                    (35, 125, 210) // Rapid river flume
+                    (190, 220, 255)
                 } else {
-                    (25, 85, 160)
+                    (150, 180, 220)
                 }
             }
         };
-        Self::draw_quad_3d(v0, v1, v2, v3, r, g, b);
+        self.draw_quad_3d_textured_gouraud(v0, v1, v2, v3, TextureId::RiverWater, FaceDirection::Top, tint);
 
         // Animated foam ripples
         if is_current || act == Act::Act4Ocean {
@@ -417,8 +430,22 @@ impl Renderer {
         }
     }
 
-    /// Draw a full 6-sided 3D box with directional lighting and screen-space backface culling.
+    /// Draw a full 6-sided 3D box with directional Gouraud lighting and texture mapping.
     pub fn draw_box_3d(&self, wx: i32, wz: i32, w: i32, h: i32, d: i32, col: (u8, u8, u8)) {
+        self.draw_box_3d_textured(wx, wz, w, h, d, TextureId::Crate, col);
+    }
+
+    /// Draw a full 6-sided 3D box with textured quad Gouraud shading and backface culling.
+    pub fn draw_box_3d_textured(
+        &self,
+        wx: i32,
+        wz: i32,
+        w: i32,
+        h: i32,
+        d: i32,
+        texture: TextureId,
+        col: (u8, u8, u8),
+    ) {
         let x0 = wx as i16;
         let x1 = (wx + w) as i16;
         let y0 = -h as i16;
@@ -426,73 +453,70 @@ impl Renderer {
         let z0 = wz as i16;
         let z1 = (wz + d) as i16;
 
-        // 1. TOP FACE (lit 100%)
-        Self::draw_quad_3d(
+        // 1. TOP FACE (lit by overhead sunlight)
+        self.draw_quad_3d_textured_gouraud(
             Vec3I16::new(x0, y0, z0),
             Vec3I16::new(x1, y0, z0),
             Vec3I16::new(x0, y0, z1),
             Vec3I16::new(x1, y0, z1),
-            col.0, col.1, col.2,
+            texture,
+            FaceDirection::Top,
+            col,
         );
 
-        // 2. FRONT FACE (facing +Z, lit 85%)
-        let f_r = (col.0 as u16 * 85 / 100) as u8;
-        let f_g = (col.1 as u16 * 85 / 100) as u8;
-        let f_b = (col.2 as u16 * 85 / 100) as u8;
-        Self::draw_quad_3d(
+        // 2. FRONT FACE (facing +Z)
+        self.draw_quad_3d_textured_gouraud(
             Vec3I16::new(x0, y0, z1),
             Vec3I16::new(x1, y0, z1),
             Vec3I16::new(x0, y1, z1),
             Vec3I16::new(x1, y1, z1),
-            f_r, f_g, f_b,
+            texture,
+            FaceDirection::Front,
+            col,
         );
 
-        // 3. BACK FACE (facing -Z, lit 75%)
-        let b_r = (col.0 as u16 * 75 / 100) as u8;
-        let b_g = (col.1 as u16 * 75 / 100) as u8;
-        let b_b = (col.2 as u16 * 75 / 100) as u8;
-        Self::draw_quad_3d(
+        // 3. BACK FACE (facing -Z)
+        self.draw_quad_3d_textured_gouraud(
             Vec3I16::new(x1, y0, z0),
             Vec3I16::new(x0, y0, z0),
             Vec3I16::new(x1, y1, z0),
             Vec3I16::new(x0, y1, z0),
-            b_r, b_g, b_b,
+            texture,
+            FaceDirection::Back,
+            col,
         );
 
-        // 4. LEFT FACE (facing -X, lit 70%)
-        let l_r = (col.0 as u16 * 70 / 100) as u8;
-        let l_g = (col.1 as u16 * 70 / 100) as u8;
-        let l_b = (col.2 as u16 * 70 / 100) as u8;
-        Self::draw_quad_3d(
+        // 4. LEFT FACE (facing -X)
+        self.draw_quad_3d_textured_gouraud(
+            Vec3I16::new(x0, y0, z0),
             Vec3I16::new(x0, y0, z1),
-            Vec3I16::new(x0, y0, z0),
-            Vec3I16::new(x0, y1, z1),
             Vec3I16::new(x0, y1, z0),
-            l_r, l_g, l_b,
+            Vec3I16::new(x0, y1, z1),
+            texture,
+            FaceDirection::Left,
+            col,
         );
 
-        // 5. RIGHT FACE (facing +X, lit 60%)
-        let r_r = (col.0 as u16 * 60 / 100) as u8;
-        let r_g = (col.1 as u16 * 60 / 100) as u8;
-        let r_b = (col.2 as u16 * 60 / 100) as u8;
-        Self::draw_quad_3d(
-            Vec3I16::new(x1, y0, z0),
+        // 5. RIGHT FACE (facing +X)
+        self.draw_quad_3d_textured_gouraud(
             Vec3I16::new(x1, y0, z1),
-            Vec3I16::new(x1, y1, z0),
+            Vec3I16::new(x1, y0, z0),
             Vec3I16::new(x1, y1, z1),
-            r_r, r_g, r_b,
+            Vec3I16::new(x1, y1, z0),
+            texture,
+            FaceDirection::Right,
+            col,
         );
 
-        // 6. BOTTOM FACE (facing +Y, lit 45%)
-        let d_r = (col.0 as u16 * 45 / 100) as u8;
-        let d_g = (col.1 as u16 * 45 / 100) as u8;
-        let d_b = (col.2 as u16 * 45 / 100) as u8;
-        Self::draw_quad_3d(
+        // 6. BOTTOM FACE (facing +Y, ground shadow)
+        self.draw_quad_3d_textured_gouraud(
             Vec3I16::new(x0, y1, z1),
             Vec3I16::new(x1, y1, z1),
             Vec3I16::new(x0, y1, z0),
             Vec3I16::new(x1, y1, z0),
-            d_r, d_g, d_b,
+            texture,
+            FaceDirection::Bottom,
+            col,
         );
     }
 
@@ -511,15 +535,34 @@ impl Renderer {
         rot: &Mat3I16,
         col: (u8, u8, u8),
     ) {
+        self.draw_model_box_textured(wx, wy, wz, lx, ly, lz, w, h, d, rot, None, col);
+    }
+
+    /// Helper to draw a textured 3D model box with Gouraud vertex shading.
+    pub fn draw_model_box_textured(
+        &self,
+        wx: i32,
+        wy: i32,
+        wz: i32,
+        lx: i32,
+        ly: i32,
+        lz: i32,
+        w: i32,
+        h: i32,
+        d: i32,
+        rot: &Mat3I16,
+        texture: Option<TextureId>,
+        col: (u8, u8, u8),
+    ) {
         let corners = [
-            (lx, ly, lz),
-            (lx + w, ly, lz),
-            (lx, ly, lz + d),
-            (lx + w, ly, lz + d),
-            (lx, ly + h, lz),
-            (lx + w, ly + h, lz),
-            (lx, ly + h, lz + d),
-            (lx + w, ly + h, lz + d),
+            (lx, ly, lz),             // 0: Top, Back, Left
+            (lx + w, ly, lz),         // 1: Top, Back, Right
+            (lx, ly, lz + d),         // 2: Top, Front, Left
+            (lx + w, ly, lz + d),     // 3: Top, Front, Right
+            (lx, ly + h, lz),         // 4: Bottom, Back, Left
+            (lx + w, ly + h, lz),     // 5: Bottom, Back, Right
+            (lx, ly + h, lz + d),     // 6: Bottom, Front, Left
+            (lx + w, ly + h, lz + d), // 7: Bottom, Front, Right
         ];
 
         let mut world_pts = [Vec3I16::ZERO; 8];
@@ -532,27 +575,74 @@ impl Renderer {
             );
         }
 
-        let f_col = ((col.0 as u16 * 85 / 100) as u8, (col.1 as u16 * 85 / 100) as u8, (col.2 as u16 * 85 / 100) as u8);
-        let b_col = ((col.0 as u16 * 75 / 100) as u8, (col.1 as u16 * 75 / 100) as u8, (col.2 as u16 * 75 / 100) as u8);
-        let l_col = ((col.0 as u16 * 70 / 100) as u8, (col.1 as u16 * 70 / 100) as u8, (col.2 as u16 * 70 / 100) as u8);
-        let r_col = ((col.0 as u16 * 60 / 100) as u8, (col.1 as u16 * 60 / 100) as u8, (col.2 as u16 * 60 / 100) as u8);
-        let bot_col = ((col.0 as u16 * 45 / 100) as u8, (col.1 as u16 * 45 / 100) as u8, (col.2 as u16 * 45 / 100) as u8);
+        if let Some(tex) = texture {
+            self.draw_quad_3d_textured_gouraud(world_pts[0], world_pts[1], world_pts[2], world_pts[3], tex, FaceDirection::Top, col);
+            self.draw_quad_3d_textured_gouraud(world_pts[2], world_pts[3], world_pts[6], world_pts[7], tex, FaceDirection::Front, col);
+            self.draw_quad_3d_textured_gouraud(world_pts[1], world_pts[0], world_pts[5], world_pts[4], tex, FaceDirection::Back, col);
+            self.draw_quad_3d_textured_gouraud(world_pts[2], world_pts[0], world_pts[6], world_pts[4], tex, FaceDirection::Left, col);
+            self.draw_quad_3d_textured_gouraud(world_pts[1], world_pts[3], world_pts[5], world_pts[7], tex, FaceDirection::Right, col);
+            self.draw_quad_3d_textured_gouraud(world_pts[6], world_pts[7], world_pts[4], world_pts[5], tex, FaceDirection::Bottom, col);
+        } else {
+            let f_col = ((col.0 as u16 * 85 / 100) as u8, (col.1 as u16 * 85 / 100) as u8, (col.2 as u16 * 85 / 100) as u8);
+            let b_col = ((col.0 as u16 * 75 / 100) as u8, (col.1 as u16 * 75 / 100) as u8, (col.2 as u16 * 75 / 100) as u8);
+            let l_col = ((col.0 as u16 * 70 / 100) as u8, (col.1 as u16 * 70 / 100) as u8, (col.2 as u16 * 70 / 100) as u8);
+            let r_col = ((col.0 as u16 * 60 / 100) as u8, (col.1 as u16 * 60 / 100) as u8, (col.2 as u16 * 60 / 100) as u8);
+            let bot_col = ((col.0 as u16 * 45 / 100) as u8, (col.1 as u16 * 45 / 100) as u8, (col.2 as u16 * 45 / 100) as u8);
 
-        // 1. Top face
-        Self::draw_quad_3d(world_pts[0], world_pts[1], world_pts[2], world_pts[3], col.0, col.1, col.2);
-        // 2. Front face
-        Self::draw_quad_3d(world_pts[2], world_pts[3], world_pts[6], world_pts[7], f_col.0, f_col.1, f_col.2);
-        // 3. Back face
-        Self::draw_quad_3d(world_pts[1], world_pts[0], world_pts[5], world_pts[4], b_col.0, b_col.1, b_col.2);
-        // 4. Left face
-        Self::draw_quad_3d(world_pts[2], world_pts[0], world_pts[6], world_pts[4], l_col.0, l_col.1, l_col.2);
-        // 5. Right face
-        Self::draw_quad_3d(world_pts[1], world_pts[3], world_pts[5], world_pts[7], r_col.0, r_col.1, r_col.2);
-        // 6. Bottom face
-        Self::draw_quad_3d(world_pts[6], world_pts[7], world_pts[4], world_pts[5], bot_col.0, bot_col.1, bot_col.2);
+            Self::draw_quad_3d(world_pts[0], world_pts[1], world_pts[2], world_pts[3], col.0, col.1, col.2);
+            Self::draw_quad_3d(world_pts[2], world_pts[3], world_pts[6], world_pts[7], f_col.0, f_col.1, f_col.2);
+            Self::draw_quad_3d(world_pts[1], world_pts[0], world_pts[5], world_pts[4], b_col.0, b_col.1, b_col.2);
+            Self::draw_quad_3d(world_pts[2], world_pts[0], world_pts[6], world_pts[4], l_col.0, l_col.1, l_col.2);
+            Self::draw_quad_3d(world_pts[1], world_pts[3], world_pts[5], world_pts[7], r_col.0, r_col.1, r_col.2);
+            Self::draw_quad_3d(world_pts[6], world_pts[7], world_pts[4], world_pts[5], bot_col.0, bot_col.1, bot_col.2);
+        }
     }
 
-    /// Project and render a 3D quad using native PS1 GPU hardware quad GP0(0x28).
+    /// Project and render a 3D quad using hardware textured Gouraud primitive GP0(0x3C).
+    #[inline]
+    pub fn draw_quad_3d_textured_gouraud(
+        &self,
+        v0: Vec3I16,
+        v1: Vec3I16,
+        v2: Vec3I16,
+        v3: Vec3I16,
+        texture: TextureId,
+        face_dir: FaceDirection,
+        base_tint: (u8, u8, u8),
+    ) {
+        let p0 = scene::project_vertex(v0);
+        let p1 = scene::project_vertex(v1);
+        let p2 = scene::project_vertex(v2);
+        let p3 = scene::project_vertex(v3);
+
+        if p0.sz < 20 || p1.sz < 20 || p2.sz < 20 || p3.sz < 20 {
+            return;
+        }
+
+        // Screen-space backface culling check
+        let ax = p1.sx as i32 - p0.sx as i32;
+        let ay = p1.sy as i32 - p0.sy as i32;
+        let bx = p2.sx as i32 - p0.sx as i32;
+        let by = p2.sy as i32 - p0.sy as i32;
+        if ax * by - ay * bx <= 0 {
+            return;
+        }
+
+        let (bank, uvs) = texture.uv_and_bank();
+        let clut_word = self.textures.clut_words[bank as usize];
+        let tpage_word = self.textures.tpage_word;
+        let colors = gouraud_face_colors(face_dir, base_tint);
+
+        gpu::draw_quad_textured_gouraud(
+            [(p0.sx, p0.sy), (p1.sx, p1.sy), (p2.sx, p2.sy), (p3.sx, p3.sy)],
+            uvs,
+            colors,
+            clut_word,
+            tpage_word,
+        );
+    }
+
+    /// Project and render a 3D quad using native PS1 GPU hardware flat quad GP0(0x28).
     #[inline]
     pub fn draw_quad_3d(v0: Vec3I16, v1: Vec3I16, v2: Vec3I16, v3: Vec3I16, r: u8, g: u8, b: u8) {
         let p0 = scene::project_vertex(v0);
@@ -658,18 +748,18 @@ impl Renderer {
         let is_crawl = platty.state == PlayerState::BellyCrawl;
         let body_h = if is_crawl { 8 } else { 16 };
 
-        // 1. Platty Body (Rich warm chestnut brown fur)
-        self.draw_model_box(px, py, pz, -12, -body_h, -14, 24, body_h, 28, &rot, (155, 100, 50));
+        // 1. Platty Body (Rich warm chestnut brown fur with 4bpp pelt texture & Gouraud shading)
+        self.draw_model_box_textured(px, py, pz, -12, -body_h, -14, 24, body_h, 28, &rot, Some(TextureId::PlattyFur), (160, 110, 60));
 
         // 2. Underbelly Cream
-        self.draw_model_box(px, py, pz, -8, -body_h / 2, -10, 16, body_h / 2, 20, &rot, (195, 145, 90));
+        self.draw_model_box_textured(px, py, pz, -8, -body_h / 2, -10, 16, body_h / 2, 20, &rot, Some(TextureId::PlattyFur), (200, 150, 100));
 
-        // 3. Duck Bill (+Z in local facing)
-        self.draw_model_box(px, py, pz, -7, -8, 14, 14, 5, 16, &rot, (72, 70, 68));
+        // 3. Duck Bill (+Z in local facing) with leathery sensory texture
+        self.draw_model_box_textured(px, py, pz, -7, -8, 14, 14, 5, 16, &rot, Some(TextureId::PlattyBill), (150, 150, 150));
 
         // 4. Beaver Paddle Tail (-Z in local facing)
         let tail_wobble = ((platty.anim_frame / 4) % 2) as i32 * 2;
-        self.draw_model_box(px, py, pz, -9 + tail_wobble, -5, -30, 18, 5, 18, &rot, (120, 72, 38));
+        self.draw_model_box_textured(px, py, pz, -9 + tail_wobble, -5, -30, 18, 5, 18, &rot, Some(TextureId::PlattyFur), (130, 80, 45));
 
         // 5. Webbed Feet (Orange-tan)
         self.draw_model_box(px, py, pz, -15, -3, 6, 5, 3, 8, &rot, (215, 130, 45));
@@ -687,10 +777,10 @@ impl Renderer {
         self.draw_model_box(px, py, pz, 5, -body_h - 3, -4, 9, 8, 10, &rot, (185, 135, 65));
         self.draw_model_box(px, py, pz, 7, -body_h - 5, -2, 5, 3, 6, &rot, (255, 250, 240));
 
-        // 8. Solid Snake Green Bandana around forehead!
-        self.draw_model_box(px, py, pz, -13, -body_h - 1, 4, 26, 4, 10, &rot, (30, 210, 75));
+        // 8. Solid Snake Bandana around forehead with knot!
+        self.draw_model_box_textured(px, py, pz, -13, -body_h - 1, 4, 26, 4, 10, &rot, Some(TextureId::PlattyBandana), (180, 230, 180));
         let knot_flutter = if (platty.anim_frame / 6) % 2 == 0 { -3 } else { 2 };
-        self.draw_model_box(px, py, pz, -15 + knot_flutter, -body_h, -10, 5, 6, 8, &rot, (25, 180, 65));
+        self.draw_model_box_textured(px, py, pz, -15 + knot_flutter, -body_h, -10, 5, 6, 8, &rot, Some(TextureId::PlattyBandana), (170, 210, 170));
     }
 
     // -------------------------------------------------------------------------
@@ -712,12 +802,12 @@ impl Renderer {
                 gpu::draw_rect_flat(star_p.sx + star_off, star_p.sy - 8, 4, 4, 255, 240, 60);
             }
         } else {
-            // Standing sentry (boots, uniform, head, ranger hat, tactical rifle)
+            // Standing sentry (boots, camo uniform, head, ranger hat, tactical rifle)
             self.draw_model_box(sx, sy, sz, -8, -16, -8, 16, 16, 16, &rot, (45, 52, 60)); // Boots/Legs
-            self.draw_model_box(sx, sy, sz, -10, -32, -8, 20, 16, 16, &rot, (60, 85, 70)); // Uniform
+            self.draw_model_box_textured(sx, sy, sz, -10, -32, -8, 20, 16, 16, &rot, Some(TextureId::SentryCamo), (170, 170, 170)); // Camo Uniform
             self.draw_model_box(sx, sy, sz, -8, -44, -8, 16, 12, 16, &rot, (210, 175, 140)); // Head
             self.draw_model_box(sx, sy, sz, -12, -48, -12, 24, 6, 24, &rot, (85, 75, 50)); // Ranger Hat
-            self.draw_model_box(sx, sy, sz, 8, -26, 4, 6, 6, 22, &rot, (35, 38, 42)); // Tactical Rifle
+            self.draw_model_box_textured(sx, sy, sz, 8, -26, 4, 6, 6, 22, &rot, Some(TextureId::MetalGrate), (140, 140, 140)); // Tactical Rifle
 
             if s.see_player {
                 // Red "!" Exclamation mark overhead
@@ -865,11 +955,11 @@ impl Renderer {
             let pz = p.z + p.d / 2;
             self.draw_model_box(px, py, pz, -2, -28, -2, 4, 28, 4, &rot, (200, 200, 200)); // Mast
             // Canopy
-            self.draw_model_box(px, py, pz, -18, -32, -18, 36, 6, 36, &rot, (230, 50, 60)); // Red/White umbrella
+            self.draw_model_box_textured(px, py, pz, -18, -32, -18, 36, 6, 36, &rot, Some(TextureId::Parasol), (220, 220, 220)); // Striped parasol
             self.draw_model_box(px, py, pz, -12, -34, -12, 24, 4, 24, &rot, (255, 255, 255));
         } else {
             // Stepped sandstone cliff ledge
-            self.draw_box_3d(p.x, p.z, p.w, -p.y, p.d, (175, 145, 95));
+            self.draw_box_3d_textured(p.x, p.z, p.w, -p.y, p.d, TextureId::RockCliff, (175, 145, 95));
         }
     }
 

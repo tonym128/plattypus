@@ -19,6 +19,7 @@ mod platypus;
 mod renderer;
 pub mod save;
 pub mod dualshock;
+pub mod texture;
 
 use audio::AudioManager;
 use game::Game;
