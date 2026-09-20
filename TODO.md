@@ -4,12 +4,12 @@
 
 These 5 items form the core technical foundation required for a commercial-grade PlayStation experience.
 
-- [ ] **1. SPU / CD-DA Audio Engine**
-  - [ ] Implement SPU ADPCM sound effects driver (24 hardware voices)
-  - [ ] Add sound effects: footsteps (metal, grass, pavement), sentry alert exclamation (`!`), dive splash, spur strike
-  - [ ] Implement CD-DA or XA audio streaming for dynamic background music
-  - [ ] Compose/integrate ambient stealth BGM and high-intensity alert BGM
-  - [ ] Implement CODEC chime audio and digitized voice transmission clips for Burrow Command
+- [x] **1. SPU / CD-DA Audio Engine**
+  - [x] Implement SPU ADPCM sound effects driver (24 hardware voices)
+  - [x] Add sound effects: footsteps (metal, grass, pavement), sentry alert exclamation (`!`), dive splash, spur strike
+  - [x] Implement CD-DA or XA audio streaming for dynamic background music
+  - [x] Compose/integrate ambient stealth BGM and high-intensity alert BGM
+  - [x] Implement CODEC chime audio and digitized voice transmission clips for Burrow Command
 
 - [ ] **2. Memory Card System (1 Block)**
   - [ ] Implement PS1 BIOS memory card read/write routines
