@@ -6,7 +6,7 @@ use crate::audio::AudioManager;
 use crate::entities::{CollectibleType, EntityManager, RiverObstacleType, SentryState};
 use crate::level::{Act, Level};
 use psx_gte_core::transform::{cos_1_3_12, sin_1_3_12};
-use psx_pad::{button, ButtonState};
+use psx_pad::{button, ButtonState, Deadzone, PadState};
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum PlayerState {
@@ -44,6 +44,11 @@ pub struct Platypus {
     pub anim_frame: u8,
     pub step_audio_timer: u8,
     pub on_ground: bool,
+
+    // DualShock Vibration Timers
+    pub rumble_small_timer: u8,
+    pub rumble_large_timer: u8,
+    pub rumble_large_intensity: u8,
 }
 
 impl Platypus {
@@ -70,6 +75,9 @@ impl Platypus {
             anim_frame: 0,
             step_audio_timer: 0,
             on_ground: true,
+            rumble_small_timer: 0,
+            rumble_large_timer: 0,
+            rumble_large_intensity: 0,
         }
     }
 
@@ -88,16 +96,49 @@ impl Platypus {
         self.invuln_timer = 60;
         self.screen_shake = 0;
         self.on_ground = true;
+        self.rumble_small_timer = 0;
+        self.rumble_large_timer = 0;
+        self.rumble_large_intensity = 0;
+    }
+
+    pub fn trigger_rumble_small(&mut self, duration: u8) {
+        self.rumble_small_timer = self.rumble_small_timer.max(duration);
+    }
+
+    pub fn trigger_rumble_large(&mut self, duration: u8, intensity: u8) {
+        self.rumble_large_timer = self.rumble_large_timer.max(duration);
+        self.rumble_large_intensity = self.rumble_large_intensity.max(intensity);
+    }
+
+    pub fn get_rumble_state(&self) -> (bool, u8) {
+        let small = self.rumble_small_timer > 0;
+        let large = if self.rumble_large_timer > 0 {
+            self.rumble_large_intensity
+        } else {
+            0
+        };
+        (small, large)
     }
 
     pub fn update(
         &mut self,
-        buttons: ButtonState,
+        pad: &PadState,
         prev_buttons: ButtonState,
         level: &Level,
         entities: &mut EntityManager,
     ) {
+        let buttons = pad.buttons;
         self.anim_frame = self.anim_frame.wrapping_add(1);
+
+        if self.rumble_small_timer > 0 {
+            self.rumble_small_timer -= 1;
+        }
+        if self.rumble_large_timer > 0 {
+            self.rumble_large_timer -= 1;
+            if self.rumble_large_timer == 0 {
+                self.rumble_large_intensity = 0;
+            }
+        }
 
         if self.invuln_timer > 0 {
             self.invuln_timer -= 1;
@@ -173,6 +214,7 @@ impl Platypus {
                                     self.on_ground = false;
                                     self.state = PlayerState::Jumping;
                                     self.screen_shake = 4;
+                                    self.trigger_rumble_large(8, 160);
                                     AudioManager::play_jump();
                                 }
                             } else if self.y <= p.y + 4 {
@@ -212,6 +254,7 @@ impl Platypus {
         // Electro-Reception Radar Pulse (Triangle)
         if just_triangle && self.electro_timer == 0 {
             self.electro_timer = 50;
+            self.trigger_rumble_small(12);
             AudioManager::play_electro();
             self.screen_shake = 3;
 
@@ -269,6 +312,8 @@ impl Platypus {
                         s.state = SentryState::Stunned;
                         self.score += 200;
                         self.screen_shake = 5;
+                        self.trigger_rumble_large(8, 220);
+                        self.trigger_rumble_small(6);
                         AudioManager::play_hit();
                         spark_pos = Some((s.x, s.y - 20, s.z));
                         break;
@@ -280,86 +325,165 @@ impl Platypus {
             }
         }
 
-        // Directional Movement input
-        let btn_up = buttons.is_held(button::UP);
-        let btn_down = buttons.is_held(button::DOWN);
-        let btn_left = buttons.is_held(button::LEFT);
-        let btn_right = buttons.is_held(button::RIGHT);
-
-        let mut move_x = 0;
-        let mut move_z = 0;
-
-        if btn_up {
-            move_z -= 1;
-        }
-        if btn_down {
-            move_z += 1;
-        }
-        if btn_left {
-            move_x -= 1;
-        }
-        if btn_right {
-            move_x += 1;
-        }
-
-        // Automatic river current push in Act 2
-        if level.act == Act::Act2Bushland {
-            move_z += 2; // Rushing downriver!
-        }
-
-        let speed = if self.crawl_mode {
-            2
-        } else if in_water {
-            if self.state == PlayerState::Submerged { 2 } else { 3 }
-        } else if !self.on_ground {
-            4 // Air mobility
+        // DualShock Analog Stick vs Digital D-pad directional movement
+        let (lx, ly) = pad.sticks.left_centered();
+        let dz = Deadzone::new(18);
+        let analog_stick = if pad.mode.has_sticks() {
+            dz.scaled(lx, ly)
         } else {
-            4 // Normal run
+            None
         };
 
-        if move_x != 0 || move_z != 0 {
-            self.vx = move_x * speed;
-            self.vz = move_z * speed;
+        let mut is_analog_moving = false;
 
-            // Facing angle: 0=South (+Z), 64=East (+X), 128=North (-Z), 192=West (-X)
-            if move_x > 0 && move_z == 0 {
-                self.angle = 64;
-            } else if move_x < 0 && move_z == 0 {
-                self.angle = 192;
-            } else if move_z > 0 && move_x == 0 {
-                self.angle = 0;
-            } else if move_z < 0 && move_x == 0 {
-                self.angle = 128;
-            } else if move_x > 0 && move_z > 0 {
-                self.angle = 32;
-            } else if move_x > 0 && move_z < 0 {
-                self.angle = 96;
-            } else if move_x < 0 && move_z > 0 {
-                self.angle = 224;
-            } else if move_x < 0 && move_z < 0 {
-                self.angle = 160;
-            }
+        if let Some((sx, sy)) = analog_stick {
+            let sx_i32 = sx as i32;
+            let sy_i32 = sy as i32;
+            let mag = psx_math::int32::isqrt_i32(sx_i32 * sx_i32 + sy_i32 * sy_i32);
 
-            if self.on_ground && !self.crawl_mode && self.strike_timer == 0 {
-                self.state = PlayerState::Running;
-                if self.step_audio_timer == 0 {
-                    self.step_audio_timer = 14;
-                    let surface = match level.act {
-                        Act::Act1Sanctuary => crate::audio::SurfaceType::Concrete,
-                        Act::Act2Bushland => crate::audio::SurfaceType::Grass,
-                        Act::Act3City => crate::audio::SurfaceType::Metal,
-                        Act::Act4Ocean => crate::audio::SurfaceType::Grass,
-                    };
-                    AudioManager::play_footstep(surface);
+            if mag > 0 {
+                is_analog_moving = true;
+
+                // True 360-degree angle from analog stick via atan2_q12
+                // atan2_q12(sx, sy) returns 0..4096. Shifting >> 4 gives 0..256 matching GTE rotation.
+                let raw_angle = psx_math::atan2_q12(sx_i32, sy_i32);
+                self.angle = (raw_angle >> 4) as u16;
+
+                // Analog speed curve:
+                // mag < 65: Slow tilt = stealth stalk/sneak mode (silent movement, no sentry alert)
+                // mag >= 65: Hard push = full sprint
+                let max_speed = if self.crawl_mode {
+                    2
+                } else if in_water {
+                    if self.state == PlayerState::Submerged { 2 } else { 3 }
+                } else if !self.on_ground {
+                    4
+                } else if mag < 65 {
+                    2 // Stalking / sneak speed
+                } else {
+                    4 // Full run speed
+                };
+
+                // Scale velocity smoothly with analog stick deflection
+                let speed = (max_speed * mag) / 127;
+                let speed = speed.max(1);
+
+                self.vx = (sx_i32 * speed) / 127;
+                self.vz = (sy_i32 * speed) / 127;
+
+                if level.act == Act::Act2Bushland {
+                    self.vz += 2; // Rushing downriver!
+                }
+
+                if self.on_ground && !self.crawl_mode && self.strike_timer == 0 {
+                    if mag < 65 {
+                        self.state = PlayerState::Sneaking;
+                        // Stealth stalk: NO footstep sound! Silent paws.
+                    } else {
+                        self.state = PlayerState::Running;
+                        if self.step_audio_timer == 0 {
+                            self.step_audio_timer = 14;
+                            let surface = match level.act {
+                                Act::Act1Sanctuary => crate::audio::SurfaceType::Concrete,
+                                Act::Act2Bushland => crate::audio::SurfaceType::Grass,
+                                Act::Act3City => {
+                                    self.trigger_rumble_small(3);
+                                    crate::audio::SurfaceType::Metal
+                                }
+                                Act::Act4Ocean => crate::audio::SurfaceType::Grass,
+                            };
+                            AudioManager::play_footstep(surface);
+                        }
+                    }
                 }
             }
-        } else {
-            self.vx = 0;
-            if level.act != Act::Act2Bushland {
-                self.vz = 0;
+        }
+
+        if !is_analog_moving {
+            // Digital D-pad fallback
+            let btn_up = buttons.is_held(button::UP);
+            let btn_down = buttons.is_held(button::DOWN);
+            let btn_left = buttons.is_held(button::LEFT);
+            let btn_right = buttons.is_held(button::RIGHT);
+
+            let mut move_x = 0;
+            let mut move_z = 0;
+
+            if btn_up {
+                move_z -= 1;
             }
-            if self.on_ground && !self.crawl_mode && self.strike_timer == 0 && !in_water {
-                self.state = PlayerState::Standing;
+            if btn_down {
+                move_z += 1;
+            }
+            if btn_left {
+                move_x -= 1;
+            }
+            if btn_right {
+                move_x += 1;
+            }
+
+            // Automatic river current push in Act 2
+            if level.act == Act::Act2Bushland {
+                move_z += 2; // Rushing downriver!
+            }
+
+            let speed = if self.crawl_mode {
+                2
+            } else if in_water {
+                if self.state == PlayerState::Submerged { 2 } else { 3 }
+            } else if !self.on_ground {
+                4 // Air mobility
+            } else {
+                4 // Normal run
+            };
+
+            if move_x != 0 || move_z != 0 {
+                self.vx = move_x * speed;
+                self.vz = move_z * speed;
+
+                // Facing angle: 0=South (+Z), 64=East (+X), 128=North (-Z), 192=West (-X)
+                if move_x > 0 && move_z == 0 {
+                    self.angle = 64;
+                } else if move_x < 0 && move_z == 0 {
+                    self.angle = 192;
+                } else if move_z > 0 && move_x == 0 {
+                    self.angle = 0;
+                } else if move_z < 0 && move_x == 0 {
+                    self.angle = 128;
+                } else if move_x > 0 && move_z > 0 {
+                    self.angle = 32;
+                } else if move_x > 0 && move_z < 0 {
+                    self.angle = 96;
+                } else if move_x < 0 && move_z > 0 {
+                    self.angle = 224;
+                } else if move_x < 0 && move_z < 0 {
+                    self.angle = 160;
+                }
+
+                if self.on_ground && !self.crawl_mode && self.strike_timer == 0 {
+                    self.state = PlayerState::Running;
+                    if self.step_audio_timer == 0 {
+                        self.step_audio_timer = 14;
+                        let surface = match level.act {
+                            Act::Act1Sanctuary => crate::audio::SurfaceType::Concrete,
+                            Act::Act2Bushland => crate::audio::SurfaceType::Grass,
+                            Act::Act3City => {
+                                self.trigger_rumble_small(3);
+                                crate::audio::SurfaceType::Metal
+                            }
+                            Act::Act4Ocean => crate::audio::SurfaceType::Grass,
+                        };
+                        AudioManager::play_footstep(surface);
+                    }
+                }
+            } else {
+                self.vx = 0;
+                if level.act != Act::Act2Bushland {
+                    self.vz = 0;
+                }
+                if self.on_ground && !self.crawl_mode && self.strike_timer == 0 && !in_water {
+                    self.state = PlayerState::Standing;
+                }
             }
         }
 
@@ -508,6 +632,7 @@ impl Platypus {
                         crab.active = false;
                         self.vy = -10; // Bounce up!
                         self.score += 150;
+                        self.trigger_rumble_small(6);
                         AudioManager::play_hit();
                         crab_stomped_pos = Some((crab.x, crab.y, crab.z));
                         break;
@@ -535,6 +660,8 @@ impl Platypus {
         }
         self.invuln_timer = 60;
         self.screen_shake = 8;
+        self.trigger_rumble_large(14, 255);
+        self.trigger_rumble_small(10);
         AudioManager::play_hit();
     }
 }

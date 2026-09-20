@@ -18,6 +18,7 @@ mod level;
 mod platypus;
 mod renderer;
 pub mod save;
+pub mod dualshock;
 
 use audio::AudioManager;
 use game::Game;

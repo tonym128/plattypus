@@ -18,6 +18,7 @@ dependencies = [
  "psx-gte",
  "psx-gte-core",
  "psx-hw",
+ "psx-io",
  "psx-math",
  "psx-mc",
  "psx-pad",

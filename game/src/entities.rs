@@ -659,6 +659,7 @@ impl EntityManager {
         _player_y: i32,
         player_z: i32,
         player_crawling: bool,
+        player_sneaking: bool,
         player_submerged: bool,
         level: &Level,
     ) {
@@ -666,7 +667,7 @@ impl EntityManager {
 
         match act {
             Act::Act1Sanctuary => {
-                self.update_act1(player_x, player_z, player_crawling, player_submerged, level);
+                self.update_act1(player_x, player_z, player_crawling, player_sneaking, player_submerged, level);
             }
             Act::Act2Bushland => {
                 self.update_act2();
@@ -700,6 +701,7 @@ impl EntityManager {
         player_x: i32,
         player_z: i32,
         player_crawling: bool,
+        player_sneaking: bool,
         player_submerged: bool,
         level: &Level,
     ) {
@@ -798,8 +800,8 @@ impl EntityManager {
                     let obstructed = level.is_solid_at(mid_x, mid_z, false);
 
                     if !obstructed {
-                        // Close proximity hearing if player is not crawling
-                        let heard = dist_sq < (52 * 52) && !player_crawling;
+                        // Close proximity hearing if player is not crawling or sneaking
+                        let heard = dist_sq < (52 * 52) && !player_crawling && !player_sneaking;
 
                         // Forward vector for angle (sin for X, cos for Z)
                         let fwd_x = sin_1_3_12(s.angle) as i32;

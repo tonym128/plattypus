@@ -6,12 +6,13 @@ use crate::codec::{
     CodecManager, ACT1_START_DIALOGUE, ACT2_START_DIALOGUE, ACT3_START_DIALOGUE,
     ACT4_START_DIALOGUE, INTRO_DIALOGUE, RADIO_TIPS_DIALOGUE,
 };
+use crate::dualshock::DualShockController;
 use crate::entities::EntityManager;
 use crate::level::{Act, Level, TILE_SZ};
 use crate::platypus::{PlayerState, Platypus};
 use crate::renderer::Renderer;
 use psx_gpu as gpu;
-use psx_pad::{button, poll_port1, ButtonState};
+use psx_pad::{button, AnalogSticks, ButtonState, PadMode, PadState};
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum GameState {
@@ -38,6 +39,8 @@ pub struct Game {
     pub idle_timer: u16,
     pub memcard: crate::save::MemoryCardManager,
     pub save_data: crate::save::SaveData,
+    pub dualshock: DualShockController,
+    pub was_connected: bool,
 }
 
 impl Game {
@@ -50,6 +53,8 @@ impl Game {
         let codec = CodecManager::new();
         let mut memcard = crate::save::MemoryCardManager::new();
         let save_data = memcard.load_from_slot1().unwrap_or_else(crate::save::SaveData::new);
+        let mut dualshock = DualShockController::new();
+        dualshock.init();
 
         Self {
             state: GameState::Title,
@@ -63,6 +68,8 @@ impl Game {
             idle_timer: 0,
             memcard,
             save_data,
+            dualshock,
+            was_connected: true,
         }
     }
 
@@ -77,8 +84,26 @@ impl Game {
         AudioManager::update();
         self.memcard.update();
 
-        let pad = poll_port1();
+        let (rumble_small, rumble_large) = self.platty.get_rumble_state();
+        let pad = self.dualshock.poll(rumble_small, rumble_large);
         let buttons = pad.buttons;
+
+        let is_connected = pad.is_connected();
+        if is_connected && !self.was_connected {
+            self.dualshock.init();
+        }
+        self.was_connected = is_connected;
+
+        // Controller Disconnection Pause Screen during active gameplay
+        let is_gameplay = matches!(self.state, GameState::Playing | GameState::InGameCodec);
+        if !is_connected && is_gameplay {
+            self.renderer.begin_frame();
+            self.renderer.draw_3d_scene(&self.level, &self.platty, &self.entities, self.frame);
+            self.renderer.draw_hud(&self.platty, &self.entities, self.level.act);
+            self.draw_controller_disconnected_overlay();
+            self.prev_buttons = ButtonState::NONE;
+            return;
+        }
 
         let just_start = buttons.is_held(button::START) && !self.prev_buttons.is_held(button::START);
         let just_cross = buttons.is_held(button::CROSS) && !self.prev_buttons.is_held(button::CROSS);
@@ -149,9 +174,17 @@ impl Game {
                     };
 
                     let is_crawling = self.platty.state == PlayerState::BellyCrawl;
+                    let is_sneaking = self.platty.state == PlayerState::Sneaking;
                     let is_submerged = self.platty.state == PlayerState::Submerged;
 
-                    self.platty.update(sim_buttons, ButtonState::NONE, &self.level, &mut self.entities);
+                    let demo_pad = PadState {
+                        buttons: sim_buttons,
+                        mode: PadMode::Digital,
+                        sticks: AnalogSticks::CENTERED,
+                        id_low: 0x41,
+                    };
+
+                    self.platty.update(&demo_pad, ButtonState::NONE, &self.level, &mut self.entities);
                     self.platty.health = self.platty.max_health;
                     self.entities.update(
                         self.level.act,
@@ -159,6 +192,7 @@ impl Game {
                         self.platty.y,
                         self.platty.z,
                         is_crawling,
+                        is_sneaking,
                         is_submerged,
                         &self.level,
                     );
@@ -228,15 +262,17 @@ impl Game {
                 } else {
                     // Update player and 3D entities
                     let is_crawling = self.platty.state == PlayerState::BellyCrawl;
+                    let is_sneaking = self.platty.state == PlayerState::Sneaking;
                     let is_submerged = self.platty.state == PlayerState::Submerged;
 
-                    self.platty.update(buttons, self.prev_buttons, &self.level, &mut self.entities);
+                    self.platty.update(&pad, self.prev_buttons, &self.level, &mut self.entities);
                     self.entities.update(
                         self.level.act,
                         self.platty.x,
                         self.platty.y,
                         self.platty.z,
                         is_crawling,
+                        is_sneaking,
                         is_submerged,
                         &self.level,
                     );
@@ -369,5 +405,26 @@ impl Game {
             Act::Act4Ocean => crate::audio::BgmTrack::Beach,
         };
         AudioManager::set_bgm(track);
+    }
+
+    fn draw_controller_disconnected_overlay(&self) {
+        let box_x: i16 = 30;
+        let box_y: i16 = 75;
+        let box_w: u16 = 260;
+        let box_h: u16 = 90;
+
+        // Dark tactical overlay box
+        gpu::draw_rect_flat(box_x, box_y, box_w, box_h, 12, 12, 20);
+        // Red alert border
+        gpu::draw_rect_flat(box_x, box_y, box_w, 2, 220, 40, 40);
+        gpu::draw_rect_flat(box_x, box_y + box_h as i16 - 2, box_w, 2, 220, 40, 40);
+        gpu::draw_rect_flat(box_x, box_y, 2, box_h, 220, 40, 40);
+        gpu::draw_rect_flat(box_x + box_w as i16 - 2, box_y, 2, box_h, 220, 40, 40);
+
+        // Header warning
+        self.renderer.font.draw_text(box_x + 22, box_y + 14, "! CONTROLLER DISCONNECTED !", (255, 60, 60));
+        self.renderer.font.draw_text(box_x + 18, box_y + 36, "PLEASE CONNECT A CONTROLLER", (220, 230, 240));
+        self.renderer.font.draw_text(box_x + 52, box_y + 50, "TO CONTROLLER PORT 1", (220, 230, 240));
+        self.renderer.font.draw_text(box_x + 28, box_y + 68, "[ DUALSHOCK / DIGITAL PAD ]", (120, 180, 220));
     }
 }
