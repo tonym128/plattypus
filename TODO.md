@@ -22,11 +22,11 @@ These 5 items form the core technical foundation required for a commercial-grade
   - [x] Implement dual-motor vibration feedback (small motor for heartbeats/alerts; heavy motor for explosions/hits)
   - [x] Support controller unplug / replug detection without game freeze
 
-- [ ] **4. VRAM Texturing & Gouraud Shading**
-  - [ ] Create VRAM atlas layout (`0..1024x512`) with 4-bit / 8-bit color lookup tables (CLUT)
-  - [ ] Paint low-res textures for Platty, sentries, crates, vehicles, and environmental tiles
-  - [ ] Update renderer to use hardware textured quads (`gpu::draw_quad_textured`) with PS1 affine mapping
-  - [ ] Implement hardware Gouraud directional vertex shading
+- [x] **4. VRAM Texturing & Gouraud Shading**
+  - [x] Create VRAM atlas layout (`0..1024x512`) with 4-bit / 8-bit color lookup tables (CLUT)
+  - [x] Paint low-res textures for Platty, sentries, crates, vehicles, and environmental tiles
+  - [x] Update renderer to use hardware textured quads (`gpu::draw_quad_textured`) with PS1 affine mapping
+  - [x] Implement hardware Gouraud directional vertex shading
 
 - [ ] **5. Chapter 1 Tactical Boss Fight (Searchlight Mech)**
   - [ ] Create 3D multi-part model for the Sanctuary Searchlight Mech walker
