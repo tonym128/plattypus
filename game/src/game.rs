@@ -36,6 +36,8 @@ pub struct Game {
     pub prev_buttons: ButtonState,
     pub frame: u8,
     pub idle_timer: u16,
+    pub memcard: crate::save::MemoryCardManager,
+    pub save_data: crate::save::SaveData,
 }
 
 impl Game {
@@ -46,6 +48,8 @@ impl Game {
         entities.load_act(Act::Act1Sanctuary);
         let renderer = Renderer::new();
         let codec = CodecManager::new();
+        let mut memcard = crate::save::MemoryCardManager::new();
+        let save_data = memcard.load_from_slot1().unwrap_or_else(crate::save::SaveData::new);
 
         Self {
             state: GameState::Title,
@@ -57,6 +61,8 @@ impl Game {
             prev_buttons: ButtonState::NONE,
             frame: 0,
             idle_timer: 0,
+            memcard,
+            save_data,
         }
     }
 
@@ -69,6 +75,7 @@ impl Game {
     pub fn tick(&mut self) {
         self.frame = self.frame.wrapping_add(1);
         AudioManager::update();
+        self.memcard.update();
 
         let pad = poll_port1();
         let buttons = pad.buttons;
@@ -252,6 +259,12 @@ impl Game {
                         || (self.level.act == Act::Act3City && self.platty.z <= 3 * TILE_SZ);
 
                     if reached_exit {
+                        // Automatically save progress & high score to Memory Card
+                        self.save_data.unlocked_act = (self.level.act as u8 + 1).max(self.save_data.unlocked_act);
+                        self.save_data.highest_score = self.save_data.highest_score.max(self.platty.score);
+                        self.save_data.total_yabbies = self.save_data.total_yabbies.saturating_add(self.platty.yabbies_collected as u16);
+                        self.memcard.save_to_slot1(&self.save_data);
+
                         if self.level.act == Act::Act4Ocean {
                             self.state = GameState::Ending;
                             AudioManager::play_fanfare();
@@ -265,6 +278,23 @@ impl Game {
                     self.renderer.begin_frame();
                     self.renderer.draw_3d_scene(&self.level, &self.platty, &self.entities, self.frame);
                     self.renderer.draw_hud(&self.platty, &self.entities, self.level.act);
+
+                    // Memory Card tactical OSD message
+                    match self.memcard.status {
+                        crate::save::SaveStatus::Saving => {
+                            gpu::draw_rect_flat(100, 214, 120, 18, 10, 25, 40);
+                            self.renderer.font.draw_text(106, 218, "SAVING TO MEM CARD...", (100, 220, 255));
+                        }
+                        crate::save::SaveStatus::SaveSuccess => {
+                            gpu::draw_rect_flat(96, 214, 128, 18, 10, 35, 20);
+                            self.renderer.font.draw_text(102, 218, "MISSION PROGRESS SAVED", (120, 255, 140));
+                        }
+                        crate::save::SaveStatus::SaveErrorNoCard => {
+                            gpu::draw_rect_flat(88, 214, 144, 18, 35, 10, 10);
+                            self.renderer.font.draw_text(94, 218, "NO MEMORY CARD IN SLOT 1", (255, 160, 160));
+                        }
+                        _ => {}
+                    }
                 }
             }
             GameState::InGameCodec => {

@@ -27,3 +27,4 @@ psx-math  = { path = "../psoxide/sdk/crates/psx-math" }
 psx-hw    = { path = "../psoxide/crates/psx-hw" }
 psx-gte   = { path = "../psoxide/sdk/crates/psx-gte" }
 psx-gte-core = { path = "../psoxide/sdk/crates/psx-gte-core" }
+psx-mc    = { path = "../psoxide/sdk/crates/psx-mc" }
