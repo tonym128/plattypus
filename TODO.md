@@ -4,6 +4,15 @@
 
 These 5 items form the core technical foundation required for a commercial-grade PlayStation experience.
 
+## 🚨 Active Issues & Bug Fixes
+
+- [ ] **Fix Inverted Game Controls (Up and Down Flipped)**
+  - [ ] Invert vertical movement controls for D-Pad (`btn_up` and `btn_down` in `game/src/platypus.rs`)
+  - [ ] Invert DualShock analog stick Y-axis (`sy`) and update angle calculations so stick up moves forward/north
+  - [ ] Verify attract mode simulated inputs and demo playback reflect the corrected axis mapping
+- [ ] **Stages aren't reset after death and restart, the player dies over and over, please fix
+---
+
 - [x] **1. SPU / CD-DA Audio Engine**
   - [x] Implement SPU ADPCM sound effects driver (24 hardware voices)
   - [x] Add sound effects: footsteps (metal, grass, pavement), sentry alert exclamation (`!`), dive splash, spur strike
@@ -28,11 +37,11 @@ These 5 items form the core technical foundation required for a commercial-grade
   - [x] Update renderer to use hardware textured quads (`gpu::draw_quad_textured`) with PS1 affine mapping
   - [x] Implement hardware Gouraud directional vertex shading
 
-- [ ] **5. Chapter 1 Tactical Boss Fight (Searchlight Mech)**
-  - [ ] Create 3D multi-part model for the Sanctuary Searchlight Mech walker
-  - [ ] Code boss behavior: dual sweeping searchlights, siren alert, shockwave stomp
-  - [ ] Implement boss arena mechanics: crawling trenches, 3 destructible power conduits, and heat exhaust weak point
-  - [ ] Add boss health bar HUD, victory cutscene, and transition to Chapter 2
+- [x] **5. Chapter 1 Tactical Boss Fight (Searchlight Mech)**
+  - [x] Create 3D multi-part model for the Sanctuary Searchlight Mech walker
+  - [x] Code boss behavior: dual sweeping searchlights, siren alert, shockwave stomp
+  - [x] Implement boss arena mechanics: crawling trenches, 3 destructible power conduits, and heat exhaust weak point
+  - [x] Add boss health bar HUD, victory cutscene, and transition to Chapter 2
 
 ---
 
