@@ -1865,4 +1865,59 @@ impl Renderer {
         self.font.draw_text(60, 185, "BURROW COMMAND: WE'RE SO PROUD!", (100, 255, 160));
         self.font.draw_text(85, 215, "THANK YOU FOR PLAYING!", (255, 255, 255));
     }
+
+    pub fn draw_cinematic_letterbox(&self) {
+        // Top 24px letterbox bar
+        gpu::draw_rect_flat(0, 0, 320, 24, 0, 0, 0);
+        gpu::draw_rect_flat(0, 24, 320, 1, 30, 120, 60);
+
+        // Bottom 24px letterbox bar
+        gpu::draw_rect_flat(0, 216, 320, 24, 0, 0, 0);
+        gpu::draw_rect_flat(0, 215, 320, 1, 30, 120, 60);
+    }
+
+    pub fn draw_boss_title_card(&self, act: Act, timer: u16) {
+        self.draw_cinematic_letterbox();
+
+        let (name, codename, specs) = match act {
+            Act::Act1_3MechBoss => (
+                "PERIMETER WALKER MK-I",
+                "SEARCHLIGHT MECH",
+                "DUAL MEGA-SEARCHLIGHTS & SHOCKWAVE",
+            ),
+            Act::Act2_3JetSkiBoss => (
+                "RANGER CHIEF DAVE",
+                "PATROL JET SKI",
+                "TWIN ROTARY ENGINES & RIVER MINES",
+            ),
+            Act::Act3_3SniperBoss => (
+                "SNIPER KOOKY",
+                "CYBORG LAUGHING HUNTER",
+                "HIGH-CALIBER BROADCAST LASER RIFLE",
+            ),
+            Act::Act4_3ExcavatorBoss => (
+                "DR. CANE TOAD",
+                "TOAD-DOZER HEAVY EXCAVATOR",
+                "HYDRAULIC CLAW & TOXIC SLIME MORTAR",
+            ),
+            _ => return,
+        };
+
+        let card_x: i16 = 20;
+        let card_y: i16 = 145;
+        let card_w: u16 = 280;
+        let card_h: u16 = 62;
+
+        gpu::draw_rect_flat(card_x, card_y, card_w, card_h, 12, 18, 24);
+        gpu::draw_rect_flat(card_x + 2, card_y + 2, card_w - 4, card_h - 4, 4, 8, 12);
+        gpu::draw_rect_flat(card_x, card_y, 4, card_h, 255, 60, 60); // Red warning accent strip
+
+        self.font.draw_text(card_x + 12, card_y + 8, name, (255, 230, 80));
+        self.font.draw_text(card_x + 12, card_y + 24, codename, (120, 255, 160));
+        self.font.draw_text(card_x + 12, card_y + 40, specs, (200, 220, 240));
+
+        if timer > 60 && (timer / 15) % 2 == 0 {
+            self.font.draw_text(180, 222, "CROSS: SKIP", (160, 160, 160));
+        }
+    }
 }

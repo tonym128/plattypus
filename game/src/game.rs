@@ -2,7 +2,7 @@
 //! Integrates 3D GTE stealth gameplay, Soliton Radar, and CODEC radio communication.
 
 use crate::audio::AudioManager;
-use crate::codec::{CodecManager, INTRO_DIALOGUE, RADIO_TIPS_DIALOGUE, ACT1_1_DIALOGUE, get_act_dialogue};
+use crate::codec::{CodecManager, INTRO_DIALOGUE, ACT1_1_DIALOGUE, get_act_dialogue};
 use crate::dualshock::DualShockController;
 use crate::entities::EntityManager;
 use crate::level::{Act, CellType, Level, TILE_SZ};
@@ -23,6 +23,7 @@ pub enum GameState {
     Ending,
     GameOver,
     AttractDemo { act: Act, timer: u16 },
+    BossIntroCutscene { act: Act, timer: u16 },
 }
 
 pub struct Game {
@@ -299,18 +300,55 @@ impl Game {
                 self.codec.update();
                 if just_cross || just_start {
                     if self.codec.on_action_button() {
-                        self.state = GameState::Playing;
-                        AudioManager::play_jump();
+                        if self.level.act.is_boss() {
+                            self.state = GameState::BossIntroCutscene { act: self.level.act, timer: 0 };
+                        } else {
+                            self.state = GameState::Playing;
+                            AudioManager::play_jump();
+                        }
                     }
                 }
 
                 self.renderer.begin_frame();
                 self.codec.draw(&self.renderer.font);
             }
+            GameState::BossIntroCutscene { act, ref mut timer } => {
+                *timer = timer.saturating_add(1);
+
+                // Smooth cinematic camera orbit around boss
+                let (bx, bz) = match act {
+                    Act::Act1_3MechBoss => (self.entities.boss_mech.x, self.entities.boss_mech.z),
+                    Act::Act2_3JetSkiBoss => (self.entities.boss_jetski.x, self.entities.boss_jetski.z),
+                    Act::Act3_3SniperBoss => (self.entities.boss_sniper.x, self.entities.boss_sniper.z),
+                    Act::Act4_3ExcavatorBoss => (self.entities.boss_excavator.x, self.entities.boss_excavator.z),
+                    _ => (self.platty.x, self.platty.z),
+                };
+
+                let ang = ((*timer as u16) * 16) & 0x0FFF;
+                let sin_v = psx_gte_core::transform::sin_1_3_12(ang) as i32;
+                let cos_v = psx_gte_core::transform::cos_1_3_12(ang) as i32;
+                self.renderer.cam_x = bx + ((sin_v * 450) >> 12);
+                self.renderer.cam_y = -300;
+                self.renderer.cam_z = bz + ((cos_v * 450) >> 12);
+
+                let skip = *timer >= 240 || just_cross || just_start;
+                if skip {
+                    self.renderer.cam_x = self.platty.x;
+                    self.renderer.cam_y = self.platty.y - 280;
+                    self.renderer.cam_z = self.platty.z - 240;
+                    self.renderer.screen_shake = 0;
+                    self.state = GameState::Playing;
+                    AudioManager::play_alert();
+                } else {
+                    self.renderer.begin_frame();
+                    self.renderer.draw_3d_scene(&self.level, &self.platty, &self.entities, self.frame);
+                    self.renderer.draw_boss_title_card(act, *timer);
+                }
+            }
             GameState::Playing => {
-                // Check if player presses SELECT to open in-game CODEC radio!
+                // Check if player presses SELECT to open in-game multi-frequency CODEC radio!
                 if just_select {
-                    self.codec.start_conversation(RADIO_TIPS_DIALOGUE);
+                    self.codec.open_tuner();
                     self.state = GameState::InGameCodec;
                 } else {
                     // Update player and 3D entities
@@ -409,9 +447,27 @@ impl Game {
             }
             GameState::InGameCodec => {
                 self.codec.update();
-                if just_cross || just_select || just_start {
-                    if self.codec.on_action_button() {
-                        self.state = GameState::Playing;
+                match self.codec.mode {
+                    crate::codec::CodecMode::Tuning => {
+                        let memcard_ok = matches!(self.memcard.status, crate::save::SaveStatus::Idle | crate::save::SaveStatus::SaveSuccess);
+                        if self.codec.handle_tuner_input(buttons, self.prev_buttons, self.level.act, memcard_ok) {
+                            self.state = GameState::Playing;
+                        }
+                    }
+                    crate::codec::CodecMode::InCall => {
+                        if self.codec.pending_save {
+                            self.save_data.unlocked_act = (self.level.act as u8 + 1).max(self.save_data.unlocked_act);
+                            self.save_data.highest_score = self.save_data.highest_score.max(self.platty.score);
+                            self.save_data.total_yabbies = self.save_data.total_yabbies.saturating_add(self.platty.yabbies_collected as u16);
+                            self.memcard.save_to_slot1(&self.save_data);
+                            self.codec.pending_save = false;
+                        }
+
+                        if just_cross || just_select || just_start {
+                            if self.codec.on_action_button() {
+                                self.state = GameState::Playing;
+                            }
+                        }
                     }
                 }
 
