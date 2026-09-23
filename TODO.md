@@ -6,11 +6,16 @@ These 5 items form the core technical foundation required for a commercial-grade
 
 ## 🚨 Active Issues & Bug Fixes
 
-- [ ] **Fix Inverted Game Controls (Up and Down Flipped)**
-  - [ ] Invert vertical movement controls for D-Pad (`btn_up` and `btn_down` in `game/src/platypus.rs`)
-  - [ ] Invert DualShock analog stick Y-axis (`sy`) and update angle calculations so stick up moves forward/north
-  - [ ] Verify attract mode simulated inputs and demo playback reflect the corrected axis mapping
-- [ ] **Stages aren't reset after death and restart, the player dies over and over, please fix
+- [x] **Fix Inverted Game Controls (Up and Down Flipped)**
+  - [x] Invert vertical movement controls for D-Pad (`btn_up` and `btn_down` in `game/src/platypus.rs` so UP moves North/-Z and DOWN moves South/+Z)
+  - [x] Invert DualShock analog stick Y-axis (`sy`) and update angle calculations so stick up moves forward/north
+  - [x] Verify attract mode simulated inputs and demo playback reflect the corrected axis mapping
+- [x] **Stages aren't reset after death and restart, the player dies over and over, please fix**
+  - [x] Guard `take_damage` against repeating damage while health is 0
+  - [x] Add debounce delay to GameOver screen (45 frames) to prevent accidental immediate restart
+  - [x] In `load_act`: snap camera immediately to player spawn point to eliminate disorienting camera drift
+  - [x] Grant 90 frames (1.5 seconds) of respawn invulnerability with flashing sprite
+  - [x] Enable jumping in Act 2 River Rapids so Platty can leap over logs, snakes, and spiders, and duck under low branches
 ---
 
 - [x] **1. SPU / CD-DA Audio Engine**
@@ -91,7 +96,7 @@ These 5 items form the core technical foundation required for a commercial-grade
 - [ ] **Cinematic Presentation**
   - [ ] Letterboxed widescreen presentation mode for story dialogue
   - [ ] Multi-camera cutscene scripting system (interpolated camera tracks, cuts, close-ups)
-  - [ ] Encode opening cinematic and ending celebration into PS1 STR (MDEC) video format
+  - [x] Encode opening cinematic and ending celebration into PS1 STR (MDEC) / VID format with hardware SPU audio and CD streaming
 - [ ] **CODEC Expansion**
   - [ ] Add multiple radio frequencies (e.g., Mom & Dad: 140.85, Wildlife Informant: 141.12, Save System: 140.96)
   - [ ] Add contextual radio dialogue for every stage, boss encounter, and puzzle
