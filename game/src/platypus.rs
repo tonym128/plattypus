@@ -146,11 +146,11 @@ impl Platypus {
             CellType::MetalGrate => (crate::audio::SurfaceType::Metal, 160),
             CellType::TallGrass => (crate::audio::SurfaceType::Grass, 0),
             CellType::Water | CellType::WaterCurrent => (crate::audio::SurfaceType::Water, 0),
-            _ => match level.act {
-                Act::Act1Sanctuary | Act::Act1Boss => (crate::audio::SurfaceType::Concrete, 70),
-                Act::Act2Bushland => (crate::audio::SurfaceType::Grass, 0),
-                Act::Act3City => (crate::audio::SurfaceType::Metal, 90),
-                Act::Act4Ocean => (crate::audio::SurfaceType::Grass, 0),
+            _ => match level.act.chapter() {
+                1 => (crate::audio::SurfaceType::Concrete, 70),
+                2 => (crate::audio::SurfaceType::Grass, 0),
+                3 => (crate::audio::SurfaceType::Metal, 90),
+                _ => (crate::audio::SurfaceType::Grass, 0),
             },
         }
     }
@@ -188,8 +188,8 @@ impl Platypus {
             self.step_audio_timer -= 1;
         }
 
-        let is_rapids = level.act == Act::Act2Bushland;
-        let in_water = level.is_water_at(self.x, self.z) && level.act != Act::Act4Ocean;
+        let is_rapids = level.act.is_rapids();
+        let in_water = level.is_water_at(self.x, self.z) && level.act != Act::Act4_1Dunes;
 
         let just_cross = buttons.is_held(button::CROSS) && !prev_buttons.is_held(button::CROSS);
         let just_circle = buttons.is_held(button::CIRCLE) && !prev_buttons.is_held(button::CIRCLE);
@@ -248,8 +248,8 @@ impl Platypus {
             // Gravity & Vertical physics
             let mut target_ground_y = if is_rapids { 4i32 } else { 0i32 };
 
-            // In Act 4 (Beach platformer), check 3D elevated platforms
-            if level.act == Act::Act4Ocean {
+            // In Act 4 (Beach platformer / Pier), check 3D elevated platforms
+            if level.act == Act::Act4_1Dunes || level.act == Act::Act4_2PierTrench {
                 for p in entities.beach_platforms.iter() {
                     if p.active {
                         let in_x = self.x >= p.x - 12 && self.x <= p.x + p.w + 12;
@@ -429,8 +429,8 @@ impl Platypus {
                 }
             }
 
-            // Boss Act 1: Attack Power Conduits & Mech Rear Core
-            if level.act == Act::Act1Boss {
+            // Boss Act 1-3: Attack Power Conduits & Mech Rear Core
+            if level.act == Act::Act1_3MechBoss {
                 for c in entities.power_conduits.iter_mut() {
                     if c.active && !c.destroyed {
                         let dx = (self.x - c.x).abs();
@@ -461,7 +461,6 @@ impl Platypus {
                 let mech = &mut entities.boss_mech;
                 if mech.active && !mech.shield_active && !mech.is_defeated() {
                     let dx = (self.x - mech.x).abs();
-                    // Behind the mech (closer to north than the mech body or within close proximity from behind)
                     let is_behind = self.z <= mech.z + 16 && self.z >= mech.z - 44;
                     if dx < 44 && is_behind && mech.hit_timer == 0 {
                         mech.hit_timer = 30;
@@ -481,6 +480,90 @@ impl Platypus {
                             self.trigger_rumble_large(32, 255);
                             AudioManager::play_fanfare();
                             spark_pos = Some((mech.x, -26, mech.z - 16));
+                        }
+                    }
+                }
+            }
+
+            // Boss Act 2-3: Park Ranger Jet Ski Strike
+            if level.act == Act::Act2_3JetSkiBoss {
+                let jetski = &mut entities.boss_jetski;
+                if jetski.active && jetski.is_stalled && !jetski.is_defeated() && jetski.hit_timer == 0 {
+                    let dx = (self.x - jetski.x).abs();
+                    let dz = (self.z - jetski.z).abs();
+                    if dx < 48 && dz < 48 {
+                        jetski.hit_timer = 30;
+                        if jetski.health > 1 {
+                            jetski.health -= 1;
+                            self.score += 1000;
+                            self.screen_shake = 10;
+                            self.trigger_rumble_large(20, 255);
+                            AudioManager::play_hit();
+                            spark_pos = Some((jetski.x, -20, jetski.z));
+                        } else {
+                            jetski.health = 0;
+                            self.score += 5000;
+                            self.screen_shake = 16;
+                            self.trigger_rumble_large(32, 255);
+                            AudioManager::play_fanfare();
+                            spark_pos = Some((jetski.x, -20, jetski.z));
+                        }
+                    }
+                }
+            }
+
+            // Boss Act 3-3: Sniper Kookaburra Strike
+            if level.act == Act::Act3_3SniperBoss {
+                let sniper = &mut entities.boss_sniper;
+                if sniper.active && sniper.is_vulnerable && !sniper.is_defeated() && sniper.hit_timer == 0 {
+                    let dx = (self.x - sniper.x).abs();
+                    let dz = (self.z - sniper.z).abs();
+                    if dx < 56 && dz < 56 {
+                        sniper.hit_timer = 30;
+                        if sniper.health > 1 {
+                            sniper.health -= 1;
+                            self.score += 1000;
+                            self.screen_shake = 10;
+                            self.trigger_rumble_large(20, 255);
+                            AudioManager::play_hit();
+                            spark_pos = Some((sniper.x, -30, sniper.z));
+                            sniper.is_vulnerable = false;
+                            sniper.aim_timer = 0;
+                            sniper.perch_index = (sniper.perch_index + 1) % 3;
+                        } else {
+                            sniper.health = 0;
+                            self.score += 5000;
+                            self.screen_shake = 16;
+                            self.trigger_rumble_large(32, 255);
+                            AudioManager::play_fanfare();
+                            spark_pos = Some((sniper.x, -30, sniper.z));
+                        }
+                    }
+                }
+            }
+
+            // Boss Act 4-3: Dr. Cane Toad's Excavator Strike
+            if level.act == Act::Act4_3ExcavatorBoss {
+                let exc = &mut entities.boss_excavator;
+                if exc.active && !exc.is_defeated() && exc.hit_timer == 0 {
+                    let dx = (self.x - exc.x).abs();
+                    let dz = (self.z - exc.z).abs();
+                    if dx < 60 && dz < 60 {
+                        exc.hit_timer = 30;
+                        if exc.health > 1 {
+                            exc.health -= 1;
+                            self.score += 1500;
+                            self.screen_shake = 12;
+                            self.trigger_rumble_large(24, 255);
+                            AudioManager::play_metal();
+                            spark_pos = Some((exc.x, -24, exc.z));
+                        } else {
+                            exc.health = 0;
+                            self.score += 10000;
+                            self.screen_shake = 20;
+                            self.trigger_rumble_large(40, 255);
+                            AudioManager::play_fanfare();
+                            spark_pos = Some((exc.x, -24, exc.z));
                         }
                     }
                 }
@@ -538,7 +621,7 @@ impl Platypus {
                 // Stick UP (negative sy) = North / forward (-Z), stick DOWN (positive sy) = South / backward (+Z)
                 self.vz = (sy_i32 * speed) / 127;
 
-                if level.act == Act::Act2Bushland {
+                if level.act.is_rapids() {
                     self.vz -= 2; // Rushing downriver!
                 }
 
@@ -592,8 +675,8 @@ impl Platypus {
                 move_x += 1;
             }
 
-            // Automatic river current push in Act 2
-            if level.act == Act::Act2Bushland {
+            // Automatic river current push in rapids
+            if level.act.is_rapids() {
                 move_z -= 2; // Rushing downriver!
             }
 
@@ -650,7 +733,7 @@ impl Platypus {
                 }
             } else {
                 self.vx = 0;
-                if level.act != Act::Act2Bushland {
+                if !level.act.is_rapids() {
                     self.vz = 0;
                 }
                 self.noise_radius = 0;
@@ -730,24 +813,22 @@ impl Platypus {
             }
         }
 
-        // Stage 1 Enemy Collision & Attack Check
-        if level.act == Act::Act1Sanctuary {
-            for s in entities.sentries.iter_mut() {
-                if s.active && s.stun_timer == 0 {
-                    let dx = (self.x - s.x).abs();
-                    let dz = (self.z - s.z).abs();
-                    if dx < 28 && dz < 28 && s.attack_cooldown == 0 {
-                        s.attack_cooldown = 45;
-                        self.take_damage(1);
-                        self.vx = if self.x < s.x { -6 } else { 6 };
-                        self.vz = if self.z < s.z { -6 } else { 6 };
-                    }
+        // Sentry Collision & Attack Check (any stage with active sentries)
+        for s in entities.sentries.iter_mut() {
+            if s.active && s.stun_timer == 0 {
+                let dx = (self.x - s.x).abs();
+                let dz = (self.z - s.z).abs();
+                if dx < 28 && dz < 28 && s.attack_cooldown == 0 {
+                    s.attack_cooldown = 45;
+                    self.take_damage(1);
+                    self.vx = if self.x < s.x { -6 } else { 6 };
+                    self.vz = if self.z < s.z { -6 } else { 6 };
                 }
             }
         }
 
-        // Stage 1 Climax Boss Collision & Shockwave Check
-        if level.act == Act::Act1Boss {
+        // Act 1-3 Climax Boss Collision & Shockwave Check
+        if level.act == Act::Act1_3MechBoss {
             let mech = &entities.boss_mech;
             if mech.active && !mech.is_defeated() {
                 // Shockwave Stomp check
@@ -778,8 +859,8 @@ impl Platypus {
             }
         }
 
-        // Stage 2 River Obstacles Collision Check
-        if level.act == Act::Act2Bushland {
+        // River Rapids Obstacles Collision Check
+        if level.act.is_rapids() {
             for obs in entities.river_obstacles.iter() {
                 if !obs.active {
                     continue;
@@ -789,14 +870,12 @@ impl Platypus {
                 if dx < 24 && dz < 24 {
                     match obs.kind {
                         RiverObstacleType::LowBranch => {
-                            // Can only pass if ducking / crawling
                             if !self.crawl_mode {
                                 self.take_damage(1);
                                 self.vz = 4;
                             }
                         }
                         RiverObstacleType::TreeLog | RiverObstacleType::TigerSnake | RiverObstacleType::GiantSpider => {
-                            // Can jump over!
                             if self.on_ground {
                                 self.take_damage(1);
                                 self.vz = 4;
@@ -806,14 +885,14 @@ impl Platypus {
                             self.take_damage(1);
                             self.vz = 4;
                         }
-                        RiverObstacleType::Koala => {} // Harmless cute koala
+                        RiverObstacleType::Koala => {}
                     }
                 }
             }
         }
 
-        // Stage 3 City Traffic Collision Check
-        if level.act == Act::Act3City {
+        // City Traffic Collision Check
+        if level.act == Act::Act3_1Highway {
             for v in entities.vehicles.iter() {
                 if !v.active {
                     continue;
@@ -821,43 +900,39 @@ impl Platypus {
                 let dx = (self.x - v.x).abs();
                 let dz = (self.z - v.z).abs();
                 if dx < (v.length / 2 + 10) && dz < 18 {
-                    // Car hits Platty! Horn honks!
                     self.take_damage(1);
-                    self.vz = 8; // Knock back toward south sidewalk
+                    self.vz = 8;
                     AudioManager::play_metal();
                 }
             }
         }
 
-        // Stage 4 Beach Platformer Crabs Collision Check
-        if level.act == Act::Act4Ocean {
-            let mut crab_stomped_pos = None;
-            for crab in entities.beach_crabs.iter_mut() {
-                if !crab.active {
-                    continue;
-                }
-                let dx = (self.x - crab.x).abs();
-                let dz = (self.z - crab.z).abs();
-                if dx < 22 && dz < 22 {
-                    if !self.on_ground && self.vy > 0 {
-                        // Stomp on crab Mario style!
-                        crab.active = false;
-                        self.vy = -10; // Bounce up!
-                        self.score += 150;
-                        self.trigger_rumble_small(6);
-                        AudioManager::play_hit();
-                        crab_stomped_pos = Some((crab.x, crab.y, crab.z));
-                        break;
-                    } else {
-                        // Pinched by crab!
-                        self.take_damage(1);
-                        self.vx = if self.x < crab.x { -5 } else { 5 };
-                    }
+        // Crabs, Spiders, and Sharks Collision Check
+        let mut crab_stomped_pos = None;
+        for crab in entities.beach_crabs.iter_mut() {
+            if !crab.active {
+                continue;
+            }
+            let dx = (self.x - crab.x).abs();
+            let dz = (self.z - crab.z).abs();
+            if dx < 22 && dz < 22 {
+                if !self.on_ground && self.vy > 0 {
+                    // Stomp on crab/spider!
+                    crab.active = false;
+                    self.vy = -10;
+                    self.score += 150;
+                    self.trigger_rumble_small(6);
+                    AudioManager::play_hit();
+                    crab_stomped_pos = Some((crab.x, crab.y, crab.z));
+                    break;
+                } else {
+                    self.take_damage(1);
+                    self.vx = if self.x < crab.x { -5 } else { 5 };
                 }
             }
-            if let Some((cx, cy, cz)) = crab_stomped_pos {
-                entities.spawn_particle(cx, cy, cz, 0, -2, 0, 20, (230, 80, 40), 3);
-            }
+        }
+        if let Some((cx, cy, cz)) = crab_stomped_pos {
+            entities.spawn_particle(cx, cy, cz, 0, -2, 0, 20, (230, 80, 40), 3);
         }
     }
 

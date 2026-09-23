@@ -209,6 +209,125 @@ impl PowerConduit {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+pub struct JetSkiBoss {
+    pub active: bool,
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
+    pub vx: i32,
+    pub health: u8,
+    pub max_health: u8,
+    pub state_timer: u16,
+    pub hit_timer: u8,
+    pub is_stalled: bool,
+    pub mine_cooldown: u16,
+    pub target_lane: usize,
+}
+
+impl JetSkiBoss {
+    pub const fn empty() -> Self {
+        Self {
+            active: false,
+            x: 0,
+            y: 0,
+            z: 0,
+            vx: 0,
+            health: 3,
+            max_health: 3,
+            state_timer: 0,
+            hit_timer: 0,
+            is_stalled: false,
+            mine_cooldown: 90,
+            target_lane: 2,
+        }
+    }
+
+    pub fn is_defeated(&self) -> bool {
+        self.health == 0 || !self.active
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct SniperBoss {
+    pub active: bool,
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
+    pub health: u8,
+    pub max_health: u8,
+    pub aim_timer: u16,
+    pub laser_x: i32,
+    pub laser_z: i32,
+    pub hit_timer: u8,
+    pub perch_index: usize,
+    pub is_vulnerable: bool,
+}
+
+impl SniperBoss {
+    pub const fn empty() -> Self {
+        Self {
+            active: false,
+            x: 0,
+            y: -48,
+            z: 0,
+            health: 3,
+            max_health: 3,
+            aim_timer: 0,
+            laser_x: 0,
+            laser_z: 0,
+            hit_timer: 0,
+            perch_index: 1,
+            is_vulnerable: false,
+        }
+    }
+
+    pub fn is_defeated(&self) -> bool {
+        self.health == 0 || !self.active
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct ExcavatorBoss {
+    pub active: bool,
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
+    pub health: u8,
+    pub max_health: u8,
+    pub claw_angle: u16,
+    pub sweep_dir: i16,
+    pub state_timer: u16,
+    pub hit_timer: u8,
+    pub slime_cooldown: u16,
+    pub shields_down: bool,
+    pub engine_hp: [u8; 3],
+}
+
+impl ExcavatorBoss {
+    pub const fn empty() -> Self {
+        Self {
+            active: false,
+            x: 0,
+            y: 0,
+            z: 0,
+            health: 4,
+            max_health: 4,
+            claw_angle: 0,
+            sweep_dir: 1,
+            state_timer: 0,
+            hit_timer: 0,
+            slime_cooldown: 120,
+            shields_down: false,
+            engine_hp: [2, 2, 2],
+        }
+    }
+
+    pub fn is_defeated(&self) -> bool {
+        self.health == 0 || !self.active
+    }
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum CollectibleType {
     YabbyRation,   // Restores health +1 heart
@@ -401,6 +520,9 @@ pub struct EntityManager {
     pub searchlights: [Searchlight; MAX_SEARCHLIGHTS],
     pub boss_mech: SearchlightMech,
     pub power_conduits: [PowerConduit; 3],
+    pub boss_jetski: JetSkiBoss,
+    pub boss_sniper: SniperBoss,
+    pub boss_excavator: ExcavatorBoss,
     pub collectibles: [Collectible; MAX_COLLECTIBLES],
     pub particles: [Particle3D; MAX_PARTICLES],
     pub river_obstacles: [RiverObstacle; MAX_RIVER_OBSTACLES],
@@ -420,6 +542,9 @@ impl EntityManager {
             searchlights: [Searchlight::empty(); MAX_SEARCHLIGHTS],
             boss_mech: SearchlightMech::empty(),
             power_conduits: [PowerConduit::empty(); 3],
+            boss_jetski: JetSkiBoss::empty(),
+            boss_sniper: SniperBoss::empty(),
+            boss_excavator: ExcavatorBoss::empty(),
             collectibles: [Collectible::empty(); MAX_COLLECTIBLES],
             particles: [Particle3D::empty(); MAX_PARTICLES],
             river_obstacles: [RiverObstacle::empty(); MAX_RIVER_OBSTACLES],
@@ -468,6 +593,9 @@ impl EntityManager {
         self.searchlights = [Searchlight::empty(); MAX_SEARCHLIGHTS];
         self.boss_mech = SearchlightMech::empty();
         self.power_conduits = [PowerConduit::empty(); 3];
+        self.boss_jetski = JetSkiBoss::empty();
+        self.boss_sniper = SniperBoss::empty();
+        self.boss_excavator = ExcavatorBoss::empty();
         self.collectibles = [Collectible::empty(); MAX_COLLECTIBLES];
         self.particles = [Particle3D::empty(); MAX_PARTICLES];
         self.river_obstacles = [RiverObstacle::empty(); MAX_RIVER_OBSTACLES];
@@ -477,16 +605,25 @@ impl EntityManager {
         self.river_distance = 0;
 
         match act {
-            Act::Act1Sanctuary => self.load_act1(),
-            Act::Act1Boss => self.load_act1_boss(),
-            Act::Act2Bushland => self.load_act2(),
-            Act::Act3City => self.load_act3(),
-            Act::Act4Ocean => self.load_act4(),
+            Act::Act1_1Drainage => self.load_act1_1(),
+            Act::Act1_2Barracks => self.load_act1_2(),
+            Act::Act1_3MechBoss => self.load_act1_3(),
+            Act::Act2_1Rapids => self.load_act2_1(),
+            Act::Act2_2Mangroves => self.load_act2_2(),
+            Act::Act2_3JetSkiBoss => self.load_act2_3(),
+            Act::Act3_1Highway => self.load_act3_1(),
+            Act::Act3_2Laneways => self.load_act3_2(),
+            Act::Act3_3SniperBoss => self.load_act3_3(),
+            Act::Act4_1Dunes => self.load_act4_1(),
+            Act::Act4_2PierTrench => self.load_act4_2(),
+            Act::Act4_3ExcavatorBoss => self.load_act4_3(),
         }
     }
 
-    fn load_act1(&mut self) {
-        // Sentries patrolling compound corridors
+    // -------------------------------------------------------------------------
+    // ACT 1-1: DRAINAGE OUTFLOW
+    // -------------------------------------------------------------------------
+    fn load_act1_1(&mut self) {
         self.spawn_sentry(0, 5 * TILE_SZ, 3 * TILE_SZ, &[
             (5 * TILE_SZ, 3 * TILE_SZ),
             (5 * TILE_SZ, 12 * TILE_SZ),
@@ -500,7 +637,6 @@ impl EntityManager {
             (17 * TILE_SZ, 12 * TILE_SZ),
         ]);
 
-        // Searchlight watchtowers
         self.searchlights[0] = Searchlight {
             active: true,
             base_x: 8 * TILE_SZ,
@@ -520,7 +656,6 @@ impl EntityManager {
             radius: 55,
         };
 
-        // Collectibles
         self.spawn_item(0, CollectibleType::YabbyRation, 4 * TILE_SZ, 7 * TILE_SZ, true);
         self.spawn_item(1, CollectibleType::LetterPage, 11 * TILE_SZ, 3 * TILE_SZ, true);
         self.spawn_item(2, CollectibleType::YabbyRation, 14 * TILE_SZ, 18 * TILE_SZ, true);
@@ -528,7 +663,51 @@ impl EntityManager {
         self.spawn_item(4, CollectibleType::CardboardBox, 10 * TILE_SZ, 8 * TILE_SZ, true);
     }
 
-    fn load_act1_boss(&mut self) {
+    // -------------------------------------------------------------------------
+    // ACT 1-2: RESEARCH BARRACKS & LASER GRID
+    // -------------------------------------------------------------------------
+    fn load_act1_2(&mut self) {
+        self.spawn_sentry(0, 3 * TILE_SZ, 6 * TILE_SZ, &[
+            (3 * TILE_SZ, 6 * TILE_SZ),
+            (3 * TILE_SZ, 16 * TILE_SZ),
+        ]);
+        self.spawn_sentry(1, 11 * TILE_SZ, 5 * TILE_SZ, &[
+            (11 * TILE_SZ, 5 * TILE_SZ),
+            (11 * TILE_SZ, 17 * TILE_SZ),
+        ]);
+        self.spawn_sentry(2, 19 * TILE_SZ, 6 * TILE_SZ, &[
+            (19 * TILE_SZ, 6 * TILE_SZ),
+            (19 * TILE_SZ, 16 * TILE_SZ),
+        ]);
+
+        self.drones[0] = Drone {
+            active: true,
+            x: 7 * TILE_SZ,
+            y: -36,
+            z: 10 * TILE_SZ,
+            angle: 0,
+            stun_timer: 0,
+        };
+        self.drones[1] = Drone {
+            active: true,
+            x: 15 * TILE_SZ,
+            y: -36,
+            z: 10 * TILE_SZ,
+            angle: 128,
+            stun_timer: 0,
+        };
+
+        self.spawn_item(0, CollectibleType::CardboardBox, 3 * TILE_SZ, 19 * TILE_SZ, true);
+        self.spawn_item(1, CollectibleType::YabbyRation, 3 * TILE_SZ, 5 * TILE_SZ, true);
+        self.spawn_item(2, CollectibleType::YabbyRation, 19 * TILE_SZ, 5 * TILE_SZ, true);
+        self.spawn_item(3, CollectibleType::LetterPage, 19 * TILE_SZ, 19 * TILE_SZ, true);
+        self.spawn_item(4, CollectibleType::BuriedYabby, 11 * TILE_SZ, 14 * TILE_SZ, false);
+    }
+
+    // -------------------------------------------------------------------------
+    // ACT 1-3: PERIMETER WALL (SEARCHLIGHT MECH BOSS)
+    // -------------------------------------------------------------------------
+    fn load_act1_3(&mut self) {
         self.boss_mech = SearchlightMech {
             active: true,
             x: 12 * TILE_SZ,
@@ -553,8 +732,6 @@ impl EntityManager {
             leg_anim: 0,
         };
 
-        // 3 Destructible Power Conduits
-        // 0: West generator bay (gx 5, gz 9)
         self.power_conduits[0] = PowerConduit {
             active: true,
             destroyed: false,
@@ -563,7 +740,6 @@ impl EntityManager {
             health: 3,
             spark_timer: 0,
         };
-        // 1: East generator bay (gx 19, gz 9)
         self.power_conduits[1] = PowerConduit {
             active: true,
             destroyed: false,
@@ -572,7 +748,6 @@ impl EntityManager {
             health: 3,
             spark_timer: 0,
         };
-        // 2: South generator bay (gx 12, gz 17)
         self.power_conduits[2] = PowerConduit {
             active: true,
             destroyed: false,
@@ -582,14 +757,14 @@ impl EntityManager {
             spark_timer: 0,
         };
 
-        // Emergency Yabby Rations in corner trenches
         self.spawn_item(0, CollectibleType::YabbyRation, 3 * TILE_SZ + 32, 9 * TILE_SZ + 32, true);
         self.spawn_item(1, CollectibleType::YabbyRation, 20 * TILE_SZ + 32, 9 * TILE_SZ + 32, true);
     }
 
-    fn load_act2(&mut self) {
-        // 5-Lane Yarra River Runner Obstacles
-        // Lanes: 0=gx9, 1=gx10, 2=gx11, 3=gx12, 4=gx13
+    // -------------------------------------------------------------------------
+    // ACT 2-1: UPPER GORGE RAPIDS (5-LANE RIVER RUNNER)
+    // -------------------------------------------------------------------------
+    fn load_act2_1(&mut self) {
         let lane_x = [
             9 * TILE_SZ + 32,
             10 * TILE_SZ + 32,
@@ -625,7 +800,7 @@ impl EntityManager {
                     x: lane_x[*lane],
                     z: *z,
                     y: match *kind {
-                        RiverObstacleType::LowBranch => -22, // Hanging overhead!
+                        RiverObstacleType::LowBranch => -22,
                         _ => 0,
                     },
                     speed: *spd,
@@ -633,27 +808,6 @@ impl EntityManager {
             }
         }
 
-        // Koalas on river gums along banks
-        if MAX_RIVER_OBSTACLES > 14 {
-            self.river_obstacles[14] = RiverObstacle {
-                active: true,
-                kind: RiverObstacleType::Koala,
-                x: 8 * TILE_SZ + 16,
-                z: 14 * TILE_SZ,
-                y: -30,
-                speed: 0,
-            };
-            self.river_obstacles[15] = RiverObstacle {
-                active: true,
-                kind: RiverObstacleType::Koala,
-                x: 14 * TILE_SZ + 48,
-                z: 8 * TILE_SZ,
-                y: -30,
-                speed: 0,
-            };
-        }
-
-        // Fresh yabbies along river lanes
         self.spawn_item(0, CollectibleType::YabbyRation, lane_x[2], 19 * TILE_SZ, true);
         self.spawn_item(1, CollectibleType::YabbyRation, lane_x[0], 13 * TILE_SZ, true);
         self.spawn_item(2, CollectibleType::YabbyRation, lane_x[4], 10 * TILE_SZ, true);
@@ -661,23 +815,120 @@ impl EntityManager {
         self.spawn_item(4, CollectibleType::LetterPage, lane_x[1], 3 * TILE_SZ, true);
     }
 
-    fn load_act3(&mut self) {
-        // Melbourne City Frogger traffic
+    // -------------------------------------------------------------------------
+    // ACT 2-2: DANDENONG MURKY MANGROVES & CAVERN MAZE
+    // -------------------------------------------------------------------------
+    fn load_act2_2(&mut self) {
+        // Huntsman Spiders patrolling murky channels
+        self.beach_crabs[0] = BeachCrab {
+            active: true,
+            x: 4 * TILE_SZ,
+            y: 0,
+            z: 7 * TILE_SZ,
+            min_x: 2 * TILE_SZ,
+            max_x: 6 * TILE_SZ,
+            vx: 2,
+        };
+        self.beach_crabs[1] = BeachCrab {
+            active: true,
+            x: 10 * TILE_SZ,
+            y: 0,
+            z: 12 * TILE_SZ,
+            min_x: 8 * TILE_SZ,
+            max_x: 12 * TILE_SZ,
+            vx: -2,
+        };
+        self.beach_crabs[2] = BeachCrab {
+            active: true,
+            x: 15 * TILE_SZ,
+            y: 0,
+            z: 8 * TILE_SZ,
+            min_x: 13 * TILE_SZ,
+            max_x: 17 * TILE_SZ,
+            vx: 2,
+        };
+        self.beach_crabs[3] = BeachCrab {
+            active: true,
+            x: 8 * TILE_SZ,
+            y: 0,
+            z: 18 * TILE_SZ,
+            min_x: 6 * TILE_SZ,
+            max_x: 11 * TILE_SZ,
+            vx: -2,
+        };
+
+        // River ranger guard at dock
+        self.spawn_sentry(0, 19 * TILE_SZ, 14 * TILE_SZ, &[
+            (19 * TILE_SZ, 14 * TILE_SZ),
+            (19 * TILE_SZ, 19 * TILE_SZ),
+        ]);
+
+        self.spawn_item(0, CollectibleType::BuriedYabby, 4 * TILE_SZ, 12 * TILE_SZ, false);
+        self.spawn_item(1, CollectibleType::BuriedYabby, 10 * TILE_SZ, 4 * TILE_SZ, false);
+        self.spawn_item(2, CollectibleType::BuriedYabby, 16 * TILE_SZ, 17 * TILE_SZ, false);
+        self.spawn_item(3, CollectibleType::YabbyRation, 12 * TILE_SZ, 10 * TILE_SZ, true);
+        self.spawn_item(4, CollectibleType::LetterPage, 19 * TILE_SZ, 4 * TILE_SZ, true);
+    }
+
+    // -------------------------------------------------------------------------
+    // ACT 2-3: RIVER RAPIDS PURSUIT (PARK RANGER JET SKI BOSS)
+    // -------------------------------------------------------------------------
+    fn load_act2_3(&mut self) {
+        self.boss_jetski = JetSkiBoss {
+            active: true,
+            x: 11 * TILE_SZ + 32,
+            y: 0,
+            z: 8 * TILE_SZ,
+            vx: 2,
+            health: 3,
+            max_health: 3,
+            state_timer: 0,
+            hit_timer: 0,
+            is_stalled: false,
+            mine_cooldown: 90,
+            target_lane: 2,
+        };
+
+        let lane_x = [
+            9 * TILE_SZ + 32,
+            10 * TILE_SZ + 32,
+            11 * TILE_SZ + 32,
+            12 * TILE_SZ + 32,
+            13 * TILE_SZ + 32,
+        ];
+        self.river_obstacles[0] = RiverObstacle {
+            active: true,
+            kind: RiverObstacleType::TreeLog,
+            x: lane_x[1],
+            z: 14 * TILE_SZ,
+            y: 0,
+            speed: 0,
+        };
+        self.river_obstacles[1] = RiverObstacle {
+            active: true,
+            kind: RiverObstacleType::TreeLog,
+            x: lane_x[3],
+            z: 11 * TILE_SZ,
+            y: 0,
+            speed: 0,
+        };
+
+        self.spawn_item(0, CollectibleType::YabbyRation, lane_x[0], 16 * TILE_SZ, true);
+        self.spawn_item(1, CollectibleType::YabbyRation, lane_x[4], 12 * TILE_SZ, true);
+    }
+
+    // -------------------------------------------------------------------------
+    // ACT 3-1: MELBOURNE DOWNTOWN (CITY FROGGER)
+    // -------------------------------------------------------------------------
+    fn load_act3_1(&mut self) {
         let vehicles_data = [
-            // Row 18: Westbound Taxis & Sedans
             (VehicleType::Taxi, 6 * TILE_SZ, 19 * TILE_SZ + 32, -3, 34, (240, 200, 30)),
             (VehicleType::Sedan, 14 * TILE_SZ, 19 * TILE_SZ + 32, -2, 32, (40, 110, 220)),
             (VehicleType::Taxi, 20 * TILE_SZ, 19 * TILE_SZ + 32, -3, 34, (240, 200, 30)),
-
-            // Row 18: Westbound fast lane
             (VehicleType::SportsCar, 10 * TILE_SZ, 18 * TILE_SZ + 32, -4, 30, (230, 45, 45)),
             (VehicleType::Sedan, 18 * TILE_SZ, 18 * TILE_SZ + 32, -2, 32, (180, 180, 190)),
-
-            // Row 13 & 14: Melbourne Tram tracks
             (VehicleType::Tram, 4 * TILE_SZ, 13 * TILE_SZ + 32, 2, 72, (30, 160, 70)),
             (VehicleType::Tram, 16 * TILE_SZ, 14 * TILE_SZ + 32, -2, 72, (30, 160, 70)),
-
-            // Row 7 & 8: Eastbound Highway (Trucks & Sports cars)
             (VehicleType::Truck, 5 * TILE_SZ, 8 * TILE_SZ + 32, 2, 64, (210, 50, 40)),
             (VehicleType::Sedan, 15 * TILE_SZ, 8 * TILE_SZ + 32, 3, 32, (50, 90, 160)),
             (VehicleType::SportsCar, 8 * TILE_SZ, 7 * TILE_SZ + 32, 4, 30, (255, 230, 60)),
@@ -698,23 +949,88 @@ impl EntityManager {
             }
         }
 
-        // City snacks yabbies on medians and sidewalks
         self.spawn_item(0, CollectibleType::YabbyRation, 7 * TILE_SZ, 21 * TILE_SZ, true);
         self.spawn_item(1, CollectibleType::YabbyRation, 12 * TILE_SZ, 16 * TILE_SZ, true);
         self.spawn_item(2, CollectibleType::YabbyRation, 16 * TILE_SZ, 10 * TILE_SZ, true);
         self.spawn_item(3, CollectibleType::LetterPage, 12 * TILE_SZ, 3 * TILE_SZ, true);
     }
 
-    fn load_act4(&mut self) {
-        // Coastal Beach 3D Platformer
-        // Stepped rock platforms & Bouncing parasols
+    // -------------------------------------------------------------------------
+    // ACT 3-2: FLINDERS STREET LANEWAYS & ROOFTOPS
+    // -------------------------------------------------------------------------
+    fn load_act3_2(&mut self) {
+        self.spawn_sentry(0, 4 * TILE_SZ, 5 * TILE_SZ, &[
+            (4 * TILE_SZ, 5 * TILE_SZ),
+            (4 * TILE_SZ, 17 * TILE_SZ),
+        ]);
+        self.spawn_sentry(1, 10 * TILE_SZ, 6 * TILE_SZ, &[
+            (10 * TILE_SZ, 6 * TILE_SZ),
+            (10 * TILE_SZ, 16 * TILE_SZ),
+        ]);
+        self.spawn_sentry(2, 15 * TILE_SZ, 4 * TILE_SZ, &[
+            (15 * TILE_SZ, 4 * TILE_SZ),
+            (15 * TILE_SZ, 18 * TILE_SZ),
+        ]);
+
+        self.searchlights[0] = Searchlight {
+            active: true,
+            base_x: 12 * TILE_SZ,
+            base_z: 10 * TILE_SZ,
+            beam_x: 12 * TILE_SZ,
+            beam_z: 10 * TILE_SZ,
+            sweep_angle: 64,
+            radius: 50,
+        };
+
+        self.drones[0] = Drone {
+            active: true,
+            x: 18 * TILE_SZ,
+            y: -36,
+            z: 10 * TILE_SZ,
+            angle: 0,
+            stun_timer: 0,
+        };
+
+        self.spawn_item(0, CollectibleType::CardboardBox, 4 * TILE_SZ, 19 * TILE_SZ, true);
+        self.spawn_item(1, CollectibleType::YabbyRation, 4 * TILE_SZ, 4 * TILE_SZ, true);
+        self.spawn_item(2, CollectibleType::YabbyRation, 10 * TILE_SZ, 18 * TILE_SZ, true);
+        self.spawn_item(3, CollectibleType::LetterPage, 19 * TILE_SZ, 10 * TILE_SZ, true);
+    }
+
+    // -------------------------------------------------------------------------
+    // ACT 3-3: ANTENNA TOWER & SNIPER KOOKABURRA BOSS
+    // -------------------------------------------------------------------------
+    fn load_act3_3(&mut self) {
+        self.boss_sniper = SniperBoss {
+            active: true,
+            x: 12 * TILE_SZ + 32,
+            y: -48,
+            z: 5 * TILE_SZ + 32,
+            health: 3,
+            max_health: 3,
+            aim_timer: 0,
+            laser_x: 12 * TILE_SZ,
+            laser_z: 16 * TILE_SZ,
+            hit_timer: 0,
+            perch_index: 1,
+            is_vulnerable: false,
+        };
+
+        self.spawn_item(0, CollectibleType::YabbyRation, 7 * TILE_SZ, 10 * TILE_SZ, true);
+        self.spawn_item(1, CollectibleType::YabbyRation, 16 * TILE_SZ, 10 * TILE_SZ, true);
+    }
+
+    // -------------------------------------------------------------------------
+    // ACT 4-1: COASTAL DUNES & SURF (3D PLATFORMER)
+    // -------------------------------------------------------------------------
+    fn load_act4_1(&mut self) {
         let platforms = [
             (6 * TILE_SZ, -20, 16 * TILE_SZ, 48, 20, 48, false),
-            (8 * TILE_SZ, -2, 14 * TILE_SZ, 36, 16, 36, true), // Bouncing parasol 1!
+            (8 * TILE_SZ, -2, 14 * TILE_SZ, 36, 16, 36, true),
             (10 * TILE_SZ, -38, 12 * TILE_SZ, 56, 38, 56, false),
-            (14 * TILE_SZ, -4, 10 * TILE_SZ, 36, 16, 36, true), // Bouncing parasol 2!
+            (14 * TILE_SZ, -4, 10 * TILE_SZ, 36, 16, 36, true),
             (16 * TILE_SZ, -58, 8 * TILE_SZ, 60, 58, 60, false),
-            (18 * TILE_SZ, -75, 4 * TILE_SZ, 64, 75, 64, false), // Peak dune leading to Pip!
+            (18 * TILE_SZ, -75, 4 * TILE_SZ, 64, 75, 64, false),
         ];
 
         for (i, (x, y, z, w, h, d, is_p)) in platforms.iter().enumerate() {
@@ -732,7 +1048,6 @@ impl EntityManager {
             }
         }
 
-        // Beach Crabs patrolling the sand
         self.beach_crabs[0] = BeachCrab {
             active: true,
             x: 6 * TILE_SZ,
@@ -761,7 +1076,6 @@ impl EntityManager {
             vx: 1,
         };
 
-        // Golden Star Yabbies on high ledges!
         self.spawn_item(0, CollectibleType::StarYabby, 6 * TILE_SZ + 24, 16 * TILE_SZ + 24, true);
         self.collectibles[0].y = -30;
         self.spawn_item(1, CollectibleType::StarYabby, 10 * TILE_SZ + 28, 12 * TILE_SZ + 28, true);
@@ -769,6 +1083,100 @@ impl EntityManager {
         self.spawn_item(2, CollectibleType::StarYabby, 16 * TILE_SZ + 30, 8 * TILE_SZ + 30, true);
         self.collectibles[2].y = -68;
         self.spawn_item(3, CollectibleType::YabbyRation, 4 * TILE_SZ, 19 * TILE_SZ, true);
+    }
+
+    // -------------------------------------------------------------------------
+    // ACT 4-2: PIER UNDERSTRUCTURE & SHARK TRENCH
+    // -------------------------------------------------------------------------
+    fn load_act4_2(&mut self) {
+        // Sharks circling water channels
+        self.beach_crabs[0] = BeachCrab {
+            active: true,
+            x: 7 * TILE_SZ,
+            y: 0,
+            z: 6 * TILE_SZ,
+            min_x: 6 * TILE_SZ,
+            max_x: 9 * TILE_SZ,
+            vx: 2,
+        };
+        self.beach_crabs[1] = BeachCrab {
+            active: true,
+            x: 12 * TILE_SZ,
+            y: 0,
+            z: 11 * TILE_SZ,
+            min_x: 11 * TILE_SZ,
+            max_x: 14 * TILE_SZ,
+            vx: -2,
+        };
+        self.beach_crabs[2] = BeachCrab {
+            active: true,
+            x: 7 * TILE_SZ,
+            y: 0,
+            z: 16 * TILE_SZ,
+            min_x: 6 * TILE_SZ,
+            max_x: 9 * TILE_SZ,
+            vx: 2,
+        };
+        self.beach_crabs[3] = BeachCrab {
+            active: true,
+            x: 17 * TILE_SZ,
+            y: 0,
+            z: 8 * TILE_SZ,
+            min_x: 16 * TILE_SZ,
+            max_x: 20 * TILE_SZ,
+            vx: -2,
+        };
+
+        // Rest platforms
+        self.beach_platforms[0] = BeachPlatform {
+            active: true,
+            x: 7 * TILE_SZ,
+            y: 0,
+            z: 14 * TILE_SZ,
+            w: 48,
+            h: 8,
+            d: 48,
+            is_parasol: false,
+        };
+        self.beach_platforms[1] = BeachPlatform {
+            active: true,
+            x: 12 * TILE_SZ,
+            y: 0,
+            z: 8 * TILE_SZ,
+            w: 48,
+            h: 8,
+            d: 48,
+            is_parasol: false,
+        };
+
+        self.spawn_item(0, CollectibleType::StarYabby, 3 * TILE_SZ, 10 * TILE_SZ, true);
+        self.spawn_item(1, CollectibleType::StarYabby, 12 * TILE_SZ, 8 * TILE_SZ, true);
+        self.spawn_item(2, CollectibleType::StarYabby, 17 * TILE_SZ, 12 * TILE_SZ, true);
+        self.spawn_item(3, CollectibleType::LetterPage, 18 * TILE_SZ, 4 * TILE_SZ, true);
+    }
+
+    // -------------------------------------------------------------------------
+    // ACT 4-3: BURROW DEFENSE & DR. CANE TOAD'S EXCAVATOR (FINAL CLIMAX)
+    // -------------------------------------------------------------------------
+    fn load_act4_3(&mut self) {
+        self.boss_excavator = ExcavatorBoss {
+            active: true,
+            x: 12 * TILE_SZ + 32,
+            y: 0,
+            z: 7 * TILE_SZ + 32,
+            health: 4,
+            max_health: 4,
+            claw_angle: 0,
+            sweep_dir: 1,
+            state_timer: 0,
+            hit_timer: 0,
+            slime_cooldown: 120,
+            shields_down: false,
+            engine_hp: [2, 2, 2],
+        };
+
+        self.spawn_item(0, CollectibleType::YabbyRation, 4 * TILE_SZ, 15 * TILE_SZ, true);
+        self.spawn_item(1, CollectibleType::YabbyRation, 19 * TILE_SZ, 15 * TILE_SZ, true);
     }
 
     fn spawn_sentry(&mut self, idx: usize, x: i32, z: i32, waypoints: &[(i32, i32)]) {
@@ -829,7 +1237,11 @@ impl EntityManager {
         self.frame = self.frame.wrapping_add(1);
 
         match act {
-            Act::Act1Sanctuary => {
+            Act::Act1_1Drainage
+            | Act::Act1_2Barracks
+            | Act::Act2_2Mangroves
+            | Act::Act3_2Laneways
+            | Act::Act4_2PierTrench => {
                 self.update_act1(
                     player_x,
                     player_z,
@@ -841,18 +1253,41 @@ impl EntityManager {
                     noise_radius,
                     level,
                 );
+                // Also update any water/crab hazards present in 2-2 and 4-2
+                if act == Act::Act2_2Mangroves || act == Act::Act4_2PierTrench {
+                    for crab in self.beach_crabs.iter_mut() {
+                        if !crab.active {
+                            continue;
+                        }
+                        crab.x += crab.vx;
+                        if crab.x >= crab.max_x {
+                            crab.vx = -crab.vx.abs();
+                        } else if crab.x <= crab.min_x {
+                            crab.vx = crab.vx.abs();
+                        }
+                    }
+                }
             }
-            Act::Act1Boss => {
+            Act::Act1_3MechBoss => {
                 self.update_act1_boss(player_x, player_z, player_crawling, level);
             }
-            Act::Act2Bushland => {
+            Act::Act2_1Rapids => {
                 self.update_act2();
             }
-            Act::Act3City => {
+            Act::Act2_3JetSkiBoss => {
+                self.update_act2_3_boss();
+            }
+            Act::Act3_1Highway => {
                 self.update_act3();
             }
-            Act::Act4Ocean => {
+            Act::Act3_3SniperBoss => {
+                self.update_act3_3_boss(player_x, player_z, player_crawling, level);
+            }
+            Act::Act4_1Dunes => {
                 self.update_act4();
+            }
+            Act::Act4_3ExcavatorBoss => {
+                self.update_act4_3_boss(player_x, player_z);
             }
         }
 
@@ -1333,6 +1768,140 @@ impl EntityManager {
             if crab.x <= crab.min_x || crab.x >= crab.max_x {
                 crab.vx = -crab.vx;
             }
+        }
+    }
+
+    fn update_act2_3_boss(&mut self) {
+        if !self.boss_jetski.active || self.boss_jetski.is_defeated() {
+            return;
+        }
+        if self.boss_jetski.hit_timer > 0 {
+            self.boss_jetski.hit_timer -= 1;
+        }
+        self.boss_jetski.state_timer = self.boss_jetski.state_timer.wrapping_add(1);
+
+        if !self.boss_jetski.is_stalled {
+            self.boss_jetski.x += self.boss_jetski.vx * 2;
+            if self.boss_jetski.x >= 13 * TILE_SZ {
+                self.boss_jetski.vx = -1;
+            } else if self.boss_jetski.x <= 9 * TILE_SZ {
+                self.boss_jetski.vx = 1;
+            }
+
+            // Drop floating barrel mines
+            if self.boss_jetski.mine_cooldown > 0 {
+                self.boss_jetski.mine_cooldown -= 1;
+            } else {
+                self.boss_jetski.mine_cooldown = 100;
+                for obs in self.river_obstacles.iter_mut() {
+                    if !obs.active {
+                        *obs = RiverObstacle {
+                            active: true,
+                            kind: RiverObstacleType::RiverTuber,
+                            x: self.boss_jetski.x,
+                            z: self.boss_jetski.z + 40,
+                            y: 0,
+                            speed: 2,
+                        };
+                        break;
+                    }
+                }
+            }
+
+            // Engine overheat stall every 240 frames
+            if self.boss_jetski.state_timer % 240 == 0 {
+                self.boss_jetski.is_stalled = true;
+                AudioManager::play_metal();
+            }
+        } else {
+            // Smoke particles when stalled
+            if (self.frame % 5) == 0 {
+                self.spawn_particle(self.boss_jetski.x, -16, self.boss_jetski.z, 0, -2, 0, 20, (180, 180, 190), 3);
+            }
+            if self.boss_jetski.state_timer % 90 == 0 {
+                self.boss_jetski.is_stalled = false;
+            }
+        }
+
+        self.update_act2();
+    }
+
+    fn update_act3_3_boss(
+        &mut self,
+        player_x: i32,
+        player_z: i32,
+        player_crawling: bool,
+        level: &Level,
+    ) {
+        if !self.boss_sniper.active || self.boss_sniper.is_defeated() {
+            return;
+        }
+        if self.boss_sniper.hit_timer > 0 {
+            self.boss_sniper.hit_timer -= 1;
+        }
+
+        let perches = [
+            (4 * TILE_SZ + 32, 8 * TILE_SZ),
+            (12 * TILE_SZ + 32, 5 * TILE_SZ),
+            (19 * TILE_SZ + 32, 8 * TILE_SZ),
+        ];
+        let (px, pz) = perches[self.boss_sniper.perch_index % 3];
+        self.boss_sniper.x = px;
+        self.boss_sniper.z = pz;
+
+        if !self.boss_sniper.is_vulnerable {
+            self.boss_sniper.aim_timer = self.boss_sniper.aim_timer.saturating_add(1);
+            self.boss_sniper.laser_x += (player_x - self.boss_sniper.laser_x) / 6;
+            self.boss_sniper.laser_z += (player_z - self.boss_sniper.laser_z) / 6;
+
+            if self.boss_sniper.aim_timer >= 110 {
+                AudioManager::play_hit();
+                let in_vent = level.get_cell((player_x / TILE_SZ) as usize, (player_z / TILE_SZ) as usize) == CellType::AirDuct && player_crawling;
+                let laser_dist = (player_x - self.boss_sniper.laser_x).abs().max((player_z - self.boss_sniper.laser_z).abs());
+                if laser_dist < 40 && !in_vent {
+                    self.spawn_particle(player_x, -16, player_z, 0, -2, 0, 20, (255, 60, 60), 4);
+                }
+                self.boss_sniper.is_vulnerable = true;
+                self.boss_sniper.aim_timer = 0;
+            }
+        } else {
+            self.boss_sniper.aim_timer = self.boss_sniper.aim_timer.saturating_add(1);
+            if (self.frame % 6) == 0 {
+                self.spawn_particle(self.boss_sniper.x, -52, self.boss_sniper.z, 0, -2, 0, 15, (255, 230, 80), 2);
+            }
+            if self.boss_sniper.aim_timer >= 120 {
+                self.boss_sniper.is_vulnerable = false;
+                self.boss_sniper.aim_timer = 0;
+                self.boss_sniper.perch_index = (self.boss_sniper.perch_index + 1) % 3;
+                AudioManager::play_jump();
+            }
+        }
+    }
+
+    fn update_act4_3_boss(&mut self, player_x: i32, _player_z: i32) {
+        if !self.boss_excavator.active || self.boss_excavator.is_defeated() {
+            return;
+        }
+        if self.boss_excavator.hit_timer > 0 {
+            self.boss_excavator.hit_timer -= 1;
+        }
+        self.boss_excavator.state_timer = self.boss_excavator.state_timer.wrapping_add(1);
+
+        // Sweeping shovel claw
+        self.boss_excavator.claw_angle = self.boss_excavator.claw_angle.wrapping_add((self.boss_excavator.sweep_dir * 3) as u16);
+        if self.boss_excavator.claw_angle > 180 {
+            self.boss_excavator.sweep_dir = -1;
+        } else if self.boss_excavator.claw_angle < 40 {
+            self.boss_excavator.sweep_dir = 1;
+        }
+
+        // Slime mortar
+        if self.boss_excavator.slime_cooldown > 0 {
+            self.boss_excavator.slime_cooldown -= 1;
+        } else {
+            self.boss_excavator.slime_cooldown = 110;
+            AudioManager::play_swoosh();
+            self.spawn_particle(player_x, -10, self.boss_excavator.z + 120, 0, 1, 0, 30, (80, 220, 40), 4);
         }
     }
 }

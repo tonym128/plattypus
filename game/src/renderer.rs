@@ -121,18 +121,18 @@ impl Renderer {
         frame: u8,
     ) {
         // Clear backdrop tailored to stage atmosphere
-        match level.act {
-            Act::Act1Sanctuary | Act::Act1Boss => gpu::draw_rect_flat(0, 0, 320, 240, 10, 14, 20), // Dark military compound
-            Act::Act2Bushland => gpu::draw_rect_flat(0, 0, 320, 240, 16, 40, 24),  // Yarra forest canopy
-            Act::Act3City => gpu::draw_rect_flat(0, 0, 320, 240, 14, 16, 28),      // Melbourne night sky
-            Act::Act4Ocean => gpu::draw_rect_flat(0, 0, 320, 240, 50, 130, 210),   // Coastal ocean sky
+        match level.act.chapter() {
+            1 => gpu::draw_rect_flat(0, 0, 320, 240, 10, 14, 20), // Dark military compound
+            2 => gpu::draw_rect_flat(0, 0, 320, 240, 16, 40, 24),  // Yarra forest canopy
+            3 => gpu::draw_rect_flat(0, 0, 320, 240, 14, 16, 28),      // Melbourne night sky
+            _ => gpu::draw_rect_flat(0, 0, 320, 240, 50, 130, 210),   // Coastal ocean sky
         }
 
         // Draw ground searchlights & vision cones on floor (Blended)
-        if level.act == Act::Act1Sanctuary {
-            self.draw_vision_cones(entities);
-        } else if level.act == Act::Act1Boss {
+        if level.act == Act::Act1_3MechBoss {
             self.draw_boss_searchlights(&entities.boss_mech);
+        } else {
+            self.draw_vision_cones(entities);
         }
 
         // Row-based depth sorting (far to near) to eliminate clipping
@@ -153,56 +153,56 @@ impl Renderer {
                 self.draw_cell(cell, wx, wz, level.act, frame);
             }
 
-            // 2. Draw Act-specific entities situated in this row
-            match level.act {
-                Act::Act1Sanctuary => {
-                    for s in entities.sentries.iter() {
-                        if s.active && s.z >= row_z_min && s.z < row_z_max {
-                            self.draw_sentry(s, entities.frame);
-                        }
-                    }
-                    for d in entities.drones.iter() {
-                        if d.active && d.z >= row_z_min && d.z < row_z_max {
-                            self.draw_drone(d, frame);
-                        }
-                    }
+            // 2. Draw entities situated in this row
+            for s in entities.sentries.iter() {
+                if s.active && s.z >= row_z_min && s.z < row_z_max {
+                    self.draw_sentry(s, entities.frame);
                 }
-                Act::Act1Boss => {
-                    for c in entities.power_conduits.iter() {
-                        if c.active && c.z >= row_z_min && c.z < row_z_max {
-                            self.draw_power_conduit(c, frame);
-                        }
-                    }
-                    let mech = &entities.boss_mech;
-                    if mech.active && mech.z >= row_z_min && mech.z < row_z_max {
-                        self.draw_searchlight_mech(mech, frame);
-                    }
+            }
+            for d in entities.drones.iter() {
+                if d.active && d.z >= row_z_min && d.z < row_z_max {
+                    self.draw_drone(d, frame);
                 }
-                Act::Act2Bushland => {
-                    for obs in entities.river_obstacles.iter() {
-                        if obs.active && obs.z >= row_z_min && obs.z < row_z_max {
-                            self.draw_river_obstacle(obs, frame);
-                        }
-                    }
+            }
+            for c in entities.power_conduits.iter() {
+                if c.active && c.z >= row_z_min && c.z < row_z_max {
+                    self.draw_power_conduit(c, frame);
                 }
-                Act::Act3City => {
-                    for v in entities.vehicles.iter() {
-                        if v.active && v.z >= row_z_min && v.z < row_z_max {
-                            self.draw_vehicle(v);
-                        }
-                    }
+            }
+            let mech = &entities.boss_mech;
+            if mech.active && mech.z >= row_z_min && mech.z < row_z_max {
+                self.draw_searchlight_mech(mech, frame);
+            }
+            let jetski = &entities.boss_jetski;
+            if jetski.active && jetski.z >= row_z_min && jetski.z < row_z_max {
+                self.draw_jetski_boss(jetski, frame);
+            }
+            let sniper = &entities.boss_sniper;
+            if sniper.active && sniper.z >= row_z_min && sniper.z < row_z_max {
+                self.draw_sniper_kookaburra(sniper, frame);
+            }
+            let exc = &entities.boss_excavator;
+            if exc.active && exc.z >= row_z_min && exc.z < row_z_max {
+                self.draw_excavator_boss(exc, frame);
+            }
+            for obs in entities.river_obstacles.iter() {
+                if obs.active && obs.z >= row_z_min && obs.z < row_z_max {
+                    self.draw_river_obstacle(obs, frame);
                 }
-                Act::Act4Ocean => {
-                    for p in entities.beach_platforms.iter() {
-                        if p.active && p.z >= row_z_min && p.z < row_z_max {
-                            self.draw_beach_platform(p);
-                        }
-                    }
-                    for crab in entities.beach_crabs.iter() {
-                        if crab.active && crab.z >= row_z_min && crab.z < row_z_max {
-                            self.draw_crab(crab, frame);
-                        }
-                    }
+            }
+            for v in entities.vehicles.iter() {
+                if v.active && v.z >= row_z_min && v.z < row_z_max {
+                    self.draw_vehicle(v);
+                }
+            }
+            for p in entities.beach_platforms.iter() {
+                if p.active && p.z >= row_z_min && p.z < row_z_max {
+                    self.draw_beach_platform(p);
+                }
+            }
+            for crab in entities.beach_crabs.iter() {
+                if crab.active && crab.z >= row_z_min && crab.z < row_z_max {
+                    self.draw_crab(crab, frame);
                 }
             }
 
@@ -220,7 +220,7 @@ impl Renderer {
         }
 
         // Draw Shockwave Ground Ring if Boss Stomps
-        if level.act == Act::Act1Boss && entities.boss_mech.shockwave_active {
+        if level.act == Act::Act1_3MechBoss && entities.boss_mech.shockwave_active {
             self.draw_shockwave_ring(&entities.boss_mech);
         }
 
@@ -374,11 +374,11 @@ impl Renderer {
     }
 
     fn draw_cell(&self, cell: CellType, wx: i32, wz: i32, act: Act, frame: u8) {
-        let (floor_r, floor_g, floor_b) = match act {
-            Act::Act1Sanctuary | Act::Act1Boss => (30, 38, 44),   // Dark tarmac / concrete
-            Act::Act2Bushland => (25, 75, 40),    // Lush Yarra riverbank moss & grass
-            Act::Act3City => (48, 52, 58),        // City asphalt road
-            Act::Act4Ocean => (220, 200, 145),    // Warm coastal sand
+        let (floor_r, floor_g, floor_b) = match act.chapter() {
+            1 => (30, 38, 44),   // Dark tarmac / concrete
+            2 => (25, 75, 40),   // Lush Yarra riverbank moss & grass
+            3 => (48, 52, 58),   // City asphalt road
+            _ => (220, 200, 145), // Warm coastal sand
         };
 
         let gx = (wx / TILE_SZ) as usize;
@@ -387,8 +387,8 @@ impl Renderer {
         match cell {
             CellType::Floor => {
                 self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b, act);
-                match act {
-                    Act::Act3City => {
+                match act.chapter() {
+                    3 => {
                         // Road dividing dashed white lines
                         if gz == 18 || gz == 12 || gz == 6 {
                             self.draw_box_3d(wx + 24, wz + 28, 16, 1, 8, (230, 230, 230));
@@ -398,7 +398,7 @@ impl Renderer {
                             self.draw_streetlamp(wx, wz);
                         }
                     }
-                    Act::Act4Ocean => {
+                    4 => {
                         // Palm trees on outer dunes
                         if (gx == 1 || gx == 22) && (gz % 3 == 0) {
                             self.draw_palm_tree(wx, wz);
@@ -425,16 +425,16 @@ impl Renderer {
             }
             CellType::Container => {
                 self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b, act);
-                let (c_tex, c_col, h) = match act {
-                    Act::Act1Sanctuary | Act::Act1Boss => (TextureId::ConcreteWall, (150, 150, 150), 70),
-                    Act::Act2Bushland => (TextureId::RiverLog, (140, 140, 140), 64),
-                    Act::Act3City => (TextureId::CityBrick, (160, 160, 160), 110), // Giant illuminated skyscraper!
-                    Act::Act4Ocean => (TextureId::RockCliff, (160, 160, 160), 55), // Stepped sandcliff
+                let (c_tex, c_col, h) = match act.chapter() {
+                    1 => (TextureId::ConcreteWall, (150, 150, 150), 70),
+                    2 => (TextureId::RiverLog, (140, 140, 140), 64),
+                    3 => (TextureId::CityBrick, (160, 160, 160), 110), // Giant illuminated skyscraper!
+                    _ => (TextureId::RockCliff, (160, 160, 160), 55), // Stepped sandcliff
                 };
                 self.draw_box_3d_textured(wx + 2, wz + 2, 60, h, 60, c_tex, c_col);
 
                 // Add glowing windows and beacons on city skyscrapers
-                if act == Act::Act3City {
+                if act.chapter() == 3 {
                     let win_col = if (wx / 64) % 2 == 0 { (255, 230, 110) } else { (100, 210, 255) };
                     self.draw_box_3d(wx + 10, wz + 4, 12, 16, 2, win_col);
                     self.draw_box_3d(wx + 38, wz + 4, 12, 16, 2, win_col);
@@ -445,21 +445,21 @@ impl Renderer {
                 }
             }
             CellType::Wall => {
-                match act {
-                    Act::Act2Bushland => {
+                match act.chapter() {
+                    2 => {
                         // Bushland riverbank: mossy bank + gum tree
                         self.draw_box_3d_textured(wx, wz, 64, 32, 64, TextureId::GumLeaves, (140, 140, 140));
                         if (gx + gz) % 2 == 0 {
                             self.draw_gum_tree(wx, wz);
                         }
                     }
-                    Act::Act1Sanctuary | Act::Act1Boss => {
+                    1 => {
                         self.draw_box_3d_textured(wx, wz, 64, 80, 64, TextureId::ConcreteWall, (150, 150, 150));
                     }
-                    Act::Act3City => {
+                    3 => {
                         self.draw_box_3d_textured(wx, wz, 64, 80, 64, TextureId::CityBrick, (160, 160, 160));
                     }
-                    Act::Act4Ocean => {
+                    _ => {
                         self.draw_box_3d_textured(wx, wz, 64, 60, 64, TextureId::RockCliff, (160, 160, 160));
                     }
                 }
@@ -492,11 +492,11 @@ impl Renderer {
         let v2 = Vec3I16::new(wx as i16, 0, (wz + TILE_SZ) as i16);
         let v3 = Vec3I16::new((wx + TILE_SZ) as i16, 0, (wz + TILE_SZ) as i16);
 
-        let floor_tex = match act {
-            Act::Act1Sanctuary | Act::Act1Boss => TextureId::MetalGrate,
-            Act::Act2Bushland => TextureId::GumLeaves,
-            Act::Act3City => TextureId::CityAsphalt,
-            Act::Act4Ocean => TextureId::BeachSand,
+        let floor_tex = match act.chapter() {
+            1 => TextureId::MetalGrate,
+            2 => TextureId::GumLeaves,
+            3 => TextureId::CityAsphalt,
+            _ => TextureId::BeachSand,
         };
         self.draw_quad_3d_textured_gouraud(v0, v1, v2, v3, floor_tex, FaceDirection::Top, (r, g, b));
     }
@@ -509,8 +509,8 @@ impl Renderer {
         let v2 = Vec3I16::new(wx as i16, y, (wz + TILE_SZ) as i16);
         let v3 = Vec3I16::new((wx + TILE_SZ) as i16, y, (wz + TILE_SZ) as i16);
 
-        let tint = match act {
-            Act::Act4Ocean => (160, 200, 240),
+        let tint = match act.chapter() {
+            4 => (160, 200, 240),
             _ => {
                 if is_current {
                     (190, 220, 255)
@@ -522,7 +522,7 @@ impl Renderer {
         self.draw_quad_3d_textured_gouraud(v0, v1, v2, v3, TextureId::RiverWater, FaceDirection::Top, tint);
 
         // Animated foam ripples
-        if is_current || act == Act::Act4Ocean {
+        if is_current || act.chapter() == 4 {
             let foam_z = (wz + ((frame as i32 * 3) % TILE_SZ)) as i16;
             let p0 = scene::project_vertex(Vec3I16::new(wx as i16 + 8, y - 1, foam_z));
             let p1 = scene::project_vertex(Vec3I16::new(wx as i16 + 56, y - 1, foam_z));
@@ -1071,6 +1071,161 @@ impl Renderer {
         }
     }
 
+    fn draw_jetski_boss(&self, jetski: &crate::entities::JetSkiBoss, _frame: u8) {
+        if !jetski.active {
+            return;
+        }
+        let rot = Mat3I16::rotate_y(128); // Facing south toward Platty
+        let jx = jetski.x;
+        let jy = jetski.y;
+        let jz = jetski.z;
+
+        let col = if jetski.hit_timer > 0 && (jetski.hit_timer / 2) % 2 == 1 {
+            (255, 255, 255)
+        } else if jetski.is_stalled {
+            (255, 160, 40)
+        } else {
+            (35, 75, 160) // Police watercraft blue
+        };
+
+        // Hull
+        self.draw_model_box(jx, jy, jz, -14, -6, -24, 28, 8, 48, &rot, col);
+        // Deck / Seat
+        self.draw_model_box(jx, jy, jz, -8, -14, -10, 16, 8, 26, &rot, (220, 220, 230));
+        // Windshield
+        self.draw_model_box(jx, jy, jz, -10, -18, 6, 20, 6, 4, &rot, (80, 210, 255));
+        // Ranger Driver
+        self.draw_model_box(jx, jy, jz, -6, -26, 0, 12, 12, 10, &rot, (130, 90, 50));
+        self.draw_model_box(jx, jy, jz, -8, -30, -2, 16, 4, 14, &rot, (100, 70, 40));
+        // Outboard motor at rear
+        self.draw_model_box(jx, jy, jz, -6, -10, -28, 12, 12, 8, &rot, (40, 45, 50));
+    }
+
+    fn draw_sniper_kookaburra(&self, sniper: &crate::entities::SniperBoss, frame: u8) {
+        if !sniper.active {
+            return;
+        }
+        let rot = Mat3I16::rotate_y(0);
+        let sx = sniper.x;
+        let sy = sniper.y;
+        let sz = sniper.z;
+
+        let body_col = if sniper.hit_timer > 0 && (sniper.hit_timer / 2) % 2 == 1 {
+            (255, 255, 255)
+        } else {
+            (190, 175, 150) // Feathered gray-brown
+        };
+
+        // Kookaburra Body
+        self.draw_model_box(sx, sy, sz, -10, -18, -10, 20, 18, 20, &rot, body_col);
+        // Wings
+        self.draw_model_box(sx, sy, sz, -14, -16, -8, 4, 14, 16, &rot, (90, 65, 45));
+        self.draw_model_box(sx, sy, sz, 10, -16, -8, 4, 14, 16, &rot, (90, 65, 45));
+        // Large Laughing Beak
+        self.draw_model_box(sx, sy, sz, -4, -12, 10, 8, 6, 12, &rot, (230, 150, 40));
+        // Sniper Rifle Barrel
+        self.draw_model_box(sx, sy, sz, 4, -14, 4, 3, 3, 24, &rot, (40, 40, 45));
+
+        // Red Laser Targeting line from rifle to ground
+        if !sniper.is_vulnerable {
+            let muzzle = scene::project_vertex(Vec3I16::new((sx + 5) as i16, (sy - 13) as i16, (sz + 28) as i16));
+            let target = scene::project_vertex(Vec3I16::new(sniper.laser_x as i16, 0, sniper.laser_z as i16));
+            if muzzle.sz > 20 && target.sz > 20 {
+                let flash = if (frame / 2) % 2 == 0 { 255 } else { 160 };
+                gpu::draw_line_mono(muzzle.sx, muzzle.sy, target.sx, target.sy, flash, 30, 30);
+                gpu::draw_rect_flat(target.sx - 2, target.sy - 2, 5, 5, 255, 40, 40);
+            }
+        }
+    }
+
+    fn draw_excavator_boss(&self, exc: &crate::entities::ExcavatorBoss, _frame: u8) {
+        if !exc.active {
+            return;
+        }
+        let rot = Mat3I16::rotate_y(0);
+        let ex = exc.x;
+        let ey = exc.y;
+        let ez = exc.z;
+
+        let yellow = if exc.hit_timer > 0 && (exc.hit_timer / 2) % 2 == 1 {
+            (255, 255, 255)
+        } else {
+            (230, 185, 30) // Caterpillar construction yellow
+        };
+
+        // Left & Right Caterpillar Treads
+        self.draw_model_box(ex, ey, ez, -34, -12, -28, 14, 12, 56, &rot, (40, 42, 45));
+        self.draw_model_box(ex, ey, ez, 20, -12, -28, 14, 12, 56, &rot, (40, 42, 45));
+        // Main Engine Chassis
+        self.draw_model_box(ex, ey, ez, -20, -28, -22, 40, 18, 44, &rot, yellow);
+        // Cabin Cockpit Glass
+        self.draw_model_box(ex, ey, ez, -16, -42, 0, 18, 14, 18, &rot, (90, 210, 255));
+        // Dr. Cane Toad inside cockpit
+        self.draw_model_box(ex, ey, ez, -12, -38, 4, 10, 10, 10, &rot, (60, 160, 50));
+        // Rear Engine Exhaust / Radiator
+        self.draw_model_box(ex, ey, ez, -12, -34, -26, 24, 12, 6, &rot, (240, 80, 40));
+
+        // Articulated Hydraulic Crane Arm
+        let arm_reach = (exc.claw_angle as i32 * 40) / 180;
+        self.draw_model_box(ex, ey, ez, 4, -38, 12, 8, 8, 30, &rot, yellow);
+        self.draw_model_box(ex, ey, ez, 4 + arm_reach / 2, -30, 36, 8, 8, 24, &rot, (150, 150, 160));
+        // Heavy Shovel Bucket Claw
+        self.draw_model_box(ex, ey, ez, 2 + arm_reach, -18, 54, 14, 16, 16, &rot, (60, 65, 70));
+    }
+
+    fn draw_jetski_boss_hud(&self, jetski: &crate::entities::JetSkiBoss) {
+        let bx: i16 = 180;
+        let by: i16 = 8;
+        let bw: u16 = 134;
+        let bh: u16 = 36;
+
+        gpu::draw_rect_flat(bx, by, bw, bh, 12, 24, 32);
+        gpu::draw_rect_flat(bx + 2, by + 2, bw - 4, bh - 4, 4, 10, 16);
+
+        self.font.draw_text(bx + 6, by + 4, "RANGER JET SKI", (80, 220, 255));
+        if jetski.is_stalled {
+            self.font.draw_text(bx + 6, by + 18, "STALLED! HIT!", (255, 230, 40));
+        } else {
+            self.font.draw_text(bx + 6, by + 18, "ENGINE HP", (240, 80, 80));
+            let hp_w = (jetski.health as u16 * 18).min(54);
+            gpu::draw_rect_flat(bx + 72, by + 19, hp_w, 8, 255, 60, 60);
+        }
+    }
+
+    fn draw_sniper_boss_hud(&self, sniper: &crate::entities::SniperBoss) {
+        let bx: i16 = 180;
+        let by: i16 = 8;
+        let bw: u16 = 134;
+        let bh: u16 = 36;
+
+        gpu::draw_rect_flat(bx, by, bw, bh, 28, 16, 12);
+        gpu::draw_rect_flat(bx + 2, by + 2, bw - 4, bh - 4, 12, 6, 4);
+
+        self.font.draw_text(bx + 6, by + 4, "SNIPER KOOKY", (255, 120, 40));
+        if sniper.is_vulnerable {
+            self.font.draw_text(bx + 6, by + 18, "JAMMED! STRIKE!", (255, 240, 80));
+        } else {
+            self.font.draw_text(bx + 6, by + 18, "TARGET LOCK", (255, 60, 60));
+            let aim_w = ((sniper.aim_timer.min(100) as u32 * 48) / 100) as u16;
+            gpu::draw_rect_flat(bx + 80, by + 19, aim_w, 8, 255, 40, 40);
+        }
+    }
+
+    fn draw_excavator_boss_hud(&self, exc: &crate::entities::ExcavatorBoss) {
+        let bx: i16 = 180;
+        let by: i16 = 8;
+        let bw: u16 = 134;
+        let bh: u16 = 36;
+
+        gpu::draw_rect_flat(bx, by, bw, bh, 24, 20, 10);
+        gpu::draw_rect_flat(bx + 2, by + 2, bw - 4, bh - 4, 10, 8, 4);
+
+        self.font.draw_text(bx + 6, by + 4, "DR. TOAD-DOZER", (255, 200, 40));
+        self.font.draw_text(bx + 6, by + 18, "VALVES", (140, 230, 80));
+        let hp_w = (exc.health as u16 * 14).min(56);
+        gpu::draw_rect_flat(bx + 66, by + 19, hp_w, 8, 255, 180, 40);
+    }
+
     // -------------------------------------------------------------------------
     // 3D PLATYPUS CHARACTER MODEL
     // -------------------------------------------------------------------------
@@ -1469,14 +1624,7 @@ impl Renderer {
             let o2_col = if platty.air < 30 { (255, 60, 50) } else { (80, 220, 255) };
             gpu::draw_rect_flat(41, 28, o2_w, 5, o2_col.0, o2_col.1, o2_col.2);
         } else {
-            let stage_lbl = match act {
-                Act::Act1Sanctuary => "STAGE 1",
-                Act::Act1Boss => "STAGE 1.3",
-                Act::Act2Bushland => "STAGE 2",
-                Act::Act3City => "STAGE 3",
-                Act::Act4Ocean => "STAGE 4",
-            };
-            self.font.draw_text(14, 26, stage_lbl, (240, 210, 100));
+            self.font.draw_text(14, 26, act.stage_label(), (240, 210, 100));
         }
 
         // TOP-CENTER: SCORE & YABBIES COUNTER (x: 114, y: 8, w: 96, h: 36)
@@ -1527,15 +1675,15 @@ impl Renderer {
 
         // STAGE-SPECIFIC TOP-RIGHT HUD
         match act {
-            Act::Act1Sanctuary => {
-                // Metal Gear Solid Soliton Radar
+            Act::Act1_1Drainage | Act::Act1_2Barracks | Act::Act3_2Laneways => {
+                // Metal Gear Solid Soliton Radar for stealth/urban infiltration
                 self.draw_soliton_radar(platty, entities);
             }
-            Act::Act1Boss => {
+            Act::Act1_3MechBoss => {
                 // Searchlight Mech Boss Health Bar
                 self.draw_boss_hud(&entities.boss_mech, &entities.power_conduits);
             }
-            Act::Act2Bushland => {
+            Act::Act2_1Rapids => {
                 // Yarra River Runner distance HUD
                 gpu::draw_rect_flat(218, 8, 94, 36, 12, 28, 18);
                 gpu::draw_rect_flat(220, 10, 90, 32, 4, 16, 10);
@@ -1544,7 +1692,16 @@ impl Renderer {
                 gpu::draw_rect_flat(224, 28, 80, 6, 20, 45, 25);
                 gpu::draw_rect_flat(225, 29, (dist_pct as u32 * 78 / 100) as u16, 4, 80, 230, 120);
             }
-            Act::Act3City => {
+            Act::Act2_2Mangroves => {
+                gpu::draw_rect_flat(218, 8, 94, 36, 10, 26, 20);
+                gpu::draw_rect_flat(220, 10, 90, 32, 4, 14, 10);
+                self.font.draw_text(224, 12, "MANGROVES", (80, 240, 180));
+                self.font.draw_text(224, 26, "SONAR TO NAV", (120, 220, 255));
+            }
+            Act::Act2_3JetSkiBoss => {
+                self.draw_jetski_boss_hud(&entities.boss_jetski);
+            }
+            Act::Act3_1Highway => {
                 // City Frogger Avenues crossed
                 gpu::draw_rect_flat(218, 8, 94, 36, 24, 18, 12);
                 gpu::draw_rect_flat(220, 10, 90, 32, 14, 8, 6);
@@ -1553,12 +1710,24 @@ impl Renderer {
                 gpu::draw_rect_flat(224, 28, 80, 6, 45, 25, 20);
                 gpu::draw_rect_flat(225, 29, (progress as u32 * 78 / 100) as u16, 4, 255, 180, 40);
             }
-            Act::Act4Ocean => {
-                // Beach 3D Platformer stars
+            Act::Act3_3SniperBoss => {
+                self.draw_sniper_boss_hud(&entities.boss_sniper);
+            }
+            Act::Act4_1Dunes => {
+                // Beach 3D Platformer
                 gpu::draw_rect_flat(218, 8, 94, 36, 16, 24, 34);
                 gpu::draw_rect_flat(220, 10, 90, 32, 8, 14, 20);
                 self.font.draw_text(224, 12, "BEACH DUNES", (255, 230, 90));
-                self.font.draw_text(224, 26, "GO TO PIP!", (255, 180, 180));
+                self.font.draw_text(224, 26, "GO TO PIER!", (255, 180, 180));
+            }
+            Act::Act4_2PierTrench => {
+                gpu::draw_rect_flat(218, 8, 94, 36, 12, 20, 36);
+                gpu::draw_rect_flat(220, 10, 90, 32, 6, 10, 22);
+                self.font.draw_text(224, 12, "PIER TRENCH", (90, 200, 255));
+                self.font.draw_text(224, 26, "SUBMERGE!", (255, 120, 120));
+            }
+            Act::Act4_3ExcavatorBoss => {
+                self.draw_excavator_boss_hud(&entities.boss_excavator);
             }
         }
     }

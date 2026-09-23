@@ -2,10 +2,7 @@
 //! Integrates 3D GTE stealth gameplay, Soliton Radar, and CODEC radio communication.
 
 use crate::audio::AudioManager;
-use crate::codec::{
-    CodecManager, ACT1_BOSS_DIALOGUE, ACT1_START_DIALOGUE, ACT2_START_DIALOGUE, ACT3_START_DIALOGUE,
-    ACT4_START_DIALOGUE, INTRO_DIALOGUE, RADIO_TIPS_DIALOGUE,
-};
+use crate::codec::{CodecManager, INTRO_DIALOGUE, RADIO_TIPS_DIALOGUE, ACT1_1_DIALOGUE, get_act_dialogue};
 use crate::dualshock::DualShockController;
 use crate::entities::EntityManager;
 use crate::level::{Act, CellType, Level, TILE_SZ};
@@ -47,10 +44,10 @@ pub struct Game {
 
 impl Game {
     pub fn new() -> Self {
-        let level = Level::new(Act::Act1Sanctuary);
+        let level = Level::new(Act::Act1_1Drainage);
         let platty = Platypus::new(level.player_start_x, level.player_start_z);
         let mut entities = EntityManager::new();
-        entities.load_act(Act::Act1Sanctuary);
+        entities.load_act(Act::Act1_1Drainage);
         let renderer = Renderer::new();
         // Upload title screen background texture to VRAM
         unsafe { crate::title_bg::upload_title_bg(); }
@@ -133,9 +130,9 @@ impl Game {
                 } else if AudioManager::cdda_finished() {
                     // Enter Attract Demo Mode after CD track finishes
                     AudioManager::stop_cdda();
-                    self.load_act(Act::Act1Sanctuary);
+                    self.load_act(Act::Act1_1Drainage);
                     self.state = GameState::AttractDemo {
-                        act: Act::Act1Sanctuary,
+                        act: Act::Act1_1Drainage,
                         timer: 0,
                     };
                 }
@@ -158,7 +155,7 @@ impl Game {
                 // Any button press returns to title (only if controller is connected)
                 let any_button = is_connected && buttons.bits() != 0;
                 if any_button {
-                    self.load_act(Act::Act1Sanctuary);
+                    self.load_act(Act::Act1_1Drainage);
                     self.state = GameState::Title;
                     self.idle_timer = 0;
                 } else {
@@ -167,7 +164,7 @@ impl Game {
                     // Simulated demo inputs for each act (gameplay only, no CODEC)
                     // UP = North (-Z), DOWN = South (+Z)
                     let sim_buttons = match *act {
-                        Act::Act1Sanctuary => {
+                        Act::Act1_1Drainage | Act::Act1_2Barracks => {
                             if *timer < 50 {
                                 ButtonState::from_bits(button::DOWN)
                             } else if *timer < 100 {
@@ -176,7 +173,7 @@ impl Game {
                                 ButtonState::from_bits(button::CIRCLE | button::DOWN)
                             }
                         }
-                        Act::Act1Boss => {
+                        Act::Act1_3MechBoss | Act::Act2_3JetSkiBoss | Act::Act3_3SniperBoss | Act::Act4_3ExcavatorBoss => {
                             if *timer < 50 {
                                 ButtonState::from_bits(button::UP)
                             } else if *timer < 100 {
@@ -185,7 +182,7 @@ impl Game {
                                 ButtonState::from_bits(button::CIRCLE | button::UP)
                             }
                         }
-                        Act::Act2Bushland => {
+                        Act::Act2_1Rapids | Act::Act2_2Mangroves => {
                             if *timer < 50 {
                                 ButtonState::from_bits(button::LEFT)
                             } else if *timer < 90 {
@@ -194,14 +191,21 @@ impl Game {
                                 ButtonState::from_bits(button::RIGHT)
                             }
                         }
-                        Act::Act3City => {
+                        Act::Act3_1Highway => {
                             if (*timer / 25) % 2 == 0 {
                                 ButtonState::from_bits(button::UP)
                             } else {
                                 ButtonState::NONE
                             }
                         }
-                        Act::Act4Ocean => {
+                        Act::Act3_2Laneways => {
+                            if *timer < 60 {
+                                ButtonState::from_bits(button::SQUARE | button::UP)
+                            } else {
+                                ButtonState::from_bits(button::UP)
+                            }
+                        }
+                        Act::Act4_1Dunes | Act::Act4_2PierTrench => {
                             if (*timer / 30) % 2 == 0 {
                                 ButtonState::from_bits(button::CROSS | button::RIGHT | button::UP)
                             } else {
@@ -247,24 +251,29 @@ impl Game {
                     if *timer >= 180 {
                         *timer = 0;
                         match *act {
-                            Act::Act1Sanctuary => {
-                                *act = Act::Act1Boss;
-                                self.load_act(Act::Act1Boss);
+                            Act::Act1_1Drainage => {
+                                *act = Act::Act1_3MechBoss;
+                                self.load_act(Act::Act1_3MechBoss);
                             }
-                            Act::Act1Boss => {
-                                *act = Act::Act2Bushland;
-                                self.load_act(Act::Act2Bushland);
+                            Act::Act1_3MechBoss => {
+                                *act = Act::Act2_1Rapids;
+                                self.load_act(Act::Act2_1Rapids);
                             }
-                            Act::Act2Bushland => {
-                                *act = Act::Act3City;
-                                self.load_act(Act::Act3City);
+                            Act::Act2_1Rapids => {
+                                *act = Act::Act3_1Highway;
+                                self.load_act(Act::Act3_1Highway);
                             }
-                            Act::Act3City => {
-                                *act = Act::Act4Ocean;
-                                self.load_act(Act::Act4Ocean);
+                            Act::Act3_1Highway => {
+                                *act = Act::Act4_1Dunes;
+                                self.load_act(Act::Act4_1Dunes);
                             }
-                            Act::Act4Ocean => {
-                                self.load_act(Act::Act1Sanctuary);
+                            Act::Act4_1Dunes => {
+                                self.load_act(Act::Act1_1Drainage);
+                                self.state = GameState::Title;
+                                self.idle_timer = 0;
+                            }
+                            _ => {
+                                self.load_act(Act::Act1_1Drainage);
                                 self.state = GameState::Title;
                                 self.idle_timer = 0;
                             }
@@ -276,9 +285,9 @@ impl Game {
                 self.codec.update();
                 if just_cross || just_start {
                     if self.codec.on_action_button() {
-                        // Intro finished, start Act 1!
-                        self.load_act(Act::Act1Sanctuary);
-                        self.codec.start_conversation(ACT1_START_DIALOGUE);
+                        // Intro finished, start Act 1.1!
+                        self.load_act(Act::Act1_1Drainage);
+                        self.codec.start_conversation(ACT1_1_DIALOGUE);
                         self.state = GameState::StageIntroCodec;
                     }
                 }
@@ -340,16 +349,24 @@ impl Game {
                     }
 
                     // Check exit or goal reached
-                    if self.level.act == Act::Act1Boss && self.entities.boss_mech.is_defeated() {
-                        self.level.set_cell(11, 1, CellType::ExitBurrow);
-                        self.level.set_cell(12, 1, CellType::ExitBurrow);
-                        self.level.set_cell(13, 1, CellType::ExitBurrow);
-                    }
-
-                    let reached_exit = self.level.is_exit_at(self.platty.x, self.platty.z)
-                        || (self.level.act == Act::Act1Boss && self.entities.boss_mech.is_defeated() && self.platty.z <= 2 * TILE_SZ)
-                        || (self.level.act == Act::Act2Bushland && self.platty.z <= 3 * TILE_SZ)
-                        || (self.level.act == Act::Act3City && self.platty.z <= 3 * TILE_SZ);
+                    let reached_exit = match self.level.act {
+                        Act::Act1_3MechBoss => {
+                            if self.entities.boss_mech.is_defeated() {
+                                self.level.set_cell(11, 1, CellType::ExitBurrow);
+                                self.level.set_cell(12, 1, CellType::ExitBurrow);
+                                self.level.set_cell(13, 1, CellType::ExitBurrow);
+                                self.platty.z <= 2 * TILE_SZ || self.level.is_exit_at(self.platty.x, self.platty.z)
+                            } else {
+                                false
+                            }
+                        }
+                        Act::Act2_3JetSkiBoss => self.entities.boss_jetski.is_defeated(),
+                        Act::Act3_3SniperBoss => self.entities.boss_sniper.is_defeated(),
+                        Act::Act4_3ExcavatorBoss => self.entities.boss_excavator.is_defeated(),
+                        Act::Act2_1Rapids => self.platty.z <= 3 * TILE_SZ || self.level.is_exit_at(self.platty.x, self.platty.z),
+                        Act::Act3_1Highway => self.platty.z <= 3 * TILE_SZ || self.level.is_exit_at(self.platty.x, self.platty.z),
+                        _ => self.level.is_exit_at(self.platty.x, self.platty.z),
+                    };
 
                     if reached_exit {
                         // Automatically save progress & high score to Memory Card
@@ -358,7 +375,7 @@ impl Game {
                         self.save_data.total_yabbies = self.save_data.total_yabbies.saturating_add(self.platty.yabbies_collected as u16);
                         self.memcard.save_to_slot1(&self.save_data);
 
-                        if self.level.act == Act::Act4Ocean {
+                        if self.level.act == Act::Act4_3ExcavatorBoss {
                             self.state = GameState::Ending;
                             AudioManager::play_fanfare();
                         } else {
@@ -405,13 +422,7 @@ impl Game {
                 if just_cross || just_start {
                     if let Some(next_act) = self.level.act.next() {
                         self.load_act(next_act);
-                        let briefing = match next_act {
-                            Act::Act1Boss => ACT1_BOSS_DIALOGUE,
-                            Act::Act2Bushland => ACT2_START_DIALOGUE,
-                            Act::Act3City => ACT3_START_DIALOGUE,
-                            Act::Act4Ocean => ACT4_START_DIALOGUE,
-                            _ => ACT1_START_DIALOGUE,
-                        };
+                        let briefing = get_act_dialogue(next_act);
                         self.codec.start_conversation(briefing);
                         self.state = GameState::StageIntroCodec;
                     } else {
@@ -424,7 +435,7 @@ impl Game {
             }
             GameState::Ending => {
                 if just_start || just_cross {
-                    self.load_act(Act::Act1Sanctuary);
+                    self.load_act(Act::Act1_1Drainage);
                     self.state = GameState::Title;
                     self.idle_timer = 0;
                 }
@@ -473,12 +484,16 @@ impl Game {
         self.renderer.screen_shake = 0;
         self.renderer.update_camera(self.platty.x, self.platty.y, self.platty.z);
 
-        let track = match act {
-            Act::Act1Sanctuary => crate::audio::BgmTrack::Stealth,
-            Act::Act1Boss => crate::audio::BgmTrack::Boss,
-            Act::Act2Bushland => crate::audio::BgmTrack::River,
-            Act::Act3City => crate::audio::BgmTrack::City,
-            Act::Act4Ocean => crate::audio::BgmTrack::Beach,
+        let track = if act.is_boss() {
+            crate::audio::BgmTrack::Boss
+        } else {
+            match act.chapter() {
+                1 => crate::audio::BgmTrack::Stealth,
+                2 => crate::audio::BgmTrack::River,
+                3 => crate::audio::BgmTrack::City,
+                4 => crate::audio::BgmTrack::Beach,
+                _ => crate::audio::BgmTrack::Stealth,
+            }
         };
         AudioManager::set_bgm(track);
     }

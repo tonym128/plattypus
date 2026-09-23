@@ -96,30 +96,53 @@ pub static INTRO_DIALOGUE: &[CodecPage] = &[
     },
 ];
 
-pub static ACT1_START_DIALOGUE: &[CodecPage] = &[
+pub static ACT1_1_DIALOGUE: &[CodecPage] = &[
     CodecPage {
-        speaker: Speaker::Dad,
-        line1: "Platty, you're outside the",
-        line2: "Healesville compound gates.",
+        speaker: Speaker::BurrowCommand,
+        line1: "Platty, you've infiltrated the",
+        line2: "outer drainage canal grounds.",
     },
     CodecPage {
         speaker: Speaker::Dad,
-        line1: "Sentries patrol the area.",
+        line1: "Sentries patrol canal banks.",
         line2: "Check radar vision cones!",
     },
     CodecPage {
         speaker: Speaker::Mom,
-        line1: "Crawl under air vents and low",
-        line2: "lasers with CIRCLE or DOWN.",
+        line1: "Crawl through drainage pipes",
+        line2: "with CIRCLE or DOWN.",
     },
     CodecPage {
         speaker: Speaker::Dad,
         line1: "Ambush guards from behind with",
-        line2: "SQUARE for a stealth takedown!",
+        line2: "SQUARE for a venom spur strike!",
     },
 ];
 
-pub static ACT1_BOSS_DIALOGUE: &[CodecPage] = &[
+pub static ACT1_2_DIALOGUE: &[CodecPage] = &[
+    CodecPage {
+        speaker: Speaker::BurrowCommand,
+        line1: "Entering the Ranger Barracks.",
+        line2: "Red laser tripwires ahead!",
+    },
+    CodecPage {
+        speaker: Speaker::Dad,
+        line1: "Crawl low beneath the lasers!",
+        line2: "Touch a beam and alarm rings!",
+    },
+    CodecPage {
+        speaker: Speaker::Mom,
+        line1: "If sentries turn towards you,",
+        line2: "press L1 to hide in your Box!",
+    },
+    CodecPage {
+        speaker: Speaker::Dad,
+        line1: "Reach the perimeter depot hatch",
+        line2: "at the end of the barracks yard!",
+    },
+];
+
+pub static ACT1_3_DIALOGUE: &[CodecPage] = &[
     CodecPage {
         speaker: Speaker::BurrowCommand,
         line1: "Platty! Stop! Ahead is the",
@@ -152,7 +175,7 @@ pub static ACT1_BOSS_DIALOGUE: &[CodecPage] = &[
     },
 ];
 
-pub static ACT2_START_DIALOGUE: &[CodecPage] = &[
+pub static ACT2_1_DIALOGUE: &[CodecPage] = &[
     CodecPage {
         speaker: Speaker::Mom,
         line1: "Platty! You're surfing down",
@@ -171,16 +194,57 @@ pub static ACT2_START_DIALOGUE: &[CodecPage] = &[
     CodecPage {
         speaker: Speaker::Dad,
         line1: "Slide under hanging branches!",
-        line2: "Watch out for river tubers,",
-    },
-    CodecPage {
-        speaker: Speaker::Dad,
-        line1: "paddle boarders, swimmers, and",
-        line2: "koalas chilling in gum trees!",
+        line2: "Watch out for river tubers!",
     },
 ];
 
-pub static ACT3_START_DIALOGUE: &[CodecPage] = &[
+pub static ACT2_2_DIALOGUE: &[CodecPage] = &[
+    CodecPage {
+        speaker: Speaker::BurrowCommand,
+        line1: "Platty, you've entered the",
+        line2: "murky mangrove cavern maze.",
+    },
+    CodecPage {
+        speaker: Speaker::Dad,
+        line1: "Zero visibility underwater!",
+        line2: "Murky silt blocks your eyes.",
+    },
+    CodecPage {
+        speaker: Speaker::Mom,
+        line1: "Hold TRIANGLE to charge your",
+        line2: "Electro-Sonar Pulse to navigate!",
+    },
+    CodecPage {
+        speaker: Speaker::Dad,
+        line1: "Sonar pulses reveal hidden",
+        line2: "spikes and cave tunnels!",
+    },
+];
+
+pub static ACT2_3_DIALOGUE: &[CodecPage] = &[
+    CodecPage {
+        speaker: Speaker::BurrowCommand,
+        line1: "ALERT! High-speed patrol craft",
+        line2: "approaching from behind!",
+    },
+    CodecPage {
+        speaker: Speaker::Dad,
+        line1: "It's the Ranger Jet Ski!",
+        line2: "He drops floating mine barrels!",
+    },
+    CodecPage {
+        speaker: Speaker::Mom,
+        line1: "Weave between the water mines!",
+        line2: "Wait for his engine to overheat!",
+    },
+    CodecPage {
+        speaker: Speaker::Dad,
+        line1: "When his jet ski stalls, rush",
+        line2: "in with a venom spur strike!",
+    },
+];
+
+pub static ACT3_1_DIALOGUE: &[CodecPage] = &[
     CodecPage {
         speaker: Speaker::Dad,
         line1: "You've surfaced in downtown",
@@ -201,14 +265,55 @@ pub static ACT3_START_DIALOGUE: &[CodecPage] = &[
         line1: "green trams, and semi trucks!",
         line2: "Rest on sidewalks and medians!",
     },
+];
+
+pub static ACT3_2_DIALOGUE: &[CodecPage] = &[
+    CodecPage {
+        speaker: Speaker::BurrowCommand,
+        line1: "You're in the city laneways",
+        line2: "and rooftop catwalks.",
+    },
+    CodecPage {
+        speaker: Speaker::Dad,
+        line1: "Patrol drones hover overhead",
+        line2: "scanning the cobblestone alleys!",
+    },
     CodecPage {
         speaker: Speaker::Mom,
-        line1: "Reach Pier 9 at the far side",
-        line2: "to catch the coastal express!",
+        line1: "Pavement makes loud footsteps!",
+        line2: "Hold SQUARE to sneak silently!",
+    },
+    CodecPage {
+        speaker: Speaker::Dad,
+        line1: "Or disguise as a trash box!",
+        line2: "Climb up to the radio tower!",
     },
 ];
 
-pub static ACT4_START_DIALOGUE: &[CodecPage] = &[
+pub static ACT3_3_DIALOGUE: &[CodecPage] = &[
+    CodecPage {
+        speaker: Speaker::BurrowCommand,
+        line1: "Platty, take cover! You're on",
+        line2: "the broadcast tower roof!",
+    },
+    CodecPage {
+        speaker: Speaker::Dad,
+        line1: "It's Sniper Kooky—an elite",
+        line2: "cyborg kookaburra perched high!",
+    },
+    CodecPage {
+        speaker: Speaker::Mom,
+        line1: "When his red laser sights aim,",
+        line2: "duck behind AC air chillers!",
+    },
+    CodecPage {
+        speaker: Speaker::Dad,
+        line1: "After firing, his rifle jams!",
+        line2: "Rush his perch and strike him!",
+    },
+];
+
+pub static ACT4_1_DIALOGUE: &[CodecPage] = &[
     CodecPage {
         speaker: Speaker::BurrowCommand,
         line1: "Platty! You made it to the",
@@ -216,48 +321,118 @@ pub static ACT4_START_DIALOGUE: &[CodecPage] = &[
     },
     CodecPage {
         speaker: Speaker::Dad,
-        line1: "Pip's nesting burrow is on top",
-        line2: "of the highest coastal dune!",
+        line1: "Pip's nesting burrow is past",
+        line2: "the high coastal sand bluffs!",
     },
     CodecPage {
         speaker: Speaker::Mom,
-        line1: "Jump across rock platforms",
-        line2: "and dunes by pressing CROSS!",
-    },
-    CodecPage {
-        speaker: Speaker::Dad,
         line1: "Bounce on colorful beach",
         line2: "umbrellas for mega jumps!",
     },
     CodecPage {
         speaker: Speaker::Dad,
         line1: "Watch out for beach crabs!",
-        line2: "Go meet your baby sister Pip!",
+        line2: "Reach the timber pier ahead!",
+    },
+];
+
+pub static ACT4_2_DIALOGUE: &[CodecPage] = &[
+    CodecPage {
+        speaker: Speaker::BurrowCommand,
+        line1: "You're beneath the timber pier",
+        line2: "crossing over Shark Trench!",
+    },
+    CodecPage {
+        speaker: Speaker::Dad,
+        line1: "Great white sharks patrol the",
+        line2: "trench waters! Do not swim!",
+    },
+    CodecPage {
+        speaker: Speaker::Mom,
+        line1: "Jump across the wooden pier",
+        line2: "platforms and barnacle pylons!",
+    },
+    CodecPage {
+        speaker: Speaker::Dad,
+        line1: "The nesting burrow entrance is",
+        line2: "right at the end of the pier!",
+    },
+];
+
+pub static ACT4_3_DIALOGUE: &[CodecPage] = &[
+    CodecPage {
+        speaker: Speaker::BurrowCommand,
+        line1: "EMERGENCY! Dr. Cane Toad is in",
+        line2: "a giant industrial excavator!",
+    },
+    CodecPage {
+        speaker: Speaker::Dad,
+        line1: "He's trying to excavate the",
+        line2: "burrow and steal baby Pip's egg!",
+    },
+    CodecPage {
+        speaker: Speaker::Mom,
+        line1: "Dodge his heavy sweeping claw",
+        line2: "and toxic slime mortar shots!",
+    },
+    CodecPage {
+        speaker: Speaker::Dad,
+        line1: "Strike all 4 hydraulic engine",
+        line2: "valves to shut the dozer down!",
+    },
+    CodecPage {
+        speaker: Speaker::Platty,
+        line1: "Hands off my little sister!",
+        line2: "This ends right now!",
     },
 ];
 
 pub static RADIO_TIPS_DIALOGUE: &[CodecPage] = &[
     CodecPage {
         speaker: Speaker::Dad,
-        line1: "Stage 1: Crawl in tall grass",
-        line2: "to stay invisible to guards.",
+        line1: "Stealth: Crawl low under lasers",
+        line2: "and vents with CIRCLE / DOWN.",
     },
     CodecPage {
         speaker: Speaker::Mom,
-        line1: "Stage 2: Shift between the 5",
-        line2: "river lanes to dodge tubers!",
+        line1: "Disguise: Press L1 to deploy",
+        line2: "the Cardboard Box and freeze.",
     },
     CodecPage {
         speaker: Speaker::Dad,
-        line1: "Stage 3: Time car gaps carefully",
-        line2: "before crossing city lanes.",
+        line1: "Sonar: Hold TRIANGLE to charge",
+        line2: "electro-location in dark waters.",
     },
     CodecPage {
         speaker: Speaker::Mom,
-        line1: "Stage 4: Bounce on beach",
-        line2: "umbrellas to reach high dunes!",
+        line1: "CQC: Sneak behind enemies and",
+        line2: "press SQUARE for venom spur!",
     },
 ];
+
+// Backward-compatibility aliases
+pub static ACT1_START_DIALOGUE: &[CodecPage] = ACT1_1_DIALOGUE;
+pub static ACT1_BOSS_DIALOGUE: &[CodecPage] = ACT1_3_DIALOGUE;
+pub static ACT2_START_DIALOGUE: &[CodecPage] = ACT2_1_DIALOGUE;
+pub static ACT3_START_DIALOGUE: &[CodecPage] = ACT3_1_DIALOGUE;
+pub static ACT4_START_DIALOGUE: &[CodecPage] = ACT4_1_DIALOGUE;
+
+pub fn get_act_dialogue(act: crate::level::Act) -> &'static [CodecPage] {
+    match act {
+        crate::level::Act::Act1_1Drainage => ACT1_1_DIALOGUE,
+        crate::level::Act::Act1_2Barracks => ACT1_2_DIALOGUE,
+        crate::level::Act::Act1_3MechBoss => ACT1_3_DIALOGUE,
+        crate::level::Act::Act2_1Rapids => ACT2_1_DIALOGUE,
+        crate::level::Act::Act2_2Mangroves => ACT2_2_DIALOGUE,
+        crate::level::Act::Act2_3JetSkiBoss => ACT2_3_DIALOGUE,
+        crate::level::Act::Act3_1Highway => ACT3_1_DIALOGUE,
+        crate::level::Act::Act3_2Laneways => ACT3_2_DIALOGUE,
+        crate::level::Act::Act3_3SniperBoss => ACT3_3_DIALOGUE,
+        crate::level::Act::Act4_1Dunes => ACT4_1_DIALOGUE,
+        crate::level::Act::Act4_2PierTrench => ACT4_2_DIALOGUE,
+        crate::level::Act::Act4_3ExcavatorBoss => ACT4_3_DIALOGUE,
+    }
+}
 
 // -----------------------------------------------------------------------------
 // CODEC MANAGER STATE
