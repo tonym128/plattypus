@@ -427,7 +427,8 @@ impl Platypus {
                 let speed = speed.max(1);
 
                 self.vx = (sx_i32 * speed) / 127;
-                self.vz = (sy_i32 * speed) / 127;
+                // Invert analog Y: stick UP (negative sy) = forward (+Z), stick DOWN = backward (-Z)
+                self.vz = (-sy_i32 * speed) / 127;
 
                 if level.act == Act::Act2Bushland {
                     self.vz += 2; // Rushing downriver!
@@ -467,11 +468,12 @@ impl Platypus {
             let mut move_x = 0;
             let mut move_z = 0;
 
+            // UP = forward (South / +Z), DOWN = backward (North / -Z)
             if btn_up {
-                move_z -= 1;
+                move_z += 1;
             }
             if btn_down {
-                move_z += 1;
+                move_z -= 1;
             }
             if btn_left {
                 move_x -= 1;

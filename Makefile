@@ -13,7 +13,7 @@ help:
 	@echo "Plattypus (PSX / PSoXide) Build Targets:"
 	@echo "  make exe   - Compile PSX-EXE (MIPS R3000 bare-metal binary)"
 	@echo "  make disc  - Master bootable PS1 disc image (dist/plattypus.{bin,cue})"
-	@echo "  make run   - Run disc in RetroArch or configured emulator"
+	@echo "  make run   - Run disc in DuckStation, RetroArch, or configured emulator"
 	@echo "  make clean - Clean build artifacts"
 
 exe:
@@ -27,13 +27,20 @@ disc: exe
 	cargo run --release --manifest-path $(MKISOPSX)/Cargo.toml -- \
 		--exe $(DIST)/plattypus.exe \
 		--out $(DIST)/plattypus.bin \
-		--volume PLATTYPUS
+		--volume PLATTYPUS \
+		--cdda-track $(ROOT)/Music/title_music.cdda
 	@echo "SUCCESS! Bootable PS1 Disc Mastered:"
 	@echo "  CUE: $(DIST)/plattypus.cue"
 	@echo "  BIN: $(DIST)/plattypus.bin"
 
 run: disc
-	@if command -v retroarch >/dev/null 2>&1; then \
+	@if command -v duckstation >/dev/null 2>&1; then \
+		echo "Launching $(DIST)/plattypus.cue in DuckStation..."; \
+		duckstation "$(DIST)/plattypus.cue"; \
+	elif command -v duckstation-qt >/dev/null 2>&1; then \
+		echo "Launching $(DIST)/plattypus.cue in DuckStation (Qt)..."; \
+		duckstation-qt "$(DIST)/plattypus.cue"; \
+	elif command -v retroarch >/dev/null 2>&1; then \
 		echo "Launching $(DIST)/plattypus.cue in RetroArch..."; \
 		retroarch "$(DIST)/plattypus.cue"; \
 	elif [ -n "$$EMULATOR" ]; then \

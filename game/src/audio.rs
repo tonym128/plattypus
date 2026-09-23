@@ -2,6 +2,7 @@
 //! tactical stealth sound effects, and CODEC radio synthesizers for Plattypus MGS.
 
 use psx_asset::Audio;
+use psx_io::cdrom;
 use psx_spu::{self as spu, tones, Adsr, Pitch, SpuAddr, Voice, Volume};
 
 static JUMP_SFX: &[u8] = include_bytes!("../../psoxide/assets/audio/freesfx/psau/jump.psau");
@@ -12,6 +13,8 @@ static METAL_SFX: &[u8] = include_bytes!("../../psoxide/assets/audio/freesfx/psa
 static BEEP_SFX: &[u8] = include_bytes!("../../psoxide/assets/audio/freesfx/psau/ui_beep.psau");
 static FOOTSTEP_SFX: &[u8] = include_bytes!("../../psoxide/assets/audio/freesfx/psau/footstep.psau");
 static SELECT_SFX: &[u8] = include_bytes!("../../psoxide/assets/audio/freesfx/psau/ui_select.psau");
+
+static TITLE_MUSIC_ADPCM: &[u8] = include_bytes!("../../Music/title_music.adpcm");
 
 const SPU_SAMPLE_BASE: u32 = 0x1010;
 
@@ -29,6 +32,9 @@ pub const VOICE_SPUR: Voice = Voice::new(9);
 pub const VOICE_CHIME: Voice = Voice::new(10);
 pub const VOICE_VOICE: Voice = Voice::new(11);
 pub const VOICE_SELECT: Voice = Voice::new(12);
+
+// Custom Title Music Voice
+pub const VOICE_TITLE: Voice = Voice::new(13);
 
 // Music Synthesizer Voices (16..19)
 pub const VOICE_BASS: Voice = Voice::new(16);
@@ -76,11 +82,20 @@ static mut ADDR_TRIANGLE: SpuAddr = SpuAddr::new(0x1000);
 static mut ADDR_SAWTOOTH: SpuAddr = SpuAddr::new(0x1000);
 static mut ADDR_SQUARE: SpuAddr = SpuAddr::new(0x1000);
 static mut ADDR_SINE: SpuAddr = SpuAddr::new(0x1000);
+static mut ADDR_TITLE_MUSIC: SpuAddr = SpuAddr::new(0x1000);
+static mut TITLE_MUSIC_PLAYING: bool = false;
+static mut CDDA_WAS_PLAYING: bool = false;
 
 impl AudioManager {
     pub fn init() {
         spu::init();
         spu::set_main_volume(Volume::MAX, Volume::MAX);
+        spu::set_cd_volume(spu::CdVolume::MAX, spu::CdVolume::MAX);
+        spu::enable_cd_audio(true);
+
+        // CD-DA mode only (no double-speed for audio playback)
+        cdrom::set_mode(cdrom::MODE_CDDA);
+        cdrom::demute();
 
         let sfx = [
             (VOICE_JUMP, JUMP_SFX, Volume::linear(1, 4)),
@@ -105,6 +120,21 @@ impl AudioManager {
                 voice.configure_sample(addr, audio.sample_rate_hz(), *vol, Adsr::sample());
                 next_addr += (audio.adpcm_bytes().len() as u32 + 7) & !7;
             }
+        }
+
+        // Upload custom title music ADPCM (raw ADPCM blocks, 22050 Hz mono)
+        // Convert your MP3 to ADPCM using: ffmpeg -i input.mp3 -ar 22050 -ac 1 -c:a adpcm_psx output.adpcm
+        const TITLE_MUSIC_SAMPLE_RATE: u32 = 22050;
+        let addr_title = SpuAddr::new(next_addr);
+        if !TITLE_MUSIC_ADPCM.is_empty() {
+            spu::upload_adpcm(addr_title, TITLE_MUSIC_ADPCM);
+            VOICE_TITLE.configure_sample(addr_title, TITLE_MUSIC_SAMPLE_RATE, Volume::linear(3, 4), Adsr::default_tone());
+            VOICE_TITLE.set_loop_addr(addr_title);
+            next_addr += (TITLE_MUSIC_ADPCM.len() as u32 + 7) & !7;
+        }
+
+        unsafe {
+            ADDR_TITLE_MUSIC = addr_title;
         }
 
         // Upload built-in continuous waveform tones for music synthesizer
@@ -142,6 +172,12 @@ impl AudioManager {
             if AUDIO_STATE.current_track == track {
                 return;
             }
+
+            if AUDIO_STATE.current_track == BgmTrack::Title {
+                Voice::key_off(VOICE_TITLE.mask());
+                TITLE_MUSIC_PLAYING = false;
+            }
+
             AUDIO_STATE.current_track = track;
             AUDIO_STATE.seq_step = 0;
             AUDIO_STATE.tempo_counter = 0;
@@ -155,6 +191,13 @@ impl AudioManager {
                 BgmTrack::Title => 8,    // 100 BPM military overture
                 BgmTrack::None => 8,
             };
+
+            if track == BgmTrack::Title {
+                VOICE_TITLE.set_start_addr(ADDR_TITLE_MUSIC);
+                VOICE_TITLE.set_loop_addr(ADDR_TITLE_MUSIC);
+                Voice::key_on(VOICE_TITLE.mask());
+                TITLE_MUSIC_PLAYING = true;
+            }
 
             // Mute music voices if track is None
             if track == BgmTrack::None {
@@ -279,12 +322,8 @@ impl AudioManager {
                     }
                 }
                 BgmTrack::Title => {
-                    // Espionage Overture
-                    let title_melody = [220, 0, 247, 0, 261, 0, 293, 0, 329, 0, 293, 0, 261, 0, 247, 0];
-                    if title_melody[step] > 0 {
-                        VOICE_LEAD.set_pitch(Pitch::for_frequency(title_melody[step], tones::NATIVE_HZ));
-                        Voice::key_on(VOICE_LEAD.mask());
-                    }
+                    // Custom ADPCM title music plays via VOICE_TITLE with hardware looping
+                    // No synthesis needed here
                 }
                 BgmTrack::None => {}
             }
@@ -380,5 +419,50 @@ impl AudioManager {
     #[inline(always)]
     pub fn play_fanfare() {
         Voice::key_on(VOICE_SELECT.mask());
+    }
+
+    /// Play CD-DA track 2 (title music).
+    pub fn play_cdda_title() {
+        cdrom::play_track(2);
+    }
+
+    /// Stop CD-DA playback.
+    pub fn stop_cdda() {
+        cdrom::stop();
+    }
+
+    /// Pause CD-DA playback.
+    pub fn pause_cdda() {
+        cdrom::pause();
+    }
+
+    /// Check if CD-DA is currently playing.
+    pub fn is_cdda_playing() -> bool {
+        if let Some(resp) = cdrom::try_get_stat(1000) {
+            let status = resp.bytes().first().copied().unwrap_or(0);
+            let playing = status & cdrom::STAT_PLAYING != 0;
+            unsafe {
+                if playing {
+                    CDDA_WAS_PLAYING = true;
+                }
+            }
+            playing
+        } else {
+            false
+        }
+    }
+
+    /// Check if CD-DA was playing but has now finished (for attract demo trigger).
+    pub fn cdda_finished() -> bool {
+        unsafe {
+            CDDA_WAS_PLAYING && !Self::is_cdda_playing()
+        }
+    }
+
+    /// Reset CDDA play tracking (call when starting title music).
+    pub fn reset_cdda_tracking() {
+        unsafe {
+            CDDA_WAS_PLAYING = false;
+        }
     }
 }
