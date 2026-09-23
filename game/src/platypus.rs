@@ -99,6 +99,10 @@ impl Platypus {
         self.rumble_small_timer = 0;
         self.rumble_large_timer = 0;
         self.rumble_large_intensity = 0;
+        self.health = self.max_health;
+        self.air = 100;
+        self.yabbies_collected = 0;
+        self.score = 0;
     }
 
     pub fn trigger_rumble_small(&mut self, duration: u8) {
