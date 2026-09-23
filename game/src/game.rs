@@ -165,9 +165,18 @@ impl Game {
                     *timer += 1;
 
                     // Simulated demo inputs for each act (gameplay only, no CODEC)
-                    // UP = forward (+Z), DOWN = backward (-Z)
+                    // UP = North (-Z), DOWN = South (+Z)
                     let sim_buttons = match *act {
-                        Act::Act1Sanctuary | Act::Act1Boss => {
+                        Act::Act1Sanctuary => {
+                            if *timer < 50 {
+                                ButtonState::from_bits(button::DOWN)
+                            } else if *timer < 100 {
+                                ButtonState::from_bits(button::RIGHT)
+                            } else {
+                                ButtonState::from_bits(button::CIRCLE | button::DOWN)
+                            }
+                        }
+                        Act::Act1Boss => {
                             if *timer < 50 {
                                 ButtonState::from_bits(button::UP)
                             } else if *timer < 100 {
@@ -317,8 +326,11 @@ impl Game {
 
                     // Check Game Over (health 0)
                     if self.platty.health == 0 {
+                        self.idle_timer = 0;
                         self.state = GameState::GameOver;
                         AudioManager::play_hit();
+                        self.prev_buttons = ButtonState::NONE;
+                        return;
                     }
 
                     // Check exit or goal reached
@@ -330,7 +342,7 @@ impl Game {
 
                     let reached_exit = self.level.is_exit_at(self.platty.x, self.platty.z)
                         || (self.level.act == Act::Act1Boss && self.entities.boss_mech.is_defeated() && self.platty.z <= 2 * TILE_SZ)
-                        || (self.level.act == Act::Act2Bushland && self.platty.z >= 21 * TILE_SZ)
+                        || (self.level.act == Act::Act2Bushland && self.platty.z <= 3 * TILE_SZ)
                         || (self.level.act == Act::Act3City && self.platty.z <= 3 * TILE_SZ);
 
                     if reached_exit {
@@ -416,10 +428,14 @@ impl Game {
             }
             GameState::GameOver => {
                 // MGS Classic Game Over: "PLATTY? PLATTY? PLATTYYYYY!"
-                if just_cross || just_start {
-                    // Retry current stage
+                self.idle_timer = self.idle_timer.saturating_add(1);
+                let can_retry = self.idle_timer > 45 && (just_cross || just_start);
+                if can_retry {
+                    // Retry current stage cleanly
                     let act = self.level.act;
                     self.load_act(act);
+                    self.idle_timer = 0;
+                    self.prev_buttons = ButtonState::NONE;
                     self.state = GameState::Playing;
                 }
 
@@ -427,7 +443,9 @@ impl Game {
                 gpu::draw_rect_flat(0, 0, 320, 240, 16, 4, 4);
                 self.renderer.font.draw_text(115, 80, "GAME OVER", (255, 40, 40));
                 self.renderer.font.draw_text(60, 110, "BURROW HQ: PLATTY? PLATTYYYY!", (255, 220, 220));
-                self.renderer.font.draw_text(75, 150, "PRESS CROSS TO RETRY MISSION", (255, 255, 255));
+                if self.idle_timer > 45 {
+                    self.renderer.font.draw_text(75, 150, "PRESS CROSS TO RETRY MISSION", (255, 255, 255));
+                }
             }
         }
 
@@ -438,7 +456,17 @@ impl Game {
         self.level = Level::new(act);
         self.platty.reset_position(self.level.player_start_x, self.level.player_start_z);
         self.entities.load_act(act);
+
+        // Snap camera immediately to spawn target without slow drifting
+        let target_x = self.platty.x;
+        let target_y = self.platty.y - 280;
+        let target_z = self.platty.z - 240;
+        self.renderer.cam_x = target_x;
+        self.renderer.cam_y = target_y;
+        self.renderer.cam_z = target_z;
+        self.renderer.screen_shake = 0;
         self.renderer.update_camera(self.platty.x, self.platty.y, self.platty.z);
+
         let track = match act {
             Act::Act1Sanctuary => crate::audio::BgmTrack::Stealth,
             Act::Act1Boss => crate::audio::BgmTrack::Boss,

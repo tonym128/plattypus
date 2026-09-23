@@ -88,12 +88,12 @@ impl Platypus {
         self.vx = 0;
         self.vy = 0;
         self.vz = 0;
-        self.angle = 0;
+        self.angle = 128; // Face North / Forward towards the stage mission!
         self.state = PlayerState::Standing;
         self.crawl_mode = false;
         self.electro_timer = 0;
         self.strike_timer = 0;
-        self.invuln_timer = 60;
+        self.invuln_timer = 90; // 1.5 seconds of respawn invulnerability
         self.screen_shake = 0;
         self.on_ground = true;
         self.rumble_small_timer = 0;
@@ -157,6 +157,7 @@ impl Platypus {
             self.step_audio_timer -= 1;
         }
 
+        let is_rapids = level.act == Act::Act2Bushland;
         let in_water = level.is_water_at(self.x, self.z) && level.act != Act::Act4Ocean;
 
         let just_cross = buttons.is_held(button::CROSS) && !prev_buttons.is_held(button::CROSS);
@@ -164,8 +165,8 @@ impl Platypus {
         let just_square = buttons.is_held(button::SQUARE) && !prev_buttons.is_held(button::SQUARE);
         let just_triangle = buttons.is_held(button::TRIANGLE) && !prev_buttons.is_held(button::TRIANGLE);
 
-        // Water submersion vs Land Jump/Crawl
-        if in_water {
+        // Water submersion vs Land/Rapids Jump/Crawl
+        if in_water && !is_rapids {
             if buttons.is_held(button::CROSS) {
                 self.state = PlayerState::Submerged;
                 self.y = 18; // Submerged depth
@@ -202,7 +203,7 @@ impl Platypus {
             }
 
             // Gravity & Vertical physics
-            let mut target_ground_y = 0i32;
+            let mut target_ground_y = if is_rapids { 4i32 } else { 0i32 };
 
             // In Act 4 (Beach platformer), check 3D elevated platforms
             if level.act == Act::Act4Ocean {
@@ -431,11 +432,11 @@ impl Platypus {
                 let speed = speed.max(1);
 
                 self.vx = (sx_i32 * speed) / 127;
-                // Invert analog Y: stick UP (negative sy) = forward (+Z), stick DOWN = backward (-Z)
-                self.vz = (-sy_i32 * speed) / 127;
+                // Stick UP (negative sy) = North / forward (-Z), stick DOWN (positive sy) = South / backward (+Z)
+                self.vz = (sy_i32 * speed) / 127;
 
                 if level.act == Act::Act2Bushland {
-                    self.vz += 2; // Rushing downriver!
+                    self.vz -= 2; // Rushing downriver!
                 }
 
                 if self.on_ground && !self.crawl_mode && self.strike_timer == 0 {
@@ -472,12 +473,12 @@ impl Platypus {
             let mut move_x = 0;
             let mut move_z = 0;
 
-            // UP = forward (South / +Z), DOWN = backward (North / -Z)
+            // UP = North / forward (-Z), DOWN = South / backward (+Z)
             if btn_up {
-                move_z += 1;
+                move_z -= 1;
             }
             if btn_down {
-                move_z -= 1;
+                move_z += 1;
             }
             if btn_left {
                 move_x -= 1;
@@ -488,7 +489,7 @@ impl Platypus {
 
             // Automatic river current push in Act 2
             if level.act == Act::Act2Bushland {
-                move_z += 2; // Rushing downriver!
+                move_z -= 2; // Rushing downriver!
             }
 
             let speed = if self.crawl_mode {
@@ -676,19 +677,19 @@ impl Platypus {
                             // Can only pass if ducking / crawling
                             if !self.crawl_mode {
                                 self.take_damage(1);
-                                self.vz = -4;
+                                self.vz = 4;
                             }
                         }
                         RiverObstacleType::TreeLog | RiverObstacleType::TigerSnake | RiverObstacleType::GiantSpider => {
                             // Can jump over!
                             if self.on_ground {
                                 self.take_damage(1);
-                                self.vz = -4;
+                                self.vz = 4;
                             }
                         }
                         RiverObstacleType::RiverTuber | RiverObstacleType::PaddleBoarder | RiverObstacleType::Swimmer => {
                             self.take_damage(1);
-                            self.vz = -4;
+                            self.vz = 4;
                         }
                         RiverObstacleType::Koala => {} // Harmless cute koala
                     }
@@ -746,7 +747,7 @@ impl Platypus {
     }
 
     pub fn take_damage(&mut self, amount: u8) {
-        if self.invuln_timer > 0 {
+        if self.health == 0 || self.invuln_timer > 0 {
             return;
         }
         if self.health > amount {

@@ -595,22 +595,22 @@ impl EntityManager {
         ];
 
         let obstacles = [
-            (0, RiverObstacleType::TreeLog, 5 * TILE_SZ, 0),
-            (1, RiverObstacleType::RiverTuber, 4 * TILE_SZ, 1),
-            (2, RiverObstacleType::LowBranch, 6 * TILE_SZ, 0),
-            (3, RiverObstacleType::TigerSnake, 7 * TILE_SZ, 1),
-            (4, RiverObstacleType::PaddleBoarder, 5 * TILE_SZ, 1),
+            (0, RiverObstacleType::TreeLog, 18 * TILE_SZ, 0),
+            (1, RiverObstacleType::RiverTuber, 17 * TILE_SZ, 1),
+            (2, RiverObstacleType::LowBranch, 16 * TILE_SZ, 0),
+            (3, RiverObstacleType::TigerSnake, 15 * TILE_SZ, 1),
+            (4, RiverObstacleType::PaddleBoarder, 14 * TILE_SZ, 1),
 
-            (0, RiverObstacleType::Swimmer, 10 * TILE_SZ, 0),
+            (0, RiverObstacleType::Swimmer, 12 * TILE_SZ, 0),
             (1, RiverObstacleType::GiantSpider, 11 * TILE_SZ, 0),
-            (2, RiverObstacleType::RiverTuber, 12 * TILE_SZ, 1),
-            (3, RiverObstacleType::TreeLog, 13 * TILE_SZ, 0),
-            (4, RiverObstacleType::LowBranch, 14 * TILE_SZ, 0),
+            (2, RiverObstacleType::RiverTuber, 10 * TILE_SZ, 1),
+            (3, RiverObstacleType::TreeLog, 9 * TILE_SZ, 0),
+            (4, RiverObstacleType::LowBranch, 8 * TILE_SZ, 0),
 
-            (1, RiverObstacleType::TigerSnake, 16 * TILE_SZ, 1),
-            (2, RiverObstacleType::PaddleBoarder, 17 * TILE_SZ, 1),
-            (3, RiverObstacleType::Swimmer, 18 * TILE_SZ, 0),
-            (4, RiverObstacleType::RiverTuber, 19 * TILE_SZ, 1),
+            (1, RiverObstacleType::TigerSnake, 6 * TILE_SZ, 1),
+            (2, RiverObstacleType::PaddleBoarder, 5 * TILE_SZ, 1),
+            (3, RiverObstacleType::Swimmer, 4 * TILE_SZ, 0),
+            (4, RiverObstacleType::RiverTuber, 3 * TILE_SZ, 1),
         ];
 
         for (i, (lane, kind, z, spd)) in obstacles.iter().enumerate() {
@@ -635,7 +635,7 @@ impl EntityManager {
                 active: true,
                 kind: RiverObstacleType::Koala,
                 x: 8 * TILE_SZ + 16,
-                z: 8 * TILE_SZ,
+                z: 14 * TILE_SZ,
                 y: -30,
                 speed: 0,
             };
@@ -643,18 +643,18 @@ impl EntityManager {
                 active: true,
                 kind: RiverObstacleType::Koala,
                 x: 14 * TILE_SZ + 48,
-                z: 14 * TILE_SZ,
+                z: 8 * TILE_SZ,
                 y: -30,
                 speed: 0,
             };
         }
 
         // Fresh yabbies along river lanes
-        self.spawn_item(0, CollectibleType::YabbyRation, lane_x[2], 3 * TILE_SZ, true);
-        self.spawn_item(1, CollectibleType::YabbyRation, lane_x[0], 8 * TILE_SZ, true);
-        self.spawn_item(2, CollectibleType::YabbyRation, lane_x[4], 11 * TILE_SZ, true);
-        self.spawn_item(3, CollectibleType::YabbyRation, lane_x[2], 15 * TILE_SZ, true);
-        self.spawn_item(4, CollectibleType::LetterPage, lane_x[1], 20 * TILE_SZ, true);
+        self.spawn_item(0, CollectibleType::YabbyRation, lane_x[2], 19 * TILE_SZ, true);
+        self.spawn_item(1, CollectibleType::YabbyRation, lane_x[0], 13 * TILE_SZ, true);
+        self.spawn_item(2, CollectibleType::YabbyRation, lane_x[4], 10 * TILE_SZ, true);
+        self.spawn_item(3, CollectibleType::YabbyRation, lane_x[2], 7 * TILE_SZ, true);
+        self.spawn_item(4, CollectibleType::LetterPage, lane_x[1], 3 * TILE_SZ, true);
     }
 
     fn load_act3(&mut self) {
@@ -1213,15 +1213,15 @@ impl EntityManager {
 
     fn update_act2(&mut self) {
         self.river_distance += 2;
-        // Obstacles stream downriver
+        // Obstacles stream downriver (flowing North toward exit at z=2)
         for obs in self.river_obstacles.iter_mut() {
             if !obs.active {
                 continue;
             }
             if obs.speed > 0 {
-                obs.z += obs.speed;
-                if obs.z > 22 * TILE_SZ {
-                    obs.z = 2 * TILE_SZ;
+                obs.z -= obs.speed;
+                if obs.z < 2 * TILE_SZ {
+                    obs.z = 21 * TILE_SZ;
                 }
             }
         }

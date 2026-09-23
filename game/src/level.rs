@@ -303,9 +303,9 @@ impl Level {
     // -------------------------------------------------------------------------
     fn generate_act2(&mut self) {
         self.player_start_x = 11 * TILE_SZ + 32;
-        self.player_start_z = 2 * TILE_SZ + 32;
+        self.player_start_z = 21 * TILE_SZ + 32;
         self.exit_x = 11 * TILE_SZ + 32;
-        self.exit_z = 22 * TILE_SZ + 32;
+        self.exit_z = 2 * TILE_SZ + 32;
 
         // 5-lane rushing river corridor (Lanes 0..4 = gx 9, 10, 11, 12, 13)
         for z in 1..23 {
@@ -324,7 +324,7 @@ impl Level {
         }
 
         // River exit flume leading into city storm drains
-        self.set_cell(11, 22, CellType::ExitBurrow);
+        self.set_cell(11, 2, CellType::ExitBurrow);
     }
 
     // -------------------------------------------------------------------------
@@ -361,14 +361,14 @@ impl Level {
     // ACT 4: COASTAL DUNES & SURF (MARIO 64 3D PLATFORMER)
     // -------------------------------------------------------------------------
     fn generate_act4(&mut self) {
-        self.player_start_x = 3 * TILE_SZ + 32;
-        self.player_start_z = 20 * TILE_SZ + 32;
+        self.player_start_x = 4 * TILE_SZ + 32;
+        self.player_start_z = 21 * TILE_SZ + 32;
         self.exit_x = 20 * TILE_SZ + 32;
         self.exit_z = 3 * TILE_SZ + 32;
 
-        // Ocean surf and deep water along southwest
+        // Ocean surf and deep water along southwest edge
         for z in 15..23 {
-            for x in 1..10 {
+            for x in 1..3 {
                 self.set_cell(x, z, CellType::Water);
             }
         }
