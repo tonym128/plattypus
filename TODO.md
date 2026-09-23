@@ -71,23 +71,23 @@ These 5 items form the core technical foundation required for a commercial-grade
 
 ### Chapter 1: The Healesville Sanctuary
 - [x] Level 1.1: Security Drainage Outflow (Current Stage 1 prototype)
-- [ ] Level 1.2: Research Barracks & Laser Grid Maze
-- [ ] Level 1.3: Perimeter Gate & Boss: Searchlight Mech
+- [x] Level 1.2: Research Barracks & Laser Grid Maze
+- [x] Level 1.3: Perimeter Gate & Boss: Searchlight Mech
 
 ### Chapter 2: The Yarra River Wilds
 - [x] Level 2.1: Upper Gorge 5-Lane River Rapids (Current Stage 2 prototype)
-- [ ] Level 2.2: Dandenong Murky Mangroves & Cavern Maze
-- [ ] Level 2.3: River Rapids Pursuit & Boss: Park Ranger Jet Ski
+- [x] Level 2.2: Dandenong Murky Mangroves & Cavern Maze
+- [x] Level 2.3: River Rapids Pursuit & Boss: Park Ranger Jet Ski
 
 ### Chapter 3: Melbourne Downtown
 - [x] Level 3.1: Melbourne Neon Highway Frogger (Current Stage 3 prototype)
-- [ ] Level 3.2: Flinders Street Laneways & Rooftop Catwalks
-- [ ] Level 3.3: Antenna Tower & Boss: Sniper Kookaburra
+- [x] Level 3.2: Flinders Street Laneways & Rooftop Catwalks
+- [x] Level 3.3: Antenna Tower & Boss: Sniper Kookaburra
 
 ### Chapter 4: Coastal Beachhead
 - [x] Level 4.1: Coastal Dunes & Parasol 3D Platformer (Current Stage 4 prototype)
-- [ ] Level 4.2: Pier Understructure & Deep Water Shark Trench
-- [ ] Level 4.3: Burrow Defense & Final Boss: Dr. Cane Toad's Excavator
+- [x] Level 4.2: Pier Understructure & Deep Water Shark Trench
+- [x] Level 4.3: Burrow Defense & Final Boss: Dr. Cane Toad's Excavator
 
 ---
 
@@ -99,7 +99,7 @@ These 5 items form the core technical foundation required for a commercial-grade
   - [x] Encode opening cinematic and ending celebration into PS1 STR (MDEC) / VID format with hardware SPU audio and CD streaming
 - [ ] **CODEC Expansion**
   - [ ] Add multiple radio frequencies (e.g., Mom & Dad: 140.85, Wildlife Informant: 141.12, Save System: 140.96)
-  - [ ] Add contextual radio dialogue for every stage, boss encounter, and puzzle
+  - [x] Add contextual radio dialogue for every stage, boss encounter, and puzzle
 
 ---
 
