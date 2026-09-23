@@ -20,6 +20,8 @@ mod renderer;
 pub mod save;
 pub mod dualshock;
 pub mod texture;
+mod title_bg_data;
+mod title_bg;
 
 use audio::AudioManager;
 use game::Game;

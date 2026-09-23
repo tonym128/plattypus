@@ -50,6 +50,8 @@ impl Game {
         let mut entities = EntityManager::new();
         entities.load_act(Act::Act1Sanctuary);
         let renderer = Renderer::new();
+        // Upload title screen background texture to VRAM
+        unsafe { crate::title_bg::upload_title_bg(); }
         let codec = CodecManager::new();
         let mut memcard = crate::save::MemoryCardManager::new();
         let save_data = memcard.load_from_slot1().unwrap_or_else(crate::save::SaveData::new);

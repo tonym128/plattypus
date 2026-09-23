@@ -1408,15 +1408,10 @@ impl Renderer {
     // -------------------------------------------------------------------------
 
     pub fn draw_title_screen(&self, frame: u8) {
-        gpu::draw_rect_flat(0, 0, 320, 240, 10, 16, 22);
-
-        // Vector grid
-        for x in (0..320).step_by(32) {
-            gpu::draw_rect_flat(x, 0, 1, 240, 15, 30, 40);
-        }
-        for y in (0..240).step_by(24) {
-            gpu::draw_rect_flat(0, y, 320, 1, 15, 30, 40);
-        }
+        // Draw full-screen title background texture (16-bit direct color at VRAM 640,0)
+        let tpage = crate::title_bg::title_bg_tpage();
+        let material = psx_gpu::material::TextureMaterial::opaque(0, tpage, (0x80, 0x80, 0x80));
+        psx_gpu::draw_sprite_material(0, 0, 320, 240, (0, 0), material);
 
         self.font.draw_text(60, 40, "PLATTYPUS : TACTICAL ESPIONAGE", (120, 255, 160));
         self.font.draw_text(90, 60, "PROJECT PSOXIDE 3D", (220, 240, 255));
