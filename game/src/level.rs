@@ -19,6 +19,7 @@ pub enum CellType {
     TallGrass = 7,     // Australian bush scrub (crouch camouflage)
     LaserTripwire = 8, // Security laser tripwire
     ExitBurrow = 9,    // Stage exit infiltration burrow
+    MetalGrate = 10,   // Loud acoustic walkway / catwalk
 }
 
 impl CellType {
@@ -225,6 +226,14 @@ impl Level {
         ];
         for (gx, gz) in grass {
             self.set_cell(gx, gz, CellType::TallGrass);
+        }
+
+        // Acoustic metal catwalks across guard patrol routes (loud footsteps when running!)
+        for z in 6..10 {
+            self.set_cell(5, z, CellType::MetalGrate);
+        }
+        for x in 16..20 {
+            self.set_cell(x, 4, CellType::MetalGrate);
         }
 
         // Exit burrow in far corner

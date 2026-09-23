@@ -231,6 +231,9 @@ impl Game {
                         is_crawling,
                         is_sneaking,
                         is_submerged,
+                        self.platty.in_box,
+                        self.platty.vx != 0 || self.platty.vz != 0,
+                        self.platty.noise_radius,
                         &self.level,
                     );
                     self.renderer.update_camera(self.platty.x, self.platty.y, self.platty.z);
@@ -315,6 +318,9 @@ impl Game {
                         is_crawling,
                         is_sneaking,
                         is_submerged,
+                        self.platty.in_box,
+                        self.platty.vx != 0 || self.platty.vz != 0,
+                        self.platty.noise_radius,
                         &self.level,
                     );
 

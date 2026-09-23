@@ -48,6 +48,7 @@ pub struct Sentry {
     pub stun_timer: u16,
     pub see_player: bool,
     pub attack_cooldown: u8,
+    pub investigate_target: (i32, i32),
 }
 
 impl Sentry {
@@ -66,6 +67,7 @@ impl Sentry {
             stun_timer: 0,
             see_player: false,
             attack_cooldown: 0,
+            investigate_target: (0, 0),
         }
     }
 }
@@ -214,6 +216,7 @@ pub enum CollectibleType {
     LetterPage,    // Intelligence intel from parents
     BuriedYabby,   // Hidden ration, requires electro pulse
     StarYabby,     // Mario 64 star yabby in Act 4
+    CardboardBox,  // "The Bill Box" tactical concealment disguise!
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -522,6 +525,7 @@ impl EntityManager {
         self.spawn_item(1, CollectibleType::LetterPage, 11 * TILE_SZ, 3 * TILE_SZ, true);
         self.spawn_item(2, CollectibleType::YabbyRation, 14 * TILE_SZ, 18 * TILE_SZ, true);
         self.spawn_item(3, CollectibleType::BuriedYabby, 3 * TILE_SZ, 12 * TILE_SZ, false);
+        self.spawn_item(4, CollectibleType::CardboardBox, 10 * TILE_SZ, 8 * TILE_SZ, true);
     }
 
     fn load_act1_boss(&mut self) {
@@ -790,6 +794,7 @@ impl EntityManager {
             stun_timer: 0,
             see_player: false,
             attack_cooldown: 0,
+            investigate_target: (0, 0),
         };
     }
 
@@ -816,13 +821,26 @@ impl EntityManager {
         player_crawling: bool,
         player_sneaking: bool,
         player_submerged: bool,
+        player_in_box: bool,
+        player_moving: bool,
+        noise_radius: i32,
         level: &Level,
     ) {
         self.frame = self.frame.wrapping_add(1);
 
         match act {
             Act::Act1Sanctuary => {
-                self.update_act1(player_x, player_z, player_crawling, player_sneaking, player_submerged, level);
+                self.update_act1(
+                    player_x,
+                    player_z,
+                    player_crawling,
+                    player_sneaking,
+                    player_submerged,
+                    player_in_box,
+                    player_moving,
+                    noise_radius,
+                    level,
+                );
             }
             Act::Act1Boss => {
                 self.update_act1_boss(player_x, player_z, player_crawling, level);
@@ -861,6 +879,9 @@ impl EntityManager {
         player_crawling: bool,
         player_sneaking: bool,
         player_submerged: bool,
+        player_in_box: bool,
+        player_moving: bool,
+        noise_radius: i32,
         level: &Level,
     ) {
         // Update Alert countdown state
@@ -886,6 +907,29 @@ impl EntityManager {
         let is_in_alert = matches!(self.alert_state, AlertState::Alert(_));
         let mut alert_triggered = false;
 
+        // Acoustic Surface Footstep Hearing: Check if unalerted sentries hear footstep noise
+        if noise_radius > 0 && !player_submerged {
+            let nr_sq = noise_radius * noise_radius;
+            for s in self.sentries.iter_mut() {
+                if s.active && s.stun_timer == 0 && s.state != SentryState::AlertChase {
+                    let dx = player_x - s.x;
+                    let dz = player_z - s.z;
+                    let d_sq = dx * dx + dz * dz;
+                    if d_sq <= nr_sq {
+                        // Sentry hears footstep noise! Becomes suspicious and turns to investigate
+                        s.state = SentryState::Investigating;
+                        s.investigate_target = (player_x, player_z);
+                        s.wait_timer = 0;
+                        if dx.abs() > dz.abs() {
+                            s.angle = if dx > 0 { 64 } else { 192 };
+                        } else {
+                            s.angle = if dz > 0 { 0 } else { 128 };
+                        }
+                    }
+                }
+            }
+        }
+
         // Update Searchlights
         for s in self.searchlights.iter_mut() {
             if !s.active {
@@ -900,7 +944,10 @@ impl EntityManager {
             if !player_submerged {
                 let dx = (player_x - s.beam_x).abs();
                 let dz = (player_z - s.beam_z).abs();
-                if dx < 28 && dz < 28 {
+                // A motionless cardboard box is not an immediate alarm under a searchlight beam,
+                // but moving under a searchlight is detected!
+                let box_safe = player_in_box && !player_moving;
+                if dx < 28 && dz < 28 && !box_safe {
                     alert_triggered = true;
                 }
             }
@@ -922,13 +969,14 @@ impl EntityManager {
             if !player_submerged && !player_crawling {
                 let dx = (player_x - d.x).abs();
                 let dz = (player_z - d.z).abs();
-                if dx < 36 && dz < 36 {
+                let box_safe = player_in_box && !player_moving;
+                if dx < 36 && dz < 36 && !box_safe {
                     alert_triggered = true;
                 }
             }
         }
 
-        // Update Sentries with robust vision & alert chase AI
+        // Update Sentries with robust vision, investigating AI, & alert chase
         for s in self.sentries.iter_mut() {
             if !s.active {
                 continue;
@@ -958,8 +1006,8 @@ impl EntityManager {
                     let obstructed = level.is_solid_at(mid_x, mid_z, false);
 
                     if !obstructed {
-                        // Close proximity hearing if player is not crawling or sneaking
-                        let heard = dist_sq < (52 * 52) && !player_crawling && !player_sneaking;
+                        // Close proximity hearing if player is running (and not inside a motionless box)
+                        let heard = dist_sq < (52 * 52) && !player_crawling && !player_sneaking && !(player_in_box && !player_moving);
 
                         // Forward vector for angle (sin for X, cos for Z)
                         let fwd_x = sin_1_3_12(s.angle) as i32;
@@ -970,7 +1018,12 @@ impl EntityManager {
                         let in_grass = level.is_tall_grass_at(player_x, player_z);
                         let hidden = player_crawling && in_grass;
 
-                        if (heard || in_cone) && !hidden {
+                        // Cardboard Box Concealment:
+                        // Motionless box = ignored ("Huh? Just a box...").
+                        // Moving in vision cone = immediately triggers suspicion / alert!
+                        let box_ignored = player_in_box && !player_moving;
+
+                        if (heard || in_cone) && !hidden && !box_ignored {
                             detected = true;
                         }
                     }
@@ -1008,7 +1061,35 @@ impl EntityManager {
                         s.state = SentryState::Patrolling;
                     }
                 }
-                SentryState::Patrolling | SentryState::Investigating => {
+                SentryState::Investigating => {
+                    // Walk over to the noise location with '?' overhead
+                    let target = s.investigate_target;
+                    let dx = target.0 - s.x;
+                    let dz = target.1 - s.z;
+
+                    if dx.abs() < 8 && dz.abs() < 8 {
+                        // Arrived at sound location; pause and look around
+                        s.wait_timer += 1;
+                        if s.wait_timer % 30 == 0 {
+                            s.angle = s.angle.wrapping_add(64);
+                        }
+                        if s.wait_timer > 90 {
+                            // Nobody here! Return to patrol
+                            s.wait_timer = 0;
+                            s.state = SentryState::Patrolling;
+                        }
+                    } else {
+                        if dx.abs() > 2 {
+                            s.x += if dx > 0 { 1 } else { -1 };
+                            s.angle = if dx > 0 { 64 } else { 192 };
+                        }
+                        if dz.abs() > 2 {
+                            s.z += if dz > 0 { 1 } else { -1 };
+                            s.angle = if dz > 0 { 0 } else { 128 };
+                        }
+                    }
+                }
+                SentryState::Patrolling => {
                     if s.waypoint_count > 0 {
                         let target = s.waypoints[s.current_waypoint];
                         let dx = target.0 - s.x;

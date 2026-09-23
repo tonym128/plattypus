@@ -14,7 +14,7 @@
 use crate::entities::{
     AlertState, BeachCrab, BeachPlatform, CityVehicle, Collectible, CollectibleType,
     Drone, EntityManager, PowerConduit, RiverObstacle, RiverObstacleType,
-    SearchlightMech, Sentry, VehicleType,
+    SearchlightMech, Sentry, SentryState, VehicleType,
 };
 use crate::level::{Act, CellType, Level, GRID_D, GRID_W, TILE_SZ};
 use crate::platypus::{PlayerState, Platypus};
@@ -226,6 +226,118 @@ impl Renderer {
 
         // Draw 3D Particles
         self.draw_particles(entities);
+
+        // Draw Electro-Reception Sonar Overlay (wall-penetrating blips)
+        if platty.electro_timer > 0 {
+            self.draw_electro_sonar_overlay(platty, entities, level, frame);
+        }
+    }
+
+    fn draw_electro_sonar_overlay(
+        &self,
+        platty: &Platypus,
+        entities: &EntityManager,
+        level: &Level,
+        frame: u8,
+    ) {
+        // 1. Concentric Sonar Pulse Wave expanding across ground
+        let wave_progress = (180 - platty.electro_timer) as i32;
+        let wave_rad = (wave_progress * 4) % 200;
+        let mut prev_p: Option<(i16, i16, u16)> = None;
+        for step in 0..=12 {
+            let ang = (step * 21) as u16;
+            let px = platty.x + ((cos_1_3_12(ang) as i32 * wave_rad) >> 12);
+            let pz = platty.z + ((sin_1_3_12(ang) as i32 * wave_rad) >> 12);
+            let cur_p = scene::project_vertex(Vec3I16::new(px as i16, 0, pz as i16));
+
+            if let Some((prev_sx, prev_sy, prev_sz)) = prev_p {
+                if cur_p.sz > 20 && prev_sz > 20 {
+                    gpu::draw_line_mono(prev_sx, prev_sy, cur_p.sx, cur_p.sy, 60, 230, 255);
+                }
+            }
+            prev_p = Some((cur_p.sx, cur_p.sy, cur_p.sz));
+        }
+
+        // 2. Wall-Penetrating Sentries with tactical brackets and pulsing heartbeats
+        for s in entities.sentries.iter() {
+            if !s.active {
+                continue;
+            }
+            let p = scene::project_vertex(Vec3I16::new(s.x as i16, -22, s.z as i16));
+            if p.sz > 20 && p.sx >= 10 && p.sx < SCREEN_W - 10 && p.sy >= 10 && p.sy < SCREEN_H - 10 {
+                // Tactical cyan brackets '[' and ']' around sentry silhouette
+                gpu::draw_rect_flat(p.sx - 12, p.sy - 16, 2, 32, 40, 240, 255);
+                gpu::draw_rect_flat(p.sx + 10, p.sy - 16, 2, 32, 40, 240, 255);
+                gpu::draw_rect_flat(p.sx - 12, p.sy - 16, 6, 2, 40, 240, 255);
+                gpu::draw_rect_flat(p.sx + 6, p.sy - 16, 6, 2, 40, 240, 255);
+                gpu::draw_rect_flat(p.sx - 12, p.sy + 14, 6, 2, 40, 240, 255);
+                gpu::draw_rect_flat(p.sx + 6, p.sy + 14, 6, 2, 40, 240, 255);
+
+                // Pulsing red/white heartbeat dot at sentry chest
+                let pulse = if (frame / 3) % 2 == 0 { (255, 50, 50) } else { (255, 200, 200) };
+                gpu::draw_rect_flat(p.sx - 2, p.sy - 4, 4, 4, pulse.0, pulse.1, pulse.2);
+
+                self.font.draw_text(p.sx - 16, p.sy - 26, "SENTRY", (60, 230, 255));
+            }
+        }
+
+        // 3. Wall-Penetrating Drones
+        for d in entities.drones.iter() {
+            if !d.active {
+                continue;
+            }
+            let p = scene::project_vertex(Vec3I16::new(d.x as i16, d.y as i16, d.z as i16));
+            if p.sz > 20 && p.sx >= 10 && p.sx < SCREEN_W - 10 && p.sy >= 10 && p.sy < SCREEN_H - 10 {
+                gpu::draw_rect_flat(p.sx - 8, p.sy - 8, 16, 2, 60, 230, 255);
+                gpu::draw_rect_flat(p.sx - 8, p.sy + 6, 16, 2, 60, 230, 255);
+                gpu::draw_rect_flat(p.sx - 8, p.sy - 8, 2, 16, 60, 230, 255);
+                gpu::draw_rect_flat(p.sx + 6, p.sy - 8, 2, 16, 60, 230, 255);
+                self.font.draw_text(p.sx - 14, p.sy - 18, "DRONE", (60, 230, 255));
+            }
+        }
+
+        // 4. Wall-Penetrating Collectibles & Buried Yabbies
+        for c in entities.collectibles.iter() {
+            if !c.active {
+                continue;
+            }
+            let p = scene::project_vertex(Vec3I16::new(c.x as i16, (c.y - 8) as i16, c.z as i16));
+            if p.sz > 20 && p.sx >= 10 && p.sx < SCREEN_W - 10 && p.sy >= 10 && p.sy < SCREEN_H - 10 {
+                let spark = if (frame / 2) % 2 == 0 { 255 } else { 180 };
+                gpu::draw_rect_flat(p.sx - 4, p.sy - 4, 8, 8, spark, spark, 60);
+                gpu::draw_rect_flat(p.sx - 2, p.sy - 2, 4, 4, 255, 255, 220);
+
+                let label = match c.kind {
+                    CollectibleType::CardboardBox => "BOX",
+                    CollectibleType::LetterPage => "INTEL",
+                    _ => "YABBY",
+                };
+                self.font.draw_text(p.sx - 10, p.sy - 14, label, (255, 230, 80));
+            }
+        }
+
+        // 5. Wall-Penetrating Ventilation Shafts (AirDucts)
+        let min_gx = ((self.cam_x - 320) / TILE_SZ).max(0) as usize;
+        let max_gx = ((self.cam_x + 320) / TILE_SZ + 1).min(GRID_W as i32) as usize;
+        let min_gz = ((self.cam_z + 80) / TILE_SZ).max(0) as usize;
+        let max_gz = ((self.cam_z + 680) / TILE_SZ + 1).min(GRID_D as i32) as usize;
+
+        for gz in min_gz..max_gz {
+            for gx in min_gx..max_gx {
+                if level.get_cell(gx, gz) == CellType::AirDuct {
+                    let wx = (gx as i32) * TILE_SZ + 32;
+                    let wz = (gz as i32) * TILE_SZ + 32;
+                    let p = scene::project_vertex(Vec3I16::new(wx as i16, -14, wz as i16));
+                    if p.sz > 20 && p.sx >= 10 && p.sx < SCREEN_W - 10 && p.sy >= 10 && p.sy < SCREEN_H - 10 {
+                        gpu::draw_rect_flat(p.sx - 10, p.sy - 10, 20, 2, 80, 240, 255);
+                        gpu::draw_rect_flat(p.sx - 10, p.sy + 8, 20, 2, 80, 240, 255);
+                        gpu::draw_rect_flat(p.sx - 10, p.sy - 10, 2, 20, 80, 240, 255);
+                        gpu::draw_rect_flat(p.sx + 8, p.sy - 10, 2, 20, 80, 240, 255);
+                        self.font.draw_text(p.sx - 10, p.sy - 18, "VENT", (80, 240, 255));
+                    }
+                }
+            }
+        }
     }
 
     fn draw_gum_tree(&self, wx: i32, wz: i32) {
@@ -364,6 +476,12 @@ impl Renderer {
             CellType::ExitBurrow => {
                 self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b, act);
                 self.draw_exit_hatch(wx + 12, wz + 12, frame);
+            }
+            CellType::MetalGrate => {
+                self.draw_floor_tile(wx, wz, 90, 95, 105, act);
+                // Heavy steel bevel framing on catwalk boundaries
+                self.draw_box_3d(wx, wz, 64, 2, 4, (120, 130, 140));
+                self.draw_box_3d(wx, wz + 60, 64, 2, 4, (120, 130, 140));
             }
         }
     }
@@ -967,6 +1085,37 @@ impl Renderer {
         let pz = platty.z;
         let rot = Mat3I16::rotate_y(platty.angle);
 
+        // Cardboard Box Disguise ("The Bill Box")
+        if platty.in_box {
+            let shadow_p = scene::project_vertex(Vec3I16::new(px as i16, 0, pz as i16));
+            if shadow_p.sz > 20 {
+                gpu::draw_rect_flat(shadow_p.sx - 14, shadow_p.sy - 4, 28, 8, 20, 24, 30);
+            }
+
+            let is_moving = platty.vx != 0 || platty.vz != 0;
+            let waddle = if is_moving && ((platty.anim_frame / 4) % 2 == 1) { 1 } else { 0 };
+
+            // 1. The Cardboard Box outer shell (28 wide x 20 high x 32 deep)
+            self.draw_model_box_textured(px, py, pz, -14, -20, -16, 28, 20, 32, &rot, Some(TextureId::Crate), (185, 145, 95));
+
+            // 2. Cut-out Eye Holes on front face
+            self.draw_model_box(px, py, pz, -8, -14, 16, 4, 3, 2, &rot, (30, 25, 20));
+            self.draw_model_box(px, py, pz, 4, -14, 16, 4, 3, 2, &rot, (30, 25, 20));
+
+            // 3. Duck Bill poking out slightly through bottom slit (+Z)
+            self.draw_model_box_textured(px, py, pz, -5, -4, 15, 10, 4, 6, &rot, Some(TextureId::PlattyBill), (150, 150, 150));
+
+            // 4. Little orange webbed feet peeking out when shuffling
+            if is_moving {
+                self.draw_model_box(px, py, pz, -15, -2, -2 + waddle * 4, 4, 2, 6, &rot, (215, 130, 45));
+                self.draw_model_box(px, py, pz, 11, -2, -2 - waddle * 4, 4, 2, 6, &rot, (215, 130, 45));
+            }
+
+            // 5. Caution Tape Stripe on top
+            self.draw_model_box_textured(px, py, pz, -10, -21, -6, 20, 1, 12, &rot, Some(TextureId::CautionStripe), (220, 200, 80));
+            return;
+        }
+
         // Soft ground shadow beneath Platty
         let shadow_p = scene::project_vertex(Vec3I16::new(px as i16, 0, pz as i16));
         if shadow_p.sz > 20 {
@@ -994,6 +1143,12 @@ impl Renderer {
         self.draw_model_box(px, py, pz, 10, -3, 6, 5, 3, 8, &rot, (215, 130, 45));
         self.draw_model_box(px, py, pz, -15, -3, -12, 5, 3, 8, &rot, (215, 130, 45));
         self.draw_model_box(px, py, pz, 10, -3, -12, 5, 3, 8, &rot, (215, 130, 45));
+
+        // Glowing golden venom spurs extended on rear ankles during SpurStrike CQC
+        if platty.state == PlayerState::SpurStrike {
+            self.draw_model_box(px, py, pz, -17, -7, -14, 4, 7, 7, &rot, (255, 235, 50));
+            self.draw_model_box(px, py, pz, 13, -7, -14, 4, 7, 7, &rot, (255, 235, 50));
+        }
 
         // 6. Expressive Eyes
         self.draw_model_box(px, py, pz, -8, -body_h - 2, 8, 4, 4, 4, &rot, (255, 255, 255));
@@ -1024,10 +1179,25 @@ impl Renderer {
         if s.stun_timer > 0 {
             // Knocked out sentry lying flat
             self.draw_model_box(sx, sy, sz, -12, -6, -18, 24, 6, 36, &rot, (50, 65, 80));
-            let star_p = scene::project_vertex(Vec3I16::new(sx as i16, -18, sz as i16));
-            if star_p.sz > 20 {
-                let star_off = ((frame * 4) % 20) as i16 - 10;
-                gpu::draw_rect_flat(star_p.sx + star_off, star_p.sy - 8, 4, 4, 255, 240, 60);
+
+            // 3 Orbiting Golden Daze Stars circling overhead
+            let base_ang = (frame as u16) * 5;
+            for i in 0..3 {
+                let star_ang = base_ang.wrapping_add((i as u16) * 85);
+                let off_x = ((cos_1_3_12(star_ang) as i32 * 16) >> 12) as i16;
+                let off_z = ((sin_1_3_12(star_ang) as i32 * 16) >> 12) as i16;
+                let bob_y = (((frame as i32 + (i as i32 * 6)) % 12) - 6).abs() as i16;
+
+                let star_p = scene::project_vertex(Vec3I16::new(
+                    (sx as i16) + off_x,
+                    -16 - bob_y,
+                    (sz as i16) + off_z,
+                ));
+                if star_p.sz > 20 {
+                    // Golden star diamond with bright white core
+                    gpu::draw_rect_flat(star_p.sx - 2, star_p.sy - 2, 5, 5, 255, 230, 40);
+                    gpu::draw_rect_flat(star_p.sx - 1, star_p.sy - 1, 3, 3, 255, 255, 200);
+                }
             }
         } else {
             // Standing sentry (boots, camo uniform, head, ranger hat, tactical rifle)
@@ -1044,6 +1214,17 @@ impl Renderer {
                     gpu::draw_rect_flat(p.sx - 3, p.sy - 16, 6, 12, 250, 30, 30);
                     gpu::draw_rect_flat(p.sx - 3, p.sy - 2, 6, 4, 250, 30, 30);
                     gpu::draw_rect_flat(p.sx - 1, p.sy - 14, 2, 8, 255, 220, 220);
+                }
+            } else if s.state == SentryState::Investigating {
+                // Yellow "?" Question mark overhead
+                let p = scene::project_vertex(Vec3I16::new(sx as i16, -65, sz as i16));
+                if p.sz > 20 {
+                    gpu::draw_rect_flat(p.sx - 4, p.sy - 18, 8, 3, 255, 225, 40);
+                    gpu::draw_rect_flat(p.sx + 2, p.sy - 15, 3, 6, 255, 225, 40);
+                    gpu::draw_rect_flat(p.sx - 2, p.sy - 10, 6, 3, 255, 225, 40);
+                    gpu::draw_rect_flat(p.sx - 1, p.sy - 7, 3, 3, 255, 225, 40);
+                    gpu::draw_rect_flat(p.sx - 1, p.sy - 2, 3, 3, 255, 225, 40);
+                    gpu::draw_rect_flat(p.sx - 3, p.sy - 17, 3, 1, 255, 255, 220);
                 }
             }
         }
@@ -1239,6 +1420,12 @@ impl Renderer {
                     gpu::draw_rect_flat(p.sx - 8, p.sy - 8, 16, 16, spark, spark, 40);
                     gpu::draw_rect_flat(p.sx - 4, p.sy - 4, 8, 8, 255, 255, 180);
                 }
+                CollectibleType::CardboardBox => {
+                    // Miniature Cardboard Box with caution tape
+                    let rot = Mat3I16::rotate_y(((frame as u16) * 3) % 256);
+                    self.draw_model_box_textured(c.x, c.y - bob, c.z, -8, -12, -8, 16, 12, 16, &rot, Some(TextureId::Crate), (185, 145, 95));
+                    self.draw_model_box(c.x, c.y - bob, c.z, -9, -8, -9, 18, 3, 18, &rot, (240, 200, 40));
+                }
             }
         }
     }
@@ -1311,6 +1498,31 @@ impl Renderer {
         yabbies_buf[6] = (platty.yabbies_collected % 10) as u8 + b'0';
         if let Ok(s) = core::str::from_utf8(&yabbies_buf) {
             self.font.draw_text(122, 26, s, (120, 210, 255));
+        }
+
+        // Box Inventory / Equipped Status Badge
+        if platty.has_box {
+            gpu::draw_rect_flat(8, 48, 100, 14, 12, 18, 24);
+            gpu::draw_rect_flat(10, 50, 96, 10, 4, 8, 12);
+            let (txt, col) = if platty.in_box {
+                ("BOX: ACTIVE", (100, 240, 120))
+            } else {
+                ("L1: EQUIP BOX", (180, 180, 180))
+            };
+            self.font.draw_text(14, 50, txt, col);
+        }
+
+        // Electro Charge Meter or Active Sonar Banner
+        if platty.electro_charge > 0 {
+            gpu::draw_rect_flat(114, 48, 96, 14, 12, 18, 24);
+            gpu::draw_rect_flat(116, 50, 92, 10, 4, 8, 12);
+            let chg_w = ((platty.electro_charge as u32 * 90) / 30) as u16;
+            gpu::draw_rect_flat(117, 51, chg_w, 8, 60, 220, 255);
+            self.font.draw_text(126, 50, "SONAR CHG", (255, 255, 255));
+        } else if platty.electro_timer > 0 {
+            gpu::draw_rect_flat(114, 48, 96, 14, 12, 18, 24);
+            gpu::draw_rect_flat(116, 50, 92, 10, 4, 8, 12);
+            self.font.draw_text(120, 50, "SONAR ACTIVE", (80, 240, 255));
         }
 
         // STAGE-SPECIFIC TOP-RIGHT HUD

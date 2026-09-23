@@ -37,9 +37,13 @@ pub struct Platypus {
     pub score: u32,
 
     pub crawl_mode: bool,
+    pub has_box: bool,
+    pub in_box: bool,
+    pub electro_charge: u8,
     pub electro_timer: u8,
     pub strike_timer: u8,
     pub invuln_timer: u8,
+    pub noise_radius: i32,
     pub screen_shake: u8,
     pub anim_frame: u8,
     pub step_audio_timer: u8,
@@ -68,9 +72,13 @@ impl Platypus {
             yabbies_collected: 0,
             score: 0,
             crawl_mode: false,
+            has_box: false,
+            in_box: false,
+            electro_charge: 0,
             electro_timer: 0,
             strike_timer: 0,
             invuln_timer: 0,
+            noise_radius: 0,
             screen_shake: 0,
             anim_frame: 0,
             step_audio_timer: 0,
@@ -91,9 +99,13 @@ impl Platypus {
         self.angle = 128; // Face North / Forward towards the stage mission!
         self.state = PlayerState::Standing;
         self.crawl_mode = false;
+        self.has_box = false;
+        self.in_box = false;
+        self.electro_charge = 0;
         self.electro_timer = 0;
         self.strike_timer = 0;
         self.invuln_timer = 90; // 1.5 seconds of respawn invulnerability
+        self.noise_radius = 0;
         self.screen_shake = 0;
         self.on_ground = true;
         self.rumble_small_timer = 0;
@@ -122,6 +134,25 @@ impl Platypus {
             0
         };
         (small, large)
+    }
+
+    /// Query current ground surface material and acoustic footstep noise radius.
+    pub fn get_surface_and_noise(&self, level: &Level) -> (crate::audio::SurfaceType, i32) {
+        let gx = (self.x / TILE_SZ).clamp(0, 23) as usize;
+        let gz = (self.z / TILE_SZ).clamp(0, 23) as usize;
+        let cell = level.get_cell(gx, gz);
+
+        match cell {
+            CellType::MetalGrate => (crate::audio::SurfaceType::Metal, 160),
+            CellType::TallGrass => (crate::audio::SurfaceType::Grass, 0),
+            CellType::Water | CellType::WaterCurrent => (crate::audio::SurfaceType::Water, 0),
+            _ => match level.act {
+                Act::Act1Sanctuary | Act::Act1Boss => (crate::audio::SurfaceType::Concrete, 70),
+                Act::Act2Bushland => (crate::audio::SurfaceType::Grass, 0),
+                Act::Act3City => (crate::audio::SurfaceType::Metal, 90),
+                Act::Act4Ocean => (crate::audio::SurfaceType::Grass, 0),
+            },
+        }
     }
 
     pub fn update(
@@ -163,7 +194,16 @@ impl Platypus {
         let just_cross = buttons.is_held(button::CROSS) && !prev_buttons.is_held(button::CROSS);
         let just_circle = buttons.is_held(button::CIRCLE) && !prev_buttons.is_held(button::CIRCLE);
         let just_square = buttons.is_held(button::SQUARE) && !prev_buttons.is_held(button::SQUARE);
-        let just_triangle = buttons.is_held(button::TRIANGLE) && !prev_buttons.is_held(button::TRIANGLE);
+        let just_l1 = buttons.is_held(button::L1) && !prev_buttons.is_held(button::L1);
+
+        // Toggle Cardboard Box disguise on L1
+        if just_l1 && self.has_box {
+            self.in_box = !self.in_box;
+            if self.in_box {
+                self.crawl_mode = false;
+            }
+            AudioManager::play_swoosh();
+        }
 
         // Water submersion vs Land/Rapids Jump/Crawl
         if in_water && !is_rapids {
@@ -188,8 +228,8 @@ impl Platypus {
                 }
             }
         } else {
-            // Jump on CROSS
-            if just_cross && self.on_ground {
+            // Jump on CROSS (not allowed if in box disguise)
+            if just_cross && self.on_ground && !self.in_box {
                 self.vy = -11; // Jump impulse
                 self.on_ground = false;
                 self.state = PlayerState::Jumping;
@@ -199,6 +239,9 @@ impl Platypus {
             // Crawl / Crouch on CIRCLE
             if just_circle {
                 self.crawl_mode = !self.crawl_mode;
+                if self.crawl_mode {
+                    self.in_box = false;
+                }
                 AudioManager::play_swoosh();
             }
 
@@ -256,72 +299,132 @@ impl Platypus {
             }
         }
 
-        // Electro-Reception Radar Pulse (Triangle)
-        if just_triangle && self.electro_timer == 0 {
-            self.electro_timer = 50;
-            self.trigger_rumble_small(12);
-            AudioManager::play_electro();
-            self.screen_shake = 3;
+        // Electro-Reception Radar Pulse: Hold TRIANGLE to charge electrical wave, release to discharge
+        if buttons.is_held(button::TRIANGLE) && self.electro_timer == 0 {
+            self.electro_charge = (self.electro_charge + 1).min(30);
+            self.trigger_rumble_small(2);
+            if self.electro_charge > 8 && (self.anim_frame % 4) == 0 {
+                // Sparks arcing from bill sensor pores as charge builds
+                let bill_fwd_x = ((sin_1_3_12(self.angle) as i32 * 14) >> 12) as i16;
+                let bill_fwd_z = ((cos_1_3_12(self.angle) as i32 * 14) >> 12) as i16;
+                entities.spawn_particle(
+                    self.x + bill_fwd_x as i32,
+                    self.y - 8,
+                    self.z + bill_fwd_z as i32,
+                    bill_fwd_x / 4,
+                    -2,
+                    bill_fwd_z / 4,
+                    12,
+                    (80, 220, 255),
+                    2,
+                );
+            }
+        } else if prev_buttons.is_held(button::TRIANGLE) && !buttons.is_held(button::TRIANGLE) && self.electro_timer == 0 {
+            if self.electro_charge >= 10 {
+                // Discharge expanding electrical pulse wave (3 seconds wall-penetrating sonar!)
+                self.electro_timer = 180;
+                self.trigger_rumble_large(8, 200);
+                self.trigger_rumble_small(12);
+                AudioManager::play_electro();
+                self.screen_shake = 3;
 
-            for i in 0..8 {
-                let ang = (i as u16) * 32;
-                let vx = (cos_1_3_12(ang) as i32 * 3) >> 12;
-                let vz = (sin_1_3_12(ang) as i32 * 3) >> 12;
-                entities.spawn_particle(self.x, self.y - 10, self.z, vx as i16, 0, vz as i16, 20, (100, 255, 240), 2);
-            }
+                for i in 0..12 {
+                    let ang = (i as u16) * 21;
+                    let vx = (cos_1_3_12(ang) as i32 * 4) >> 12;
+                    let vz = (sin_1_3_12(ang) as i32 * 4) >> 12;
+                    entities.spawn_particle(self.x, self.y - 8, self.z, vx as i16, 0, vz as i16, 24, (90, 240, 255), 3);
+                }
 
-            // Stun nearby sentries & drones
-            for s in entities.sentries.iter_mut() {
-                if s.active {
-                    let dx = (self.x - s.x).abs();
-                    let dz = (self.z - s.z).abs();
-                    if dx < 140 && dz < 140 {
-                        s.stun_timer = 300;
-                        s.state = SentryState::Stunned;
+                // Stun nearby sentries & drones
+                for s in entities.sentries.iter_mut() {
+                    if s.active {
+                        let dx = (self.x - s.x).abs();
+                        let dz = (self.z - s.z).abs();
+                        if dx < 150 && dz < 150 {
+                            s.stun_timer = 300;
+                            s.state = SentryState::Stunned;
+                        }
+                    }
+                }
+                for d in entities.drones.iter_mut() {
+                    if d.active {
+                        let dx = (self.x - d.x).abs();
+                        let dz = (self.z - d.z).abs();
+                        if dx < 160 && dz < 160 {
+                            d.stun_timer = 300;
+                        }
+                    }
+                }
+                for c in entities.collectibles.iter_mut() {
+                    if c.active && (c.kind == CollectibleType::BuriedYabby || c.kind == CollectibleType::StarYabby) {
+                        let dx = (self.x - c.x).abs();
+                        let dz = (self.z - c.z).abs();
+                        if dx < 160 && dz < 160 {
+                            c.revealed = true;
+                        }
                     }
                 }
             }
-            for d in entities.drones.iter_mut() {
-                if d.active {
-                    let dx = (self.x - d.x).abs();
-                    let dz = (self.z - d.z).abs();
-                    if dx < 160 && dz < 160 {
-                        d.stun_timer = 300;
-                    }
-                }
-            }
-            for c in entities.collectibles.iter_mut() {
-                if c.active && (c.kind == CollectibleType::BuriedYabby || c.kind == CollectibleType::StarYabby) {
-                    let dx = (self.x - c.x).abs();
-                    let dz = (self.z - c.z).abs();
-                    if dx < 140 && dz < 140 {
-                        c.revealed = true;
-                    }
-                }
-            }
+            self.electro_charge = 0;
+        } else if !buttons.is_held(button::TRIANGLE) {
+            self.electro_charge = 0;
         }
 
-        // Tactical Venom Spur Strike (Square)
+        // Tactical Venom Spur Strike CQC (Square)
         if just_square && self.strike_timer == 0 {
             self.strike_timer = 16;
             self.state = PlayerState::SpurStrike;
             AudioManager::play_spur();
 
             let mut spark_pos = None;
+            let mut is_rear_takedown = false;
             for s in entities.sentries.iter_mut() {
                 if s.active && s.stun_timer == 0 {
                     let dx = (self.x - s.x).abs();
                     let dz = (self.z - s.z).abs();
-                    if dx < 40 && dz < 40 {
-                        s.stun_timer = 500;
-                        s.state = SentryState::Stunned;
-                        self.score += 200;
-                        self.screen_shake = 5;
-                        self.trigger_rumble_large(8, 220);
-                        self.trigger_rumble_small(6);
-                        AudioManager::play_hit();
-                        spark_pos = Some((s.x, s.y - 20, s.z));
+                    if dx < 44 && dz < 44 {
+                        // Check if Platty is behind the sentry for a silent takedown
+                        let fwd_x = sin_1_3_12(s.angle) as i32;
+                        let fwd_z = cos_1_3_12(s.angle) as i32;
+                        let to_platty_x = self.x - s.x;
+                        let to_platty_z = self.z - s.z;
+                        let dot = (to_platty_x * fwd_x + to_platty_z * fwd_z) >> 12;
+                        let is_rear_attack = dot <= 0;
+
+                        if is_rear_attack && s.state != SentryState::AlertChase && !s.see_player {
+                            // Silent Rear Takedown CQC! Long 15-second deep knockout, +500 points!
+                            s.stun_timer = 900;
+                            s.state = SentryState::Stunned;
+                            self.score += 500;
+                            self.screen_shake = 6;
+                            self.trigger_rumble_large(12, 245);
+                            self.trigger_rumble_small(8);
+                            AudioManager::play_hit();
+                            spark_pos = Some((s.x, s.y - 20, s.z));
+                            is_rear_takedown = true;
+                        } else {
+                            // Frontal or alerted spur strike: standard 8-second stun
+                            s.stun_timer = 400;
+                            s.state = SentryState::Stunned;
+                            self.score += 200;
+                            self.screen_shake = 5;
+                            self.trigger_rumble_large(8, 220);
+                            self.trigger_rumble_small(6);
+                            AudioManager::play_hit();
+                            spark_pos = Some((s.x, s.y - 20, s.z));
+                        }
                         break;
+                    }
+                }
+            }
+
+            if is_rear_takedown {
+                if let Some((sx, sy, sz)) = spark_pos {
+                    for i in 0..6 {
+                        let ang = (i as u16) * 42;
+                        let vx = (cos_1_3_12(ang) as i32 * 3) >> 12;
+                        let vz = (sin_1_3_12(ang) as i32 * 3) >> 12;
+                        entities.spawn_particle(sx, sy, sz, vx as i16, -2, vz as i16, 25, (255, 230, 60), 3);
                     }
                 }
             }
@@ -415,7 +518,7 @@ impl Platypus {
                 // Analog speed curve:
                 // mag < 65: Slow tilt = stealth stalk/sneak mode (silent movement, no sentry alert)
                 // mag >= 65: Hard push = full sprint
-                let max_speed = if self.crawl_mode {
+                let max_speed = if self.in_box || self.crawl_mode {
                     2
                 } else if in_water {
                     if self.state == PlayerState::Submerged { 2 } else { 3 }
@@ -439,24 +542,26 @@ impl Platypus {
                     self.vz -= 2; // Rushing downriver!
                 }
 
-                if self.on_ground && !self.crawl_mode && self.strike_timer == 0 {
+                if self.in_box {
+                    self.noise_radius = 45; // Soft cardboard rustle
+                    if self.step_audio_timer == 0 {
+                        self.step_audio_timer = 20;
+                        AudioManager::play_footstep(crate::audio::SurfaceType::Grass);
+                    }
+                } else if self.on_ground && !self.crawl_mode && self.strike_timer == 0 {
                     if mag < 65 {
                         self.state = PlayerState::Sneaking;
-                        // Stealth stalk: NO footstep sound! Silent paws.
+                        self.noise_radius = 0; // Stealth stalk paws are silent!
                     } else {
                         self.state = PlayerState::Running;
+                        let (surface, noise) = self.get_surface_and_noise(level);
+                        self.noise_radius = noise;
                         if self.step_audio_timer == 0 {
                             self.step_audio_timer = 14;
-                            let surface = match level.act {
-                                Act::Act1Sanctuary | Act::Act1Boss => crate::audio::SurfaceType::Concrete,
-                                Act::Act2Bushland => crate::audio::SurfaceType::Grass,
-                                Act::Act3City => {
-                                    self.trigger_rumble_small(3);
-                                    crate::audio::SurfaceType::Metal
-                                }
-                                Act::Act4Ocean => crate::audio::SurfaceType::Grass,
-                            };
                             AudioManager::play_footstep(surface);
+                            if surface == crate::audio::SurfaceType::Metal {
+                                self.trigger_rumble_small(3);
+                            }
                         }
                     }
                 }
@@ -492,7 +597,7 @@ impl Platypus {
                 move_z -= 2; // Rushing downriver!
             }
 
-            let speed = if self.crawl_mode {
+            let speed = if self.in_box || self.crawl_mode {
                 2
             } else if in_water {
                 if self.state == PlayerState::Submerged { 2 } else { 3 }
@@ -525,20 +630,22 @@ impl Platypus {
                     self.angle = 160;
                 }
 
-                if self.on_ground && !self.crawl_mode && self.strike_timer == 0 {
+                if self.in_box {
+                    self.noise_radius = 45;
+                    if self.step_audio_timer == 0 {
+                        self.step_audio_timer = 20;
+                        AudioManager::play_footstep(crate::audio::SurfaceType::Grass);
+                    }
+                } else if self.on_ground && !self.crawl_mode && self.strike_timer == 0 {
                     self.state = PlayerState::Running;
+                    let (surface, noise) = self.get_surface_and_noise(level);
+                    self.noise_radius = noise;
                     if self.step_audio_timer == 0 {
                         self.step_audio_timer = 14;
-                        let surface = match level.act {
-                            Act::Act1Sanctuary | Act::Act1Boss => crate::audio::SurfaceType::Concrete,
-                            Act::Act2Bushland => crate::audio::SurfaceType::Grass,
-                            Act::Act3City => {
-                                self.trigger_rumble_small(3);
-                                crate::audio::SurfaceType::Metal
-                            }
-                            Act::Act4Ocean => crate::audio::SurfaceType::Grass,
-                        };
                         AudioManager::play_footstep(surface);
+                        if surface == crate::audio::SurfaceType::Metal {
+                            self.trigger_rumble_small(3);
+                        }
                     }
                 }
             } else {
@@ -546,6 +653,7 @@ impl Platypus {
                 if level.act != Act::Act2Bushland {
                     self.vz = 0;
                 }
+                self.noise_radius = 0;
                 if self.on_ground && !self.crawl_mode && self.strike_timer == 0 && !in_water {
                     self.state = PlayerState::Standing;
                 }
@@ -609,6 +717,13 @@ impl Platypus {
                     CollectibleType::StarYabby => {
                         self.yabbies_collected += 2;
                         self.score += 500;
+                        AudioManager::play_fanfare();
+                    }
+                    CollectibleType::CardboardBox => {
+                        self.has_box = true;
+                        self.in_box = true; // Auto-equip upon collection!
+                        self.score += 300;
+                        self.trigger_rumble_small(8);
                         AudioManager::play_fanfare();
                     }
                 }

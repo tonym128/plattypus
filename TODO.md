@@ -52,18 +52,18 @@ These 5 items form the core technical foundation required for a commercial-grade
 
 ## Phase 2: Tactical Platypus Abilities & Advanced Stealth Mechanics
 
-- [ ] **Venomous Spur Strike (CQC)**
-  - [ ] Add rear silent takedown trigger when sneaking up behind unalerted sentries
-  - [ ] Create spur strike animation and star-daze stun effect
-- [ ] **Electro-reception / Sonar Pulse**
-  - [ ] Bind `TRIANGLE` hold to charging an electrical pulse wave
-  - [ ] Render wall-penetrating outline blips for hidden sentries, yabbies, and vents
-- [ ] **The Bill Box (Cardboard Disguise)**
-  - [ ] Add collectible Cardboard Box item to inventory
-  - [ ] Implement box concealment state: motionless = ignored by sentries; moving in vision = alert
-- [ ] **Acoustic Surface Detection**
-  - [ ] Tag floor tiles with acoustic materials: metal grating (loud), grass/water (quiet), pavement (medium)
-  - [ ] Sentries turn to investigate nearby loud footstep sounds before raising an alarm
+- [x] **Venomous Spur Strike (CQC)**
+  - [x] Add rear silent takedown trigger when sneaking up behind unalerted sentries
+  - [x] Create spur strike animation and star-daze stun effect
+- [x] **Electro-reception / Sonar Pulse**
+  - [x] Bind `TRIANGLE` hold to charging an electrical pulse wave
+  - [x] Render wall-penetrating outline blips for hidden sentries, yabbies, and vents
+- [x] **The Bill Box (Cardboard Disguise)**
+  - [x] Add collectible Cardboard Box item to inventory
+  - [x] Implement box concealment state: motionless = ignored by sentries; moving in vision = alert
+- [x] **Acoustic Surface Detection**
+  - [x] Tag floor tiles with acoustic materials: metal grating (loud), grass/water (quiet), pavement (medium)
+  - [x] Sentries turn to investigate nearby loud footstep sounds before raising an alarm
 
 ---
 
