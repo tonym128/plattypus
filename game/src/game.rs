@@ -1,7 +1,7 @@
 //! Main game loop and state machine for Plattypus MGS.
 //! Integrates 3D GTE stealth gameplay, Soliton Radar, and CODEC radio communication.
 
-use crate::audio::{AudioManager, BgmTrack};
+use crate::audio::AudioManager;
 use crate::codec::{
     CodecManager, ACT1_BOSS_DIALOGUE, ACT1_START_DIALOGUE, ACT2_START_DIALOGUE, ACT3_START_DIALOGUE,
     ACT4_START_DIALOGUE, INTRO_DIALOGUE, RADIO_TIPS_DIALOGUE,
@@ -50,6 +50,8 @@ impl Game {
         let mut entities = EntityManager::new();
         entities.load_act(Act::Act1Sanctuary);
         let renderer = Renderer::new();
+        // Upload title screen background texture to VRAM
+        unsafe { crate::title_bg::upload_title_bg(); }
         let codec = CodecManager::new();
         let mut memcard = crate::save::MemoryCardManager::new();
         let save_data = memcard.load_from_slot1().unwrap_or_else(crate::save::SaveData::new);
@@ -111,14 +113,22 @@ impl Game {
 
         match self.state {
             GameState::Title => {
-                AudioManager::set_bgm(BgmTrack::Title);
+                if self.idle_timer == 0 {
+                    AudioManager::play_cdda_title();
+                    AudioManager::reset_cdda_tracking();
+                }
                 self.idle_timer += 1;
-                if just_start || just_cross {
-                    // Launch Intro CODEC transmission from Burrow Command!
+
+                // Grace period: wait ~1 second (60 frames) before accepting input
+                // This avoids any controller initialization glitches on the first frames
+                let any_button = self.idle_timer > 60 && is_connected && buttons.bits() != 0;
+                if any_button {
+                    AudioManager::stop_cdda();
                     self.codec.start_conversation(INTRO_DIALOGUE);
                     self.state = GameState::IntroCodec;
-                } else if self.idle_timer > 90 {
-                    // Enter Attract Demo Mode to showcase stages
+                } else if AudioManager::cdda_finished() {
+                    // Enter Attract Demo Mode after CD track finishes
+                    AudioManager::stop_cdda();
                     self.load_act(Act::Act1Sanctuary);
                     self.state = GameState::AttractDemo {
                         act: Act::Act1Sanctuary,
@@ -130,22 +140,25 @@ impl Game {
                 self.renderer.draw_title_screen(self.frame);
             }
             GameState::AttractDemo { ref mut act, ref mut timer } => {
-                if just_start {
+                // Any button press returns to title (only if controller is connected)
+                let any_button = is_connected && buttons.bits() != 0;
+                if any_button {
                     self.load_act(Act::Act1Sanctuary);
                     self.state = GameState::Title;
                     self.idle_timer = 0;
                 } else {
                     *timer += 1;
 
-                    // Simulated demo inputs for each act
+                    // Simulated demo inputs for each act (gameplay only, no CODEC)
+                    // UP = forward (+Z), DOWN = backward (-Z)
                     let sim_buttons = match *act {
                         Act::Act1Sanctuary | Act::Act1Boss => {
                             if *timer < 50 {
-                                ButtonState::from_bits(button::DOWN)
+                                ButtonState::from_bits(button::UP)
                             } else if *timer < 100 {
                                 ButtonState::from_bits(button::RIGHT)
                             } else {
-                                ButtonState::from_bits(button::CIRCLE | button::DOWN)
+                                ButtonState::from_bits(button::CIRCLE | button::UP)
                             }
                         }
                         Act::Act2Bushland => {
@@ -225,8 +238,8 @@ impl Game {
                             }
                             Act::Act4Ocean => {
                                 self.load_act(Act::Act1Sanctuary);
-                                self.codec.start_conversation(INTRO_DIALOGUE);
-                                self.state = GameState::IntroCodec;
+                                self.state = GameState::Title;
+                                self.idle_timer = 0;
                             }
                         }
                     }
@@ -380,6 +393,7 @@ impl Game {
                 if just_start || just_cross {
                     self.load_act(Act::Act1Sanctuary);
                     self.state = GameState::Title;
+                    self.idle_timer = 0;
                 }
 
                 self.renderer.begin_frame();
