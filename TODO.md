@@ -93,12 +93,12 @@ These 5 items form the core technical foundation required for a commercial-grade
 
 ## Phase 4: Cinematics, Narrative & CODEC Polish
 
-- [ ] **Cinematic Presentation**
-  - [ ] Letterboxed widescreen presentation mode for story dialogue
-  - [ ] Multi-camera cutscene scripting system (interpolated camera tracks, cuts, close-ups)
+- [x] **Cinematic Presentation**
+  - [x] Letterboxed widescreen presentation mode for story dialogue
+  - [x] Multi-camera cutscene scripting system (interpolated camera tracks, cuts, close-ups)
   - [x] Encode opening cinematic and ending celebration into PS1 STR (MDEC) / VID format with hardware SPU audio and CD streaming
-- [ ] **CODEC Expansion**
-  - [ ] Add multiple radio frequencies (e.g., Mom & Dad: 140.85, Wildlife Informant: 141.12, Save System: 140.96)
+- [x] **CODEC Expansion**
+  - [x] Add multiple radio frequencies (e.g., Mom & Dad: 140.85, Wildlife Informant: 141.12, Save System: 140.96)
   - [x] Add contextual radio dialogue for every stage, boss encounter, and puzzle
 
 ---
