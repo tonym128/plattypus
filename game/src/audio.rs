@@ -15,6 +15,7 @@ static FOOTSTEP_SFX: &[u8] = include_bytes!("../../psoxide/assets/audio/freesfx/
 static SELECT_SFX: &[u8] = include_bytes!("../../psoxide/assets/audio/freesfx/psau/ui_select.psau");
 
 static TITLE_MUSIC_ADPCM: &[u8] = include_bytes!("../../Music/title_music.adpcm");
+static INTRO_AUDIO_VAG: &[u8] = include_bytes!("../../Videos/intro_audio.vag");
 
 const SPU_SAMPLE_BASE: u32 = 0x1010;
 
@@ -33,8 +34,9 @@ pub const VOICE_CHIME: Voice = Voice::new(10);
 pub const VOICE_VOICE: Voice = Voice::new(11);
 pub const VOICE_SELECT: Voice = Voice::new(12);
 
-// Custom Title Music Voice
+// Custom Title Music Voice & Cinematic Intro Voice
 pub const VOICE_TITLE: Voice = Voice::new(13);
+pub const VOICE_INTRO: Voice = Voice::new(14);
 
 // Music Synthesizer Voices (16..19)
 pub const VOICE_BASS: Voice = Voice::new(16);
@@ -135,6 +137,15 @@ impl AudioManager {
 
         unsafe {
             ADDR_TITLE_MUSIC = addr_title;
+        }
+
+        // Upload Intro Video audio sample (22050 Hz mono VAG)
+        if INTRO_AUDIO_VAG.len() > 48 {
+            let addr_intro = SpuAddr::new(next_addr);
+            let adpcm_data = &INTRO_AUDIO_VAG[48..];
+            spu::upload_adpcm(addr_intro, adpcm_data);
+            VOICE_INTRO.configure_sample(addr_intro, 22050, Volume::MAX, Adsr::sample());
+            next_addr += (adpcm_data.len() as u32 + 7) & !7;
         }
 
         // Upload built-in continuous waveform tones for music synthesizer
@@ -464,5 +475,15 @@ impl AudioManager {
         unsafe {
             CDDA_WAS_PLAYING = false;
         }
+    }
+
+    /// Play cinematic intro video audio (SPU ADPCM sample).
+    pub fn play_intro_audio() {
+        Voice::key_on(VOICE_INTRO.mask());
+    }
+
+    /// Stop cinematic intro video audio.
+    pub fn stop_intro_audio() {
+        Voice::key_off(VOICE_INTRO.mask());
     }
 }

@@ -17,6 +17,7 @@ use psx_pad::{button, AnalogSticks, ButtonState, PadMode, PadState};
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum GameState {
     Title,
+    IntroVideo,
     IntroCodec,
     StageIntroCodec,
     Playing,
@@ -34,6 +35,7 @@ pub struct Game {
     pub entities: EntityManager,
     pub renderer: Renderer,
     pub codec: CodecManager,
+    pub video: crate::video::VideoPlayer,
     pub prev_buttons: ButtonState,
     pub frame: u8,
     pub idle_timer: u16,
@@ -53,6 +55,7 @@ impl Game {
         // Upload title screen background texture to VRAM
         unsafe { crate::title_bg::upload_title_bg(); }
         let codec = CodecManager::new();
+        let video = crate::video::VideoPlayer::new();
         let mut memcard = crate::save::MemoryCardManager::new();
         let save_data = memcard.load_from_slot1().unwrap_or_else(crate::save::SaveData::new);
         let mut dualshock = DualShockController::new();
@@ -65,6 +68,7 @@ impl Game {
             entities,
             renderer,
             codec,
+            video,
             prev_buttons: ButtonState::NONE,
             frame: 0,
             idle_timer: 0,
@@ -124,8 +128,8 @@ impl Game {
                 let any_button = self.idle_timer > 60 && is_connected && buttons.bits() != 0;
                 if any_button {
                     AudioManager::stop_cdda();
-                    self.codec.start_conversation(INTRO_DIALOGUE);
-                    self.state = GameState::IntroCodec;
+                    self.video.start();
+                    self.state = GameState::IntroVideo;
                 } else if AudioManager::cdda_finished() {
                     // Enter Attract Demo Mode after CD track finishes
                     AudioManager::stop_cdda();
@@ -138,6 +142,17 @@ impl Game {
 
                 self.renderer.begin_frame();
                 self.renderer.draw_title_screen(self.frame);
+            }
+            GameState::IntroVideo => {
+                let finished = self.video.update(&pad, &self.prev_buttons);
+                if finished {
+                    self.video.stop();
+                    self.codec.start_conversation(INTRO_DIALOGUE);
+                    self.state = GameState::IntroCodec;
+                } else {
+                    self.renderer.begin_frame();
+                    self.video.draw(&self.renderer);
+                }
             }
             GameState::AttractDemo { ref mut act, ref mut timer } => {
                 // Any button press returns to title (only if controller is connected)

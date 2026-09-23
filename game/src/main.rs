@@ -22,6 +22,7 @@ pub mod dualshock;
 pub mod texture;
 mod title_bg_data;
 mod title_bg;
+pub mod video;
 
 use audio::AudioManager;
 use game::Game;
