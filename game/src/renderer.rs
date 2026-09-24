@@ -26,7 +26,7 @@ use psx_gpu::{
     self as gpu,
     framebuf::FrameBuffer,
     material::BlendMode,
-    Resolution, VideoMode,
+    Resolution,
 };
 use psx_gte::math::{Mat3I16, Vec3I16, Vec3I32};
 use psx_gte::scene;
@@ -52,11 +52,16 @@ pub struct Renderer {
     pub screen_shake: i16,
     pub costume: u8,
     pub wireframe: bool,
+    pub language: u8,
+    pub video_mode: psx_gpu::VideoMode,
+    pub screen_offset_x: i8,
+    pub screen_offset_y: i8,
 }
 
 impl Renderer {
     pub fn new() -> Self {
-        gpu::init(VideoMode::Ntsc, Resolution::R320X240);
+        let (detected_mode, _) = crate::save::detect_console_region();
+        gpu::init(detected_mode, Resolution::R320X240);
         let fb = FrameBuffer::new(320, 240);
         gpu::set_draw_area(0, 0, 319, 239);
         gpu::set_draw_offset(0, 0);
@@ -78,7 +83,20 @@ impl Renderer {
             screen_shake: 0,
             costume: 0,
             wireframe: false,
+            language: 0,
+            video_mode: detected_mode,
+            screen_offset_x: 0,
+            screen_offset_y: 0,
         }
+    }
+
+    pub fn apply_display_offset(&self) {
+        gpu::set_display_offset(
+            self.video_mode,
+            Resolution::R320X240,
+            self.screen_offset_x as i16,
+            self.screen_offset_y as i16,
+        );
     }
 
     pub fn begin_frame(&mut self) {
@@ -1876,11 +1894,33 @@ impl Renderer {
         gpu::draw_rect_flat(45, 126, 230, 76, 12, 20, 30);
         gpu::draw_rect_flat(47, 128, 226, 72, 6, 10, 16);
 
-        let menu_items = [
-            "CAMPAIGN INFILTRATION",
-            "VR TRAINING SIMULATOR",
-            "SPECIAL OPTIONS & GEAR",
-        ];
+        let menu_items = match self.language {
+            1 => [
+                "INFILTRATION CAMPAGNE",
+                "SIMULATEUR ENTRAINEMENT VR",
+                "OPTIONS ET EQUIPEMENT",
+            ],
+            2 => [
+                "KAMPAGNEN-INFILTRATION",
+                "VR-TRAININGSSIMULATOR",
+                "OPTIONEN UND AUSRUESTUNG",
+            ],
+            3 => [
+                "INFILTRACION DE CAMPANA",
+                "SIMULADOR ENTRENAMIENTO VR",
+                "OPCIONES Y EQUIPO",
+            ],
+            4 => [
+                "SAKUSEN SENNYUU (CAMPAIGN)",
+                "VR KUNREN SIMULATOR",
+                "TOKUSHU SOUBI (OPTIONS)",
+            ],
+            _ => [
+                "CAMPAIGN INFILTRATION",
+                "VR TRAINING SIMULATOR",
+                "SPECIAL OPTIONS & GEAR",
+            ],
+        };
 
         for (i, label) in menu_items.iter().enumerate() {
             let y = 136 + (i as i16 * 20);
@@ -1894,7 +1934,14 @@ impl Renderer {
             }
         }
 
-        self.font.draw_text(48, 216, "DPAD: SELECT  |  START / CROSS: CONFIRM", (100, 150, 160));
+        let footer_text = match self.language {
+            1 => "CROIX / START: CONFIRMER",
+            2 => "KREUZ / START: BESTAETIGEN",
+            3 => "CRUZ / START: CONFIRMAR",
+            4 => "CROSS / START: KETTEI",
+            _ => "DPAD: SELECT  |  START / CROSS: CONFIRM",
+        };
+        self.font.draw_text(48, 216, footer_text, (100, 150, 160));
     }
 
     pub fn draw_vr_menu(&self, selected_vr: usize, vr_cleared: u8) {
@@ -1962,64 +2009,107 @@ impl Renderer {
 
     pub fn draw_options_menu(&self, save_data: &crate::save::SaveData, selected_opt: usize) {
         // Tactical dark steel background
-        gpu::draw_rect_flat(0, 0, 320, 240, 12, 16, 24);
+        gpu::draw_rect_flat(0, 0, 320, 240, 10, 14, 20);
 
         // Header
-        gpu::draw_rect_flat(20, 15, 280, 28, 25, 35, 45);
-        gpu::draw_rect_flat(22, 17, 276, 24, 10, 16, 22);
-        self.font.draw_text(42, 23, "SPECIAL OPTIONS & UNLOCKABLE GEAR", (255, 230, 80));
+        gpu::draw_rect_flat(20, 8, 280, 24, 25, 35, 45);
+        gpu::draw_rect_flat(22, 10, 276, 20, 10, 16, 22);
+        self.font.draw_text(34, 14, "SYSTEM CONFIGURATION & GEAR", (255, 230, 80));
 
-        // Options 0: Costume
-        let opt0_y: i16 = 55;
-        let is_sel0 = selected_opt == 0;
-        let bg0 = if is_sel0 { (20, 50, 40) } else { (12, 18, 26) };
-        gpu::draw_rect_flat(20, opt0_y, 280, 36, bg0.0, bg0.1, bg0.2);
-        let cursor0 = if is_sel0 { ">" } else { " " };
-        self.font.draw_text(26, opt0_y + 6, cursor0, (255, 235, 80));
-        self.font.draw_text(38, opt0_y + 6, "INFILTRATION COSTUME:", if is_sel0 { (255, 255, 255) } else { (170, 190, 200) });
+        let opt_labels = [
+            "COSTUME / TENUE",
+            "1994 RETRO WIREFRAME",
+            "LANGUAGE / LANGUE",
+            "VIDEO STANDARD",
+            "SCREEN V-CENTER",
+        ];
 
         let costume_str = match save_data.selected_costume {
             1 => "TUXEDO (CLASSIC BOND)",
             2 => "STEALTH CAMO (SHIMMER)",
             _ => "SNEAKING SUIT (DEFAULT)",
         };
-        self.font.draw_text(50, opt0_y + 20, costume_str, (120, 255, 160));
 
-        // Options 1: Wireframe Mode
-        let opt1_y: i16 = 100;
-        let is_sel1 = selected_opt == 1;
-        let bg1 = if is_sel1 { (20, 50, 40) } else { (12, 18, 26) };
-        gpu::draw_rect_flat(20, opt1_y, 280, 36, bg1.0, bg1.1, bg1.2);
-        let cursor1 = if is_sel1 { ">" } else { " " };
-        self.font.draw_text(26, opt1_y + 6, cursor1, (255, 235, 80));
-        self.font.draw_text(38, opt1_y + 6, "1994 RETRO WIREFRAME:", if is_sel1 { (255, 255, 255) } else { (170, 190, 200) });
         let wire_str = if save_data.wireframe_enabled != 0 { "< ENABLED >" } else { "< DISABLED >" };
-        self.font.draw_text(50, opt1_y + 20, wire_str, (100, 220, 255));
 
-        // Options 2: Memory Card / Status
-        let opt2_y: i16 = 145;
-        let is_sel2 = selected_opt == 2;
-        let bg2 = if is_sel2 { (20, 50, 40) } else { (12, 18, 26) };
-        gpu::draw_rect_flat(20, opt2_y, 280, 36, bg2.0, bg2.1, bg2.2);
-        let cursor2 = if is_sel2 { ">" } else { " " };
-        self.font.draw_text(26, opt2_y + 6, cursor2, (255, 235, 80));
-        self.font.draw_text(38, opt2_y + 6, "MEMORY CARD SLOT 1:", if is_sel2 { (255, 255, 255) } else { (170, 190, 200) });
-        self.font.draw_text(50, opt2_y + 20, "1 BLOCK [BASLUS-00001PLATTY]", (255, 210, 80));
+        let lang_str = match save_data.language {
+            1 => "< FRANCAIS >",
+            2 => "< DEUTSCH >",
+            3 => "< ESPANOL >",
+            4 => "< NIHONGO (ROMAJI) >",
+            _ => "< ENGLISH >",
+        };
 
-        // Unlocks description box
-        gpu::draw_rect_flat(20, 190, 280, 42, 8, 12, 18);
+        let video_str = match save_data.pal_mode {
+            0 => "< NTSC 60Hz (FORCE) >",
+            1 => "< PAL 50Hz (FORCE) >",
+            _ => "< AUTO DETECT (BIOS) >",
+        };
+
+        let opt_values = [
+            costume_str,
+            wire_str,
+            lang_str,
+            video_str,
+            "",
+        ];
+
+        for i in 0..5 {
+            let y = 35 + (i as i16 * 26);
+            let is_sel = selected_opt == i;
+            let bg = if is_sel { (20, 60, 48) } else { (12, 18, 24) };
+            gpu::draw_rect_flat(20, y, 280, 24, bg.0, bg.1, bg.2);
+            gpu::draw_rect_flat(22, y + 2, 276, 20, bg.0 / 2, bg.1 / 2, bg.2 / 2);
+
+            let cursor = if is_sel { ">" } else { " " };
+            self.font.draw_text(24, y + 5, cursor, (255, 235, 80));
+            self.font.draw_text(34, y + 5, opt_labels[i], if is_sel { (255, 255, 255) } else { (160, 180, 190) });
+
+            if i == 4 {
+                let off_y = save_data.screen_offset_y;
+                let mut off_buf = [b'<', b' ', b'0', b'0', b' ', b'L', b'N', b' ', b'>', 0];
+                let is_neg = off_y < 0;
+                let abs_val = off_y.unsigned_abs();
+                off_buf[2] = if is_neg { b'-' } else { b'+' };
+                off_buf[3] = (abs_val / 10) as u8 + b'0';
+                off_buf[4] = (abs_val % 10) as u8 + b'0';
+                if let Ok(st) = core::str::from_utf8(&off_buf[..9]) {
+                    self.font.draw_text(190, y + 5, st, (100, 230, 255));
+                }
+            } else {
+                self.font.draw_text(168, y + 5, opt_values[i], (120, 255, 160));
+            }
+        }
+
+        // Hardware Status & Memory Card Info Banner
+        let (_, region_name) = crate::save::detect_console_region();
+        gpu::draw_rect_flat(20, 168, 280, 18, 10, 16, 26);
+        self.font.draw_text(24, 172, "HARDWARE:", (140, 180, 220));
+        self.font.draw_text(80, 172, region_name, (255, 230, 80));
+        self.font.draw_text(224, 172, "CARD: 1 BLK", (100, 255, 140));
+
+        // Description box
+        gpu::draw_rect_flat(20, 190, 280, 44, 8, 12, 16);
         match selected_opt {
             0 => {
                 self.font.draw_text(26, 195, "Tuxedo: Beat campaign. Camo: Rank S.", (180, 200, 220));
-                self.font.draw_text(26, 207, "DPAD LEFT/RIGHT: Toggle costume", (255, 230, 80));
+                self.font.draw_text(26, 209, "DPAD LEFT/RIGHT: Switch costume", (255, 230, 80));
             }
             1 => {
                 self.font.draw_text(26, 195, "Experience Plattypus in early 90s PS1 vectors.", (180, 200, 220));
-                self.font.draw_text(26, 207, "DPAD LEFT/RIGHT: Toggle Wireframe", (255, 230, 80));
+                self.font.draw_text(26, 209, "DPAD LEFT/RIGHT: Toggle Wireframe", (255, 230, 80));
+            }
+            2 => {
+                self.font.draw_text(26, 195, "Select game language / Choisir la langue.", (180, 200, 220));
+                self.font.draw_text(26, 209, "DPAD LEFT/RIGHT: Change Language", (255, 230, 80));
+            }
+            3 => {
+                self.font.draw_text(26, 195, "Switch between 60Hz NTSC and 50Hz PAL modes.", (180, 200, 220));
+                self.font.draw_text(26, 209, "DPAD LEFT/RIGHT: Toggle Video Mode", (255, 230, 80));
             }
             _ => {
-                self.font.draw_text(26, 195, "Auto-saves progress, rankings, & unlocks.", (180, 200, 220));
-                self.font.draw_text(26, 207, "CIRCLE: Return to Main Menu", (255, 230, 80));
+                self.font.draw_text(26, 195, "Adjust vertical display centering on CRT.", (180, 200, 220));
+                self.font.draw_text(26, 209, "DPAD LEFT/RIGHT: Shift Scanlines", (255, 230, 80));
             }
         }
     }

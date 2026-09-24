@@ -7,7 +7,53 @@ pub const SAVE_FILENAME: &str = "BASLUS-00001PLATTY";
 pub const SAVE_TITLE: &str = "PLATTYPUS MGS";
 
 const SAVE_MAGIC: [u8; 4] = *b"PLTY";
-const SAVE_VERSION: u8 = 2;
+const SAVE_VERSION: u8 = 3;
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum Language {
+    English = 0,
+    French = 1,
+    German = 2,
+    Spanish = 3,
+    Japanese = 4,
+}
+
+impl Language {
+    pub fn from_u8(val: u8) -> Self {
+        match val {
+            1 => Language::French,
+            2 => Language::German,
+            3 => Language::Spanish,
+            4 => Language::Japanese,
+            _ => Language::English,
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            Language::English => "ENGLISH",
+            Language::French => "FRANCAIS",
+            Language::German => "DEUTSCH",
+            Language::Spanish => "ESPANOL",
+            Language::Japanese => "NIHONGO (ROMAJI)",
+        }
+    }
+}
+
+/// Auto-detect PlayStation hardware video standard (PAL 50Hz vs NTSC 60Hz)
+/// by inspecting the system ROM date string in the BIOS.
+pub fn detect_console_region() -> (psx_gpu::VideoMode, &'static str) {
+    let region_char = unsafe {
+        let ptr = 0xBFC7FF52 as *const u8;
+        *ptr
+    };
+    match region_char {
+        b'E' => (psx_gpu::VideoMode::Pal, "PAL (EUROPE / 50Hz)"),
+        b'J' => (psx_gpu::VideoMode::Ntsc, "NTSC-J (JAPAN / 60Hz)"),
+        b'A' => (psx_gpu::VideoMode::Ntsc, "NTSC-U/C (NORTH AMERICA / 60Hz)"),
+        _ => (psx_gpu::VideoMode::Ntsc, "NTSC (STANDARD / 60Hz)"),
+    }
+}
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Codename {
@@ -71,6 +117,10 @@ pub struct SaveData {
     pub vr_cleared: u8,
     pub selected_costume: u8,
     pub wireframe_enabled: u8,
+    pub language: u8,
+    pub screen_offset_x: i8,
+    pub screen_offset_y: i8,
+    pub pal_mode: u8, // 0: NTSC 60Hz, 1: PAL 50Hz, 2: Auto Detect
     pub checksum: u16,
 }
 
@@ -91,6 +141,10 @@ impl SaveData {
             vr_cleared: 0,
             selected_costume: 0,
             wireframe_enabled: 0,
+            language: 0,
+            screen_offset_x: 0,
+            screen_offset_y: 0,
+            pal_mode: 2, // Auto-detect
             checksum: 0,
         };
         save.checksum = save.compute_checksum();
@@ -115,6 +169,10 @@ impl SaveData {
         sum = sum.wrapping_add(self.vr_cleared as u16);
         sum = sum.wrapping_add(self.selected_costume as u16);
         sum = sum.wrapping_add(self.wireframe_enabled as u16);
+        sum = sum.wrapping_add(self.language as u16);
+        sum = sum.wrapping_add(self.screen_offset_x as u8 as u16);
+        sum = sum.wrapping_add(self.screen_offset_y as u8 as u16);
+        sum = sum.wrapping_add(self.pal_mode as u16);
         sum
     }
 

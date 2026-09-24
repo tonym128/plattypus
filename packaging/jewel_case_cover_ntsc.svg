@@ -1,0 +1,143 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="800" height="800">
+  <defs>
+    <linearGradient id="bg-grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a1218"/>
+      <stop offset="60%" stop-color="#142622"/>
+      <stop offset="100%" stop-color="#1b382b"/>
+    </linearGradient>
+    <linearGradient id="ps-band" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#000000"/>
+      <stop offset="100%" stop-color="#1a1a1a"/>
+    </linearGradient>
+    <linearGradient id="gold-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffe680"/>
+      <stop offset="50%" stop-color="#e6b800"/>
+      <stop offset="100%" stop-color="#b38600"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background Canvas -->
+  <rect width="800" height="800" fill="url(#bg-grad)"/>
+
+  <!-- Tactical Radar Grid Lines -->
+  <g stroke="#264d3b" stroke-width="1.5" opacity="0.6">
+    <circle cx="450" cy="420" r="300" fill="none"/>
+    <circle cx="450" cy="420" r="220" fill="none"/>
+    <circle cx="450" cy="420" r="140" fill="none"/>
+    <circle cx="450" cy="420" r="60" fill="none"/>
+    <line x1="450" y1="120" x2="450" y2="720"/>
+    <line x1="150" y1="420" x2="750" y2="420"/>
+    <line x1="238" y1="208" x2="662" y2="632"/>
+    <line x1="238" y1="632" x2="662" y2="208"/>
+  </g>
+
+  <!-- Left Black PlayStation Stripe (US Format) -->
+  <rect x="0" y="0" width="85" height="800" fill="url(#ps-band)"/>
+  <rect x="83" y="0" width="2" height="800" fill="#333333"/>
+
+  <!-- Vertical "PlayStation" text on black stripe -->
+  <g transform="translate(52, 420) rotate(-90)">
+    <text font-family="'Helvetica Neue', Arial, sans-serif" font-weight="900" font-size="44" fill="#ffffff" letter-spacing="4">PlayStation</text>
+  </g>
+
+  <!-- Classic PlayStation Logo at top of stripe -->
+  <g transform="translate(22, 35) scale(0.65)">
+    <!-- P -->
+    <path d="M25 10 L25 75 L45 75 L45 48 L58 48 C72 48 80 40 80 29 C80 18 72 10 58 10 Z M45 25 L56 25 C62 25 65 27 65 29 C65 32 62 34 56 34 L45 34 Z" fill="#df0024"/>
+    <!-- S shadow -->
+    <path d="M15 65 C25 62 38 62 48 65 C60 68 70 75 65 82 C60 88 42 88 30 84 C20 80 12 75 15 65 Z" fill="#f3c300" opacity="0.9"/>
+    <path d="M45 68 C58 66 75 66 82 72 C88 77 82 85 68 87 C52 89 35 88 45 68 Z" fill="#00ac9f" opacity="0.9"/>
+  </g>
+
+  <!-- Agent Platty 3D Silhouette / Stylized Vector Art -->
+  <g transform="translate(380, 410)">
+    <!-- Shadow -->
+    <ellipse cx="20" cy="180" rx="160" ry="35" fill="#050a08" opacity="0.8"/>
+
+    <!-- Beaver Tail -->
+    <path d="M -110 90 C -200 110 -220 50 -140 30 C -80 15 -70 60 -110 90 Z" fill="#663d1e" stroke="#3d220f" stroke-width="4"/>
+    <path d="M -160 40 L -110 85 M -180 60 L -130 80 M -140 35 L -100 65" stroke="#4a2a14" stroke-width="2.5"/>
+
+    <!-- Rear Venom Spur (Golden Glow!) -->
+    <polygon points="-75,105 -100,125 -70,118" fill="url(#gold-grad)" filter="url(#glow)"/>
+
+    <!-- Webbed Feet -->
+    <ellipse cx="-40" cy="140" rx="35" ry="14" fill="#d97724"/>
+    <ellipse cx="90" cy="140" rx="35" ry="14" fill="#d97724"/>
+
+    <!-- Platty Fur Body -->
+    <ellipse cx="10" cy="70" rx="125" ry="90" fill="#7a4b24"/>
+    <!-- Cream Underbelly -->
+    <ellipse cx="25" cy="95" rx="80" ry="55" fill="#c49a6c"/>
+
+    <!-- Tactical Leather Satchel -->
+    <rect x="-35" y="30" width="55" height="50" rx="8" fill="#523318" stroke="#331e0c" stroke-width="3"/>
+    <rect x="-10" y="22" width="22" height="14" rx="2" fill="#faf0d7"/>
+
+    <!-- Head & Brow -->
+    <ellipse cx="85" cy="20" rx="75" ry="60" fill="#7a4b24"/>
+
+    <!-- Iconic Duck Bill (+Z Facing) -->
+    <path d="M 125 15 C 220 15 230 65 135 65 Z" fill="#54585a" stroke="#2b2d2f" stroke-width="3"/>
+    <ellipse cx="165" cy="30" rx="6" ry="3" fill="#222"/>
+
+    <!-- Expressive Eyes -->
+    <ellipse cx="105" cy="5" rx="16" ry="20" fill="#ffffff"/>
+    <ellipse cx="112" cy="7" rx="8" ry="10" fill="#111111"/>
+    <circle cx="115" cy="4" r="3" fill="#ffffff"/>
+
+    <!-- Solid Snake Green Bandana with fluttering tails -->
+    <path d="M 40 -12 C 90 -22 150 -12 155 10 L 150 25 C 100 10 50 12 35 15 Z" fill="#2eb85c" stroke="#1b6b35" stroke-width="2"/>
+    <!-- Bandana knot fluttering in the tactical wind -->
+    <path d="M 35 10 C 10 15 -20 -10 -45 -5 C -25 15 5 25 35 18 Z" fill="#28a745" filter="url(#glow)"/>
+    <path d="M 36 12 C 15 28 -15 25 -40 45 C -20 35 10 35 36 20 Z" fill="#1e7e34"/>
+  </g>
+
+  <!-- Tactical Radar Blips & Sonar Waves -->
+  <g stroke="#00ffcc" stroke-width="2" fill="none" opacity="0.8" filter="url(#glow)">
+    <path d="M 580 380 A 70 70 0 0 1 630 460"/>
+    <path d="M 600 360 A 100 100 0 0 1 670 470"/>
+    <circle cx="670" cy="350" r="5" fill="#ff3333" stroke="none"/>
+    <circle cx="310" cy="280" r="5" fill="#ffcc00" stroke="none"/>
+  </g>
+
+  <!-- Game Title Branding -->
+  <g transform="translate(125, 140)">
+    <!-- Subtitle Banner -->
+    <rect x="0" y="0" width="340" height="24" fill="#00ff88" opacity="0.9"/>
+    <text x="12" y="17" font-family="'Arial Black', Impact, sans-serif" font-size="14" fill="#0a1218" letter-spacing="3">TACTICAL ESPIONAGE OPERATION</text>
+
+    <!-- Main Title -->
+    <text x="0" y="85" font-family="'Arial Black', Impact, sans-serif" font-weight="900" font-size="78" fill="#ffffff" stroke="#000000" stroke-width="4" letter-spacing="4">PLATTYPUS</text>
+    <text x="4" y="81" font-family="'Arial Black', Impact, sans-serif" font-weight="900" font-size="78" fill="url(#gold-grad)" letter-spacing="4">PLATTYPUS</text>
+
+    <!-- Tech specs -->
+    <text x="2" y="115" font-family="'Helvetica Neue', Arial, sans-serif" font-weight="700" font-size="16" fill="#88c999" letter-spacing="2">PROJECT PSOXIDE 3D // 32-BIT GTE</text>
+  </g>
+
+  <!-- ESRB Rating Badge (Bottom-Left) -->
+  <g transform="translate(115, 680)">
+    <rect width="90" height="90" fill="#ffffff" stroke="#000000" stroke-width="2"/>
+    <text x="45" y="42" font-family="'Arial Black', sans-serif" font-size="34" font-weight="900" fill="#000" text-anchor="middle">E</text>
+    <rect x="5" y="52" width="80" height="32" fill="#000000"/>
+    <text x="45" y="66" font-family="Arial, sans-serif" font-size="9" font-weight="bold" fill="#fff" text-anchor="middle">EVERYONE 10+</text>
+    <text x="45" y="78" font-family="Arial, sans-serif" font-size="7" fill="#fff" text-anchor="middle">COMIC MISCHIEF</text>
+  </g>
+
+  <!-- Official Sony Seal & Serial (Bottom-Right) -->
+  <g transform="translate(620, 710)">
+    <circle cx="50" cy="30" r="30" fill="none" stroke="#d4af37" stroke-width="2"/>
+    <text x="50" y="24" font-family="Georgia, serif" font-size="7" font-weight="bold" fill="#d4af37" text-anchor="middle">OFFICIAL</text>
+    <text x="50" y="34" font-family="Georgia, serif" font-size="8" font-weight="bold" fill="#d4af37" text-anchor="middle">PlayStation</text>
+    <text x="50" y="44" font-family="Georgia, serif" font-size="7" font-weight="bold" fill="#d4af37" text-anchor="middle">SEAL OF QUALITY</text>
+  </g>
+
+  <text x="770" y="785" font-family="monospace" font-size="11" fill="#668877" text-anchor="end">SLUS-00001 / NTSC-U/C</text>
+</svg>

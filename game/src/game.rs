@@ -71,6 +71,15 @@ impl Game {
         let save_data = memcard.load_from_slot1().unwrap_or_else(crate::save::SaveData::new);
         renderer.costume = save_data.selected_costume;
         renderer.wireframe = save_data.wireframe_enabled != 0;
+        renderer.language = save_data.language;
+        renderer.screen_offset_x = save_data.screen_offset_x;
+        renderer.screen_offset_y = save_data.screen_offset_y;
+        if save_data.pal_mode == 0 {
+            renderer.video_mode = psx_gpu::VideoMode::Ntsc;
+        } else if save_data.pal_mode == 1 {
+            renderer.video_mode = psx_gpu::VideoMode::Pal;
+        }
+        renderer.apply_display_offset();
 
         let mut dualshock = DualShockController::new();
         dualshock.init();
@@ -221,10 +230,10 @@ impl Game {
             GameState::OptionsMenu => {
                 if is_connected {
                     if just_up {
-                        self.options_selection = if self.options_selection == 0 { 2 } else { self.options_selection - 1 };
+                        self.options_selection = if self.options_selection == 0 { 4 } else { self.options_selection - 1 };
                         AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                     } else if just_down {
-                        self.options_selection = if self.options_selection == 2 { 0 } else { self.options_selection + 1 };
+                        self.options_selection = if self.options_selection == 4 { 0 } else { self.options_selection + 1 };
                         AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                     } else if just_circle {
                         self.state = GameState::Title;
@@ -257,6 +266,42 @@ impl Game {
                                     self.memcard.save_to_slot1(&self.save_data);
                                     AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                                 }
+                            }
+                            2 => {
+                                // Multi-language selector: 0 (EN), 1 (FR), 2 (DE), 3 (ES), 4 (JP)
+                                if just_right {
+                                    self.save_data.language = (self.save_data.language + 1) % 5;
+                                } else {
+                                    self.save_data.language = if self.save_data.language == 0 { 4 } else { self.save_data.language - 1 };
+                                }
+                                self.renderer.language = self.save_data.language;
+                                self.memcard.save_to_slot1(&self.save_data);
+                                AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
+                            }
+                            3 => {
+                                // Video Standard: 0 (NTSC 60Hz), 1 (PAL 50Hz), 2 (Auto Detect)
+                                self.save_data.pal_mode = (self.save_data.pal_mode + 1) % 3;
+                                let mode = match self.save_data.pal_mode {
+                                    0 => psx_gpu::VideoMode::Ntsc,
+                                    1 => psx_gpu::VideoMode::Pal,
+                                    _ => crate::save::detect_console_region().0,
+                                };
+                                self.renderer.video_mode = mode;
+                                self.renderer.apply_display_offset();
+                                self.memcard.save_to_slot1(&self.save_data);
+                                AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
+                            }
+                            4 => {
+                                // Screen V-Center Offset (-16..16 scanlines)
+                                if just_left {
+                                    self.save_data.screen_offset_y = (self.save_data.screen_offset_y - 1).max(-16);
+                                } else {
+                                    self.save_data.screen_offset_y = (self.save_data.screen_offset_y + 1).min(16);
+                                }
+                                self.renderer.screen_offset_y = self.save_data.screen_offset_y;
+                                self.renderer.apply_display_offset();
+                                self.memcard.save_to_slot1(&self.save_data);
+                                AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                             }
                             _ => {}
                         }
