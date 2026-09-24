@@ -120,13 +120,13 @@ These 5 items form the core technical foundation required for a commercial-grade
 
 ## Phase 6: Mastering, Packaging & Physical Publishing
 
-- [ ] **Region & Standards Compliance**
-  - [ ] Auto-detect 50Hz PAL / 60Hz NTSC with vertical display centering options
-  - [ ] Multi-language text selector (English, French, German, Spanish, Japanese)
-- [ ] **Disc Mastering**
-  - [ ] Generate verified red-book CD-ROM master images (`.cue`/`.bin`) with CD-DA tracks
-  - [ ] Optimize sector layout for maximum optical drive streaming performance and sub-2s loads
-- [ ] **Physical Print & Publishing**
-  - [ ] Front/back jewel case insert art (PAL blue border and NTSC-U jewel formats)
-  - [ ] 20-page full-color instruction manual layout (story, bios, controls, notes)
-  - [ ] Screen-printed disc surface art template
+- [x] **Region & Standards Compliance**
+  - [x] Auto-detect 50Hz PAL / 60Hz NTSC with vertical display centering options
+  - [x] Multi-language text selector (English, French, German, Spanish, Japanese)
+- [x] **Disc Mastering**
+  - [x] Generate verified red-book CD-ROM master images (`.cue`/`.bin`) with CD-DA tracks
+  - [x] Optimize sector layout for maximum optical drive streaming performance and sub-2s loads
+- [x] **Physical Print & Publishing**
+  - [x] Front/back jewel case insert art (PAL blue border and NTSC-U jewel formats)
+  - [x] 20-page full-color instruction manual layout (story, bios, controls, notes)
+  - [x] Screen-printed disc surface art template
