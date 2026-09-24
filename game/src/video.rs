@@ -83,8 +83,11 @@ impl VideoPlayer {
     unsafe fn find_intro_vid_lba(reader: &mut SectorReader, storage: &mut VideoStorage) -> Option<u32> {
         psx_rt::tty::println("[VIDEO] Scanning root directory (Sector 20)...");
         // Sector 20 is the ISO 9660 root directory extent
-        if !unsafe { reader.start_read_seek_first(20, 500_000) } {
-            psx_rt::tty::println("[VIDEO] start_read_seek_first(20) FAILED");
+        // Use the reader's implicit SetLoc+ReadN path here. The explicit BIOS
+        // SeekL bracket fails on some drives/emulators during the first read,
+        // which silently forced playback to the 16-frame embedded loop.
+        if !unsafe { reader.start_read(20) } {
+            psx_rt::tty::println("[VIDEO] start_read(20) FAILED");
             return None;
         }
         let read_ok = unsafe { reader.read_sector(&mut storage.sector_buf) };
@@ -154,17 +157,18 @@ impl VideoPlayer {
 
         // Initialize CD streaming if possible
         let storage = unsafe { &mut *core::ptr::addr_of_mut!(STORAGE) };
+        // Each frame is read as an isolated 8-sector burst and paused before
+        // MDEC work, so double speed is safe without streaming through decode.
         let prepared = unsafe { self.cd_reader.prepare() };
         if prepared {
             psx_rt::tty::println("[VIDEO] CD reader prepare OK");
             if let Some(lba) = unsafe { Self::find_intro_vid_lba(&mut self.cd_reader, storage) } {
                 self.cd_start_lba = lba;
-                if unsafe { self.cd_reader.start_read_seek_first(lba, 1_000_000) } {
-                    psx_rt::tty::println("[VIDEO] CD start_read_seek_first OK! using_cd = true");
-                    self.using_cd = true;
-                } else {
-                    psx_rt::tty::println("[VIDEO] CD start_read_seek_first FAILED");
-                }
+                // Start a short ReadN burst for each frame in draw(). Leaving
+                // ReadN running while MDEC/GPU work executes overruns the CD
+                // sector FIFO and shifts subsequent frame boundaries.
+                psx_rt::tty::println("[VIDEO] INTRO.VID located; using per-frame CD reads");
+                self.using_cd = true;
             }
         } else {
             psx_rt::tty::println("[VIDEO] CD reader prepare FAILED");
@@ -224,21 +228,29 @@ impl VideoPlayer {
             let mut read_ok = false;
 
             if self.using_cd {
-                // Stream 8 sectors (16 KiB) directly from the running ReadN stream
-                let mut all_sectors_read = true;
-                for sec in 0..SECTORS_PER_FRAME {
-                    let off = sec * SECTOR_WORDS;
-                    let sec_buf: &mut [u32; SECTOR_WORDS] = unsafe {
-                        &mut *(&mut storage.frame_words[off..off + SECTOR_WORDS] as *mut [u32] as *mut [u32; SECTOR_WORDS])
-                    };
-                    if !unsafe { self.cd_reader.read_sector(sec_buf) } {
-                        psx_rt::tty::print("[VIDEO] CD read_sector FAILED at sec ");
-                        psx_rt::tty::print_hex_u32(sec as u32);
-                        psx_rt::tty::print("\n");
-                        all_sectors_read = false;
-                        break;
+                let frame_lba = self.cd_start_lba
+                    .wrapping_add(frame_to_show as u32 * SECTORS_PER_FRAME as u32);
+                let mut all_sectors_read = unsafe { self.cd_reader.start_read(frame_lba) };
+                if !all_sectors_read {
+                    psx_rt::tty::println("[VIDEO] CD frame ReadN start failed");
+                } else {
+                    // Read only this frame, then pause the drive before the
+                    // expensive MDEC decode and VRAM uploads below.
+                    for sec in 0..SECTORS_PER_FRAME {
+                        let off = sec * SECTOR_WORDS;
+                        let sec_buf: &mut [u32; SECTOR_WORDS] = unsafe {
+                            &mut *(&mut storage.frame_words[off..off + SECTOR_WORDS] as *mut [u32] as *mut [u32; SECTOR_WORDS])
+                        };
+                        if !unsafe { self.cd_reader.read_sector(sec_buf) } {
+                            psx_rt::tty::print("[VIDEO] CD read_sector FAILED at sec ");
+                            psx_rt::tty::print_hex_u32(sec as u32);
+                            psx_rt::tty::print("\n");
+                            all_sectors_read = false;
+                            break;
+                        }
                     }
                 }
+                unsafe { self.cd_reader.stop(); }
                 if all_sectors_read {
                     read_ok = true;
                 } else {
@@ -295,10 +307,19 @@ impl VideoPlayer {
                         }
                         psx_io::dma::abort(psx_io::dma::Channel::MdecOut);
                         // PIO fallback if DMA timed out. Stop as soon as the
-                        // MDEC has no more output instead of burning seconds
-                        // spinning on an incomplete frame.
+                        // MDEC has finished processing and has no more output.
+                        // DATA_OUT_EMPTY can be transient between macroblocks.
                         let mut output_words = 0usize;
                         for out in storage.slice_words.iter_mut() {
+                            let mut spins = 0u32;
+                            while psx_io::mdec::read_stat() & psx_hw::mdec::status::DATA_OUT_EMPTY != 0
+                                && (psx_io::mdec::is_busy()
+                                    || psx_io::dma::is_busy(psx_io::dma::Channel::MdecIn))
+                                && spins < 5_000_000
+                            {
+                                spins += 1;
+                                core::hint::spin_loop();
+                            }
                             if psx_io::mdec::read_stat() & psx_hw::mdec::status::DATA_OUT_EMPTY != 0 {
                                 break;
                             }
@@ -333,6 +354,13 @@ impl VideoPlayer {
         let mut buf = [0u8; 32];
         let s = format_frame_counter(self.frame_idx + 1, self.total_frames, &mut buf);
         renderer.font.draw_text(8, 8, s, (120, 120, 120));
+    }
+
+    /// True when a newly decoded video frame is ready to be presented.
+    /// The game loop uses this to avoid swapping to the stale back buffer on
+    /// intermediate VBlanks between 15 fps video frames.
+    pub fn needs_redraw(&self) -> bool {
+        self.frame_idx != self.last_decoded_frame
     }
 
     pub fn is_finished(&self) -> bool {

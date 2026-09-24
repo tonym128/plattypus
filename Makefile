@@ -38,7 +38,7 @@ disc: exe
 run: disc
 	@if [ -x "/home/tonym/Downloads/DuckStation-x64.AppImage" ]; then \
 		echo "Launching $(DIST)/plattypus.cue in DuckStation AppImage..."; \
-		"/home/tonym/Downloads/DuckStation-x64.AppImage" "$(DIST)/plattypus.cue"; \
+		APPIMAGE_EXTRACT_AND_RUN=1 "/home/tonym/Downloads/DuckStation-x64.AppImage" "$(DIST)/plattypus.cue"; \
 	elif command -v duckstation >/dev/null 2>&1; then \
 		echo "Launching $(DIST)/plattypus.cue in DuckStation..."; \
 		duckstation "$(DIST)/plattypus.cue"; \

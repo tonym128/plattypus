@@ -107,7 +107,8 @@ def encode_frame_adaptive(frame_bgr, max_payload_bytes):
     for scale in range(16, 64, 2):
         chroma = min(63, int(scale * 1.25))
         rl_bytes, data_words = encode_frame(frame_bgr, luma_scale=scale, chroma_scale=chroma)
-        if 4 + data_words * 4 <= max_payload_bytes:
+        dma_words = (data_words + 31) & ~31
+        if 4 + dma_words * 4 <= max_payload_bytes:
             return rl_bytes, data_words, scale
     rl_bytes, data_words = encode_frame(frame_bgr, luma_scale=63, chroma_scale=63)
     return rl_bytes, data_words, 63
@@ -145,9 +146,14 @@ def main():
         if data_words > max_words_used:
             max_words_used = data_words
 
-        # Command word 0: 0x3800_0000 | data_words
-        cmd_word = 0x38000000 | (data_words & 0xFFFF)
-        frame_payload = struct.pack("<I", cmd_word) + rl_bytes
+        dma_words = (data_words + 31) & ~31
+        # DMA0 runs in 32-word blocks. Pad the final block with the MDEC
+        # dummy/end marker and declare that padded length in the command,
+        # otherwise the transfer waits for words beyond the stream.
+        padding_words = dma_words - data_words
+        padded_rl = rl_bytes + (b"\x00\xfe" * (padding_words * 2))
+        cmd_word = 0x38000000 | (dma_words & 0xFFFF)
+        frame_payload = struct.pack("<I", cmd_word) + padded_rl
 
         assert len(frame_payload) <= FRAME_BYTES, f"Frame {i} too large: {len(frame_payload)}"
         frame_payload += b"\x00" * (FRAME_BYTES - len(frame_payload))
@@ -157,7 +163,7 @@ def main():
             embedded_data.extend(frame_payload)
 
         if (i + 1) % 15 == 0 or i == target_frames - 1:
-            print(f"  Frame {i+1:3d}/{target_frames} encoded (scale: {used_scale}, payload: {data_words*4+4} bytes / {FRAME_BYTES})")
+            print(f"  Frame {i+1:3d}/{target_frames} encoded (scale: {used_scale}, payload: {dma_words*4+4} bytes / {FRAME_BYTES})")
 
     cap.release()
 

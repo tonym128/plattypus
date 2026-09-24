@@ -334,9 +334,14 @@ impl Game {
                     self.video.stop();
                     self.codec.start_conversation(INTRO_DIALOGUE);
                     self.state = GameState::IntroCodec;
-                } else {
+                } else if self.video.needs_redraw() {
                     self.renderer.begin_frame();
                     self.video.draw(&self.renderer);
+                } else {
+                    // Hold the displayed buffer until the next 15 fps video
+                    // frame is ready; swapping every VBlank flashes the stale
+                    // alternate buffer between uploads.
+                    psx_rt::interrupts::wait_vblank();
                 }
             }
             GameState::AttractDemo { ref mut act, ref mut timer } => {
