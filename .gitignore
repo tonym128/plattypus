@@ -3,6 +3,8 @@
 /dist/
 /build/
 *.bin
+!game/title_bg.bin
+!game/video_mdec.bin
 *.cue
 *.exe
 .cargo-artifact-lock

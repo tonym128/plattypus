@@ -36,7 +36,10 @@ disc: exe
 	@echo "  BIN: $(DIST)/plattypus.bin"
 
 run: disc
-	@if command -v duckstation >/dev/null 2>&1; then \
+	@if [ -x "/home/tonym/Downloads/DuckStation-x64.AppImage" ]; then \
+		echo "Launching $(DIST)/plattypus.cue in DuckStation AppImage..."; \
+		"/home/tonym/Downloads/DuckStation-x64.AppImage" "$(DIST)/plattypus.cue"; \
+	elif command -v duckstation >/dev/null 2>&1; then \
 		echo "Launching $(DIST)/plattypus.cue in DuckStation..."; \
 		duckstation "$(DIST)/plattypus.cue"; \
 	elif command -v duckstation-qt >/dev/null 2>&1; then \

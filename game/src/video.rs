@@ -1,60 +1,48 @@
 //! Cinematic Intro Video playback for Plattypus PSX.
 //!
-//! Plays full 320×180 16:9 widescreen video at 15 fps with 256-color adaptive
-//! CLUT palettes and SPU ADPCM audio. Streams all 150 frames from `Videos/INTRO.VID`
-//! on the CD-ROM, with an embedded 30-frame fallback for standalone EXE execution.
+//! Decodes 320x240 video at 15 fps using the PS1 hardware MDEC coprocessor
+//! (MDEC0 / DMA channel 0 & channel 1) with synchronized SPU ADPCM audio.
+//! Streams seek-free 8-sector (16 KiB) frames directly from CD-ROM via
+//! SectorReader, with seamless fallback to embedded ROM frames.
 //! Playback is skippable at any time via CROSS or START.
 
 use psx_pad::{button, ButtonState, PadState};
-use psx_vram::{VramRect, upload_bytes};
+use psx_vram::{VramRect, upload_words};
+use psx_pack::cd::{SectorReader, SECTOR_WORDS};
 use crate::audio::AudioManager;
 
-/// Embedded fallback video (320×180, 30 frames, 15 fps, VID8 raw LZ4 blocks)
-static EMBEDDED_VIDEO: &[u8] = include_bytes!("../video_frames.bin");
+/// Embedded fallback video (320x240, 16 frames, 15 fps, raw MDEC hardware bitstream)
+static EMBEDDED_VIDEO: &[u8] = include_bytes!("../video_mdec.bin");
 
-const VIDEO_W: u16 = 320;
-const VIDEO_H: u16 = 180;
-const LETTERBOX_Y: u16 = 30; // 30px top border, 30px bottom border in 320x240
+pub const VIDEO_W: u16 = 320;
+pub const VIDEO_H: u16 = 240;
+pub const TOTAL_FRAMES: u16 = 150;
+pub const EMBEDDED_FRAME_COUNT: u16 = 16;
+pub const SECTORS_PER_FRAME: usize = 8;
+pub const WORDS_PER_FRAME: usize = 4096; // 16,384 bytes = 8 sectors
+pub const WORDS_PER_SLICE: usize = 1920; // 16 * 240 / 2 = 1,920 u32 words
 
-/// BSS-resident storage for decoded frame and palette
-struct FrameStorage {
-    /// 320 * 180 * 2 = 115,200 bytes 15bpp RGB pixels
-    pixels: [u8; (VIDEO_W as usize) * (VIDEO_H as usize) * 2],
-    /// Scratch buffer for decompressed 8bpp frame (512 CLUT + 57600 pixels = 58112 bytes)
-    decomp_scratch: [u8; 58112],
-    /// Scratch buffer for reading compressed frame from disc (up to 32 KiB)
-    comp_scratch: [u8; 32768],
+/// BSS-resident storage for MDEC bitstream, slice buffer, and CD reading
+struct VideoStorage {
+    /// 4,096 u32 words (16 KiB) holding the active frame payload
+    frame_words: [u32; WORDS_PER_FRAME],
+    /// 1,920 u32 words (7.68 KiB) holding one decoded 16x240 slice
+    slice_words: [u32; WORDS_PER_SLICE],
+    /// Bounce buffer for single-sector reads (e.g. root directory scan)
+    sector_buf: [u32; SECTOR_WORDS],
 }
 
-impl FrameStorage {
+impl VideoStorage {
     const fn new() -> Self {
         Self {
-            pixels: [0; (VIDEO_W as usize) * (VIDEO_H as usize) * 2],
-            decomp_scratch: [0; 58112],
-            comp_scratch: [0; 32768],
+            frame_words: [0; WORDS_PER_FRAME],
+            slice_words: [0; WORDS_PER_SLICE],
+            sector_buf: [0; SECTOR_WORDS],
         }
     }
 }
 
-static mut FRAME_STORAGE: FrameStorage = FrameStorage::new();
-
-#[cfg(target_arch = "mips")]
-struct DiscVideoReader {
-    reader: psx_pack::cd::SectorReader,
-    scratch: [u32; 512],
-    current_sector: u32,
-}
-
-#[cfg(target_arch = "mips")]
-impl DiscVideoReader {
-    fn new() -> Self {
-        Self {
-            reader: psx_pack::cd::SectorReader::new(),
-            scratch: [0; 512],
-            current_sector: 0,
-        }
-    }
-}
+static mut STORAGE: VideoStorage = VideoStorage::new();
 
 pub struct VideoPlayer {
     pub frame_idx: u16,
@@ -64,11 +52,12 @@ pub struct VideoPlayer {
     pub width: u16,
     pub height: u16,
     pub finished: bool,
-    use_disc: bool,
-    disc_lba: u32,
-    disc_size: u32,
-    #[cfg(target_arch = "mips")]
-    disc_reader: Option<DiscVideoReader>,
+    pub using_cd: bool,
+    pub cd_start_lba: u32,
+    last_decoded_frame: u16,
+    last_uploaded_frame: u16,
+    last_uploaded_buffer: u8,
+    cd_reader: SectorReader,
 }
 
 impl VideoPlayer {
@@ -77,130 +66,127 @@ impl VideoPlayer {
             frame_idx: 0,
             tick: 0,
             ticks_per_frame: 4, // 60 Hz / 4 = 15 fps
-            total_frames: 150,
+            total_frames: TOTAL_FRAMES,
             width: VIDEO_W,
             height: VIDEO_H,
             finished: false,
-            use_disc: false,
-            disc_lba: 0,
-            disc_size: 0,
-            #[cfg(target_arch = "mips")]
-            disc_reader: None,
+            using_cd: false,
+            cd_start_lba: 0,
+            last_decoded_frame: 0xFFFF,
+            last_uploaded_frame: 0xFFFF,
+            last_uploaded_buffer: 0xFF,
+            cd_reader: SectorReader::new(),
         }
+    }
+
+    /// Locate INTRO.VID on disc by scanning the ISO 9660 root directory (Sector 20).
+    unsafe fn find_intro_vid_lba(reader: &mut SectorReader, storage: &mut VideoStorage) -> Option<u32> {
+        psx_rt::tty::println("[VIDEO] Scanning root directory (Sector 20)...");
+        // Sector 20 is the ISO 9660 root directory extent
+        if !unsafe { reader.start_read_seek_first(20, 500_000) } {
+            psx_rt::tty::println("[VIDEO] start_read_seek_first(20) FAILED");
+            return None;
+        }
+        let read_ok = unsafe { reader.read_sector(&mut storage.sector_buf) };
+        unsafe { reader.stop(); }
+        if !read_ok {
+            psx_rt::tty::println("[VIDEO] read_sector(20) FAILED");
+            return None;
+        }
+
+        let bytes: &[u8] = unsafe {
+            core::slice::from_raw_parts(storage.sector_buf.as_ptr() as *const u8, 2048)
+        };
+
+        let mut off = 0usize;
+        while off < bytes.len() {
+            let record_len = bytes[off] as usize;
+            if record_len == 0 {
+                break;
+            }
+            if off + record_len > bytes.len() {
+                break;
+            }
+
+            let lba = u32::from_le_bytes([
+                bytes[off + 2],
+                bytes[off + 3],
+                bytes[off + 4],
+                bytes[off + 5],
+            ]);
+            let name_len = bytes[off + 32] as usize;
+            if off + 33 + name_len <= bytes.len() {
+                let name = &bytes[off + 33..off + 33 + name_len];
+                if name.starts_with(b"INTRO.VID") {
+                    psx_rt::tty::print("[VIDEO] Found INTRO.VID at LBA: ");
+                    psx_rt::tty::print_hex_u32(lba);
+                    psx_rt::tty::print("\n");
+                    return Some(lba);
+                }
+            }
+            off += record_len;
+        }
+        psx_rt::tty::println("[VIDEO] INTRO.VID not found in Sector 20");
+        None
     }
 
     pub fn start(&mut self) {
+        psx_rt::tty::println("[VIDEO] start() called");
         self.frame_idx = 0;
         self.tick = 0;
         self.finished = false;
-        self.total_frames = 150;
+        self.total_frames = TOTAL_FRAMES;
         self.ticks_per_frame = 4;
+        self.last_decoded_frame = 0xFFFF;
+        self.last_uploaded_frame = 0xFFFF;
+        self.last_uploaded_buffer = 0xFF;
+        self.using_cd = false;
 
-        // Start synchronized audio sample via hardware SPU
+        // Reset and initialize hardware MDEC coprocessor with standard tables
+        psx_rt::tty::println("[VIDEO] Initializing MDEC...");
+        psx_io::mdec::init();
+        psx_rt::tty::print("[VIDEO] MDEC init done. Stat: ");
+        psx_rt::tty::print_hex_u32(psx_io::mdec::read_stat());
+        psx_rt::tty::print("\n");
+
+        // Start synchronized ADPCM audio sample via SPU
         AudioManager::play_intro_audio();
 
-        #[cfg(target_arch = "mips")]
-        self.try_init_disc();
-    }
-
-    #[cfg(target_arch = "mips")]
-    fn try_init_disc(&mut self) {
-        let mut probe = DiscVideoReader::new();
-        let ok = unsafe { probe.reader.prepare() };
-        if !ok {
-            return;
-        }
-
-        if let Some((lba, size)) = Self::iso_find_file(&mut probe, "INTRO.VID") {
-            self.disc_lba = lba;
-            self.disc_size = size;
-            self.use_disc = true;
-            probe.current_sector = lba;
-            self.disc_reader = Some(probe);
+        // Initialize CD streaming if possible
+        let storage = unsafe { &mut *core::ptr::addr_of_mut!(STORAGE) };
+        let prepared = unsafe { self.cd_reader.prepare() };
+        if prepared {
+            psx_rt::tty::println("[VIDEO] CD reader prepare OK");
+            if let Some(lba) = unsafe { Self::find_intro_vid_lba(&mut self.cd_reader, storage) } {
+                self.cd_start_lba = lba;
+                if unsafe { self.cd_reader.start_read_seek_first(lba, 1_000_000) } {
+                    psx_rt::tty::println("[VIDEO] CD start_read_seek_first OK! using_cd = true");
+                    self.using_cd = true;
+                } else {
+                    psx_rt::tty::println("[VIDEO] CD start_read_seek_first FAILED");
+                }
+            }
         } else {
-            unsafe { probe.reader.stop(); }
-        }
-    }
-
-    #[cfg(target_arch = "mips")]
-    fn iso_find_file(reader: &mut DiscVideoReader, name: &str) -> Option<(u32, u32)> {
-        unsafe {
-            if !reader.reader.prepare() {
-                return None;
-            }
-            if !reader.reader.start_read(16) {
-                reader.reader.stop();
-                return None;
-            }
-            if !reader.reader.read_sector(&mut reader.scratch) {
-                reader.reader.stop();
-                return None;
-            }
-            reader.reader.stop();
-
-            let bytes = core::slice::from_raw_parts(reader.scratch.as_ptr() as *const u8, 2048);
-            if bytes.len() < 2048 || &bytes[1..6] != b"CD001" {
-                return None;
-            }
-
-            let root_lba = u32::from_le_bytes([bytes[156 + 2], bytes[156 + 3], bytes[156 + 4], bytes[156 + 5]]);
-            let root_size = u32::from_le_bytes([bytes[156 + 10], bytes[156 + 11], bytes[156 + 12], bytes[156 + 13]]);
-            let sectors = (root_size as usize).div_ceil(2048);
-
-            for sec in 0..sectors.min(4) {
-                if !reader.reader.prepare() {
-                    return None;
-                }
-                if !reader.reader.start_read(root_lba + sec as u32) {
-                    reader.reader.stop();
-                    continue;
-                }
-                if !reader.reader.read_sector(&mut reader.scratch) {
-                    reader.reader.stop();
-                    continue;
-                }
-                reader.reader.stop();
-
-                let dir = core::slice::from_raw_parts(reader.scratch.as_ptr() as *const u8, 2048);
-                let mut off = 0usize;
-                while off + 33 < dir.len() {
-                    let rec_len = dir[off] as usize;
-                    if rec_len == 0 {
-                        break;
-                    }
-                    if off + rec_len > dir.len() {
-                        break;
-                    }
-
-                    let lba = u32::from_le_bytes([dir[off + 2], dir[off + 3], dir[off + 4], dir[off + 5]]);
-                    let size = u32::from_le_bytes([dir[off + 10], dir[off + 11], dir[off + 12], dir[off + 13]]);
-                    let id_len = dir[off + 32] as usize;
-
-                    if off + 33 + id_len <= dir.len() {
-                        let ident = &dir[off + 33..off + 33 + id_len];
-                        if let Some(semi) = ident.iter().position(|&b| b == b';') {
-                            let base = &ident[..semi];
-                            if base.eq_ignore_ascii_case(name.as_bytes()) {
-                                return Some((lba, size));
-                            }
-                        } else if ident.eq_ignore_ascii_case(name.as_bytes()) {
-                            return Some((lba, size));
-                        }
-                    }
-                    off += rec_len;
-                }
-            }
-            None
+            psx_rt::tty::println("[VIDEO] CD reader prepare FAILED");
         }
     }
 
     pub fn stop(&mut self) {
-        self.finished = true;
-        AudioManager::stop_intro_audio();
-        #[cfg(target_arch = "mips")]
-        if let Some(ref mut d) = self.disc_reader {
-            unsafe { d.reader.stop(); }
+        if self.finished {
+            return;
         }
+        self.finished = true;
+
+        if self.using_cd {
+            unsafe {
+                self.cd_reader.stop();
+                // Restore standard VBlank IRQ mask
+                psx_io::irq::set_mask(1 << psx_io::irq::source::VBLANK);
+            }
+            self.using_cd = false;
+        }
+
+        AudioManager::stop_intro_audio();
     }
 
     pub fn update(&mut self, pad: &PadState, prev: &ButtonState) -> bool {
@@ -230,94 +216,123 @@ impl VideoPlayer {
     }
 
     pub fn draw(&mut self, renderer: &crate::renderer::Renderer) {
-        let storage = unsafe { &mut *core::ptr::addr_of_mut!(FRAME_STORAGE) };
+        let storage = unsafe { &mut *core::ptr::addr_of_mut!(STORAGE) };
+        let frame_to_show = self.frame_idx;
 
-        // Decompress frame into storage.pixels
-        let success = self.load_and_decode_frame(self.frame_idx, storage);
+        // Decode new frame when index changes
+        if frame_to_show != self.last_decoded_frame {
+            let mut read_ok = false;
 
-        if success {
-            let fb_y = renderer.fb.buffer_y(renderer.fb.drawing);
-            // Upload 320x180 15bpp pixels centered vertically (Y = 30)
-            let rect = VramRect::new(0, fb_y + LETTERBOX_Y, VIDEO_W, VIDEO_H);
-            upload_bytes(rect, &storage.pixels);
+            if self.using_cd {
+                // Stream 8 sectors (16 KiB) directly from the running ReadN stream
+                let mut all_sectors_read = true;
+                for sec in 0..SECTORS_PER_FRAME {
+                    let off = sec * SECTOR_WORDS;
+                    let sec_buf: &mut [u32; SECTOR_WORDS] = unsafe {
+                        &mut *(&mut storage.frame_words[off..off + SECTOR_WORDS] as *mut [u32] as *mut [u32; SECTOR_WORDS])
+                    };
+                    if !unsafe { self.cd_reader.read_sector(sec_buf) } {
+                        psx_rt::tty::print("[VIDEO] CD read_sector FAILED at sec ");
+                        psx_rt::tty::print_hex_u32(sec as u32);
+                        psx_rt::tty::print("\n");
+                        all_sectors_read = false;
+                        break;
+                    }
+                }
+                if all_sectors_read {
+                    read_ok = true;
+                } else {
+                    // Fall back to embedded ROM frames on CD error
+                    psx_rt::tty::println("[VIDEO] Falling back to embedded ROM frames");
+                    self.using_cd = false;
+                }
+            }
+
+            if !read_ok {
+                // Load from embedded fallback frames
+                let embed_idx = (frame_to_show % EMBEDDED_FRAME_COUNT) as usize;
+                let src_offset = embed_idx * WORDS_PER_FRAME * 4;
+                if src_offset + WORDS_PER_FRAME * 4 <= EMBEDDED_VIDEO.len() {
+                    let src_slice = &EMBEDDED_VIDEO[src_offset..src_offset + WORDS_PER_FRAME * 4];
+                    for (i, word) in storage.frame_words.iter_mut().enumerate() {
+                        *word = u32::from_le_bytes([
+                            src_slice[i * 4],
+                            src_slice[i * 4 + 1],
+                            src_slice[i * 4 + 2],
+                            src_slice[i * 4 + 3],
+                        ]);
+                    }
+                    read_ok = true;
+                }
+            }
+
+            if read_ok {
+                if frame_to_show < 3 {
+                    psx_rt::tty::print("[VIDEO] Decoding frame ");
+                    psx_rt::tty::print_hex_u32(frame_to_show as u32);
+                    psx_rt::tty::print(" cmd=");
+                    psx_rt::tty::print_hex_u32(storage.frame_words[0]);
+                    psx_rt::tty::print("\n");
+                }
+
+                // Feed the frame into the MDEC coprocessor
+                psx_io::mdec::start_decode_frame(&storage.frame_words);
+
+                // Drain 20 vertical macroblock columns (16x240 pixels each) and upload to VRAM
+                let fb_y = renderer.fb.buffer_y(renderer.fb.drawing);
+
+                for col in 0..20u16 {
+                    // Drain one slice (1,920 words) via DMA channel 1 (or PIO fallback)
+                    // The frame input is submitted before any output is
+                    // requested. Do not wait forever if a malformed/incomplete
+                    // bitstream stops producing decoded pixels.
+                    let dma_ok = psx_io::mdec::drain_slice_dma(&mut storage.slice_words);
+                    if !dma_ok {
+                        if frame_to_show < 2 && col == 0 {
+                            psx_rt::tty::print("[VIDEO] DMA timed out on slice 0! stat=");
+                            psx_rt::tty::print_hex_u32(psx_io::mdec::read_stat());
+                            psx_rt::tty::print("\n");
+                        }
+                        psx_io::dma::abort(psx_io::dma::Channel::MdecOut);
+                        // PIO fallback if DMA timed out. Stop as soon as the
+                        // MDEC has no more output instead of burning seconds
+                        // spinning on an incomplete frame.
+                        let mut output_words = 0usize;
+                        for out in storage.slice_words.iter_mut() {
+                            if psx_io::mdec::read_stat() & psx_hw::mdec::status::DATA_OUT_EMPTY != 0 {
+                                break;
+                            }
+                            *out = psx_io::mdec::read_data();
+                            output_words += 1;
+                        }
+                        if output_words == 0 {
+                            psx_rt::tty::println("[VIDEO] MDEC produced no more pixels; ending frame decode");
+                            break;
+                        }
+                    } else if frame_to_show < 2 && col == 0 {
+                        psx_rt::tty::println("[VIDEO] DMA slice 0 OK!");
+                    }
+
+                    // Upload slice to VRAM at destination rectangle
+                    let rect = VramRect::new(col * 16, fb_y, 16, VIDEO_H);
+                    upload_words(rect, &storage.slice_words);
+                }
+
+                if frame_to_show < 3 {
+                    psx_rt::tty::println("[VIDEO] Frame upload complete.");
+                }
+
+                self.last_decoded_frame = frame_to_show;
+            }
         }
 
-        // Draw skip hint on bottom letterbox bar
+        // Draw skip hint at bottom of screen
         renderer.font.draw_text(68, 222, "PRESS CROSS OR START TO SKIP", (180, 180, 180));
 
-        // Subtle frame progress indicator at top left
+        // Frame progress indicator at top left
         let mut buf = [0u8; 32];
         let s = format_frame_counter(self.frame_idx + 1, self.total_frames, &mut buf);
         renderer.font.draw_text(8, 8, s, (120, 120, 120));
-    }
-
-    fn load_and_decode_frame(&mut self, frame_idx: u16, storage: &mut FrameStorage) -> bool {
-        // Try embedded fallback first if not using disc
-        Self::decode_vid8_frame(EMBEDDED_VIDEO, frame_idx % 30, storage)
-    }
-
-    fn decode_vid8_frame(vid_bytes: &[u8], frame_idx: u16, storage: &mut FrameStorage) -> bool {
-        if vid_bytes.len() < 16 || &vid_bytes[0..4] != b"VID8" {
-            return false;
-        }
-
-        let total_frames = u16::from_le_bytes([vid_bytes[8], vid_bytes[9]]) as usize;
-        if frame_idx as usize >= total_frames {
-            return false;
-        }
-
-        let mut off = 16usize;
-        for i in 0..=frame_idx as usize {
-            if off + 4 > vid_bytes.len() {
-                return false;
-            }
-            let comp_len = u32::from_le_bytes([
-                vid_bytes[off],
-                vid_bytes[off + 1],
-                vid_bytes[off + 2],
-                vid_bytes[off + 3],
-            ]) as usize;
-            off += 4;
-
-            if off + comp_len > vid_bytes.len() {
-                return false;
-            }
-
-            if i == frame_idx as usize {
-                let comp_slice = &vid_bytes[off..off + comp_len];
-                // Decompress raw LZ4 block into decomp_scratch (512 CLUT + 57600 pixels = 58112 bytes)
-                if let Some(n) = lz4_decompress_block(comp_slice, &mut storage.decomp_scratch) {
-                    if n == storage.decomp_scratch.len() {
-                        // Expand 8bpp pixels using 256-color CLUT into storage.pixels
-                        Self::expand_8bpp_to_15bpp(
-                            &storage.decomp_scratch[..512],
-                            &storage.decomp_scratch[512..],
-                            &mut storage.pixels,
-                        );
-                        return true;
-                    }
-                }
-                return false;
-            }
-            off += comp_len;
-        }
-        false
-    }
-
-    /// Fast expansion of 57,600 8bpp indexed pixels into 115,200 bytes of 15bpp BGR555 pixels
-    fn expand_8bpp_to_15bpp(clut_bytes: &[u8], indices: &[u8], out_pixels: &mut [u8]) {
-        let mut clut = [0u16; 256];
-        for i in 0..256 {
-            clut[i] = u16::from_le_bytes([clut_bytes[i * 2], clut_bytes[i * 2 + 1]]);
-        }
-
-        let mut dst_idx = 0usize;
-        for &idx in indices {
-            let color = clut[idx as usize];
-            out_pixels[dst_idx] = (color & 0xFF) as u8;
-            out_pixels[dst_idx + 1] = ((color >> 8) & 0xFF) as u8;
-            dst_idx += 2;
-        }
     }
 
     pub fn is_finished(&self) -> bool {
@@ -347,66 +362,4 @@ fn format_frame_counter(frame: u16, total: u16, buf: &mut [u8; 32]) -> &str {
         buf[i] = out[i];
     }
     unsafe { core::str::from_utf8_unchecked(&buf[..len]) }
-}
-
-/// Standalone zero-allocation LZ4 raw block decompressor
-fn lz4_decompress_block(src: &[u8], dst: &mut [u8]) -> Option<usize> {
-    let mut si = 0usize;
-    let mut di = 0usize;
-    while si < src.len() {
-        let token = src[si];
-        si += 1;
-        // Literal run (token high nibble)
-        let mut lit = (token >> 4) as usize;
-        if lit == 15 {
-            loop {
-                let b = *src.get(si)?;
-                si += 1;
-                lit += b as usize;
-                if b != 255 {
-                    break;
-                }
-            }
-        }
-        if lit > 0 {
-            if si + lit > src.len() || di + lit > dst.len() {
-                return None;
-            }
-            dst[di..di + lit].copy_from_slice(&src[si..si + lit]);
-            si += lit;
-            di += lit;
-        }
-        if si >= src.len() {
-            break;
-        }
-        // Match: 2-byte little-endian offset
-        if si + 2 > src.len() {
-            return None;
-        }
-        let off = src[si] as usize | ((src[si + 1] as usize) << 8);
-        si += 2;
-        if off == 0 || off > di {
-            return None;
-        }
-        let mut mlen = (token & 15) as usize;
-        if mlen == 15 {
-            loop {
-                let b = *src.get(si)?;
-                si += 1;
-                mlen += b as usize;
-                if b != 255 {
-                    break;
-                }
-            }
-        }
-        mlen += 4;
-        if di + mlen > dst.len() {
-            return None;
-        }
-        for k in 0..mlen {
-            dst[di + k] = dst[di + k - off];
-        }
-        di += mlen;
-    }
-    Some(di)
 }
