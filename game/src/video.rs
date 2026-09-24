@@ -234,8 +234,9 @@ impl VideoPlayer {
                 if !all_sectors_read {
                     psx_rt::tty::println("[VIDEO] CD frame ReadN start failed");
                 } else {
-                    // Read only this frame, then pause the drive before the
-                    // expensive MDEC decode and VRAM uploads below.
+                    // Read this frame from its explicit LBA. Leave ReadN
+                    // active while MDEC decodes; the next frame's Setloc
+                    // repositions the stream at its known sector boundary.
                     for sec in 0..SECTORS_PER_FRAME {
                         let off = sec * SECTOR_WORDS;
                         let sec_buf: &mut [u32; SECTOR_WORDS] = unsafe {
@@ -250,7 +251,6 @@ impl VideoPlayer {
                         }
                     }
                 }
-                unsafe { self.cd_reader.stop(); }
                 if all_sectors_read {
                     read_ok = true;
                 } else {
@@ -347,13 +347,6 @@ impl VideoPlayer {
             }
         }
 
-        // Draw skip hint at bottom of screen
-        renderer.font.draw_text(68, 222, "PRESS CROSS OR START TO SKIP", (180, 180, 180));
-
-        // Frame progress indicator at top left
-        let mut buf = [0u8; 32];
-        let s = format_frame_counter(self.frame_idx + 1, self.total_frames, &mut buf);
-        renderer.font.draw_text(8, 8, s, (120, 120, 120));
     }
 
     /// True when a newly decoded video frame is ready to be presented.
@@ -366,28 +359,4 @@ impl VideoPlayer {
     pub fn is_finished(&self) -> bool {
         self.finished
     }
-}
-
-fn format_frame_counter(frame: u16, total: u16, buf: &mut [u8; 32]) -> &str {
-    let mut out = [b' '; 32];
-    out[..6].copy_from_slice(b"FRAME ");
-    let mut idx = 6;
-    let f = frame as u32;
-    let t = total as u32;
-    out[idx] = b'0' + ((f / 100) % 10) as u8;
-    out[idx + 1] = b'0' + ((f / 10) % 10) as u8;
-    out[idx + 2] = b'0' + (f % 10) as u8;
-    idx += 3;
-    out[idx] = b'/';
-    idx += 1;
-    out[idx] = b'0' + ((t / 100) % 10) as u8;
-    out[idx + 1] = b'0' + ((t / 10) % 10) as u8;
-    out[idx + 2] = b'0' + (t % 10) as u8;
-    idx += 3;
-
-    let len = idx;
-    for i in 0..len {
-        buf[i] = out[i];
-    }
-    unsafe { core::str::from_utf8_unchecked(&buf[..len]) }
 }
