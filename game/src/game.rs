@@ -11,9 +11,18 @@ use crate::renderer::Renderer;
 use psx_gpu as gpu;
 use psx_pad::{button, AnalogSticks, ButtonState, PadMode, PadState};
 
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct MissionStats {
+    pub play_time_frames: u32,
+    pub alerts_count: u16,
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum GameState {
     Title,
+    VrMenu,
+    OptionsMenu,
+    MissionDebriefing { timer: u16, codename: crate::save::Codename },
     IntroVideo,
     IntroCodec,
     StageIntroCodec,
@@ -41,6 +50,10 @@ pub struct Game {
     pub save_data: crate::save::SaveData,
     pub dualshock: DualShockController,
     pub was_connected: bool,
+    pub mission_stats: MissionStats,
+    pub title_selection: usize,
+    pub vr_selection: usize,
+    pub options_selection: usize,
 }
 
 impl Game {
@@ -49,13 +62,16 @@ impl Game {
         let platty = Platypus::new(level.player_start_x, level.player_start_z);
         let mut entities = EntityManager::new();
         entities.load_act(Act::Act1_1Drainage);
-        let renderer = Renderer::new();
+        let mut renderer = Renderer::new();
         // Upload title screen background texture to VRAM
         unsafe { crate::title_bg::upload_title_bg(); }
         let codec = CodecManager::new();
         let video = crate::video::VideoPlayer::new();
         let mut memcard = crate::save::MemoryCardManager::new();
         let save_data = memcard.load_from_slot1().unwrap_or_else(crate::save::SaveData::new);
+        renderer.costume = save_data.selected_costume;
+        renderer.wireframe = save_data.wireframe_enabled != 0;
+
         let mut dualshock = DualShockController::new();
         dualshock.init();
 
@@ -74,6 +90,10 @@ impl Game {
             save_data,
             dualshock,
             was_connected: true,
+            mission_stats: MissionStats::default(),
+            title_selection: 0,
+            vr_selection: 0,
+            options_selection: 0,
         }
     }
 
@@ -111,7 +131,12 @@ impl Game {
 
         let just_start = buttons.is_held(button::START) && !self.prev_buttons.is_held(button::START);
         let just_cross = buttons.is_held(button::CROSS) && !self.prev_buttons.is_held(button::CROSS);
+        let just_circle = buttons.is_held(button::CIRCLE) && !self.prev_buttons.is_held(button::CIRCLE);
         let just_select = buttons.is_held(button::SELECT) && !self.prev_buttons.is_held(button::SELECT);
+        let just_up = buttons.is_held(button::UP) && !self.prev_buttons.is_held(button::UP);
+        let just_down = buttons.is_held(button::DOWN) && !self.prev_buttons.is_held(button::DOWN);
+        let just_left = buttons.is_held(button::LEFT) && !self.prev_buttons.is_held(button::LEFT);
+        let just_right = buttons.is_held(button::RIGHT) && !self.prev_buttons.is_held(button::RIGHT);
 
         match self.state {
             GameState::Title => {
@@ -121,25 +146,142 @@ impl Game {
                 }
                 self.idle_timer += 1;
 
-                // Grace period: wait ~1 second (60 frames) before accepting input
-                // This avoids any controller initialization glitches on the first frames
-                let any_button = self.idle_timer > 60 && is_connected && buttons.bits() != 0;
-                if any_button {
-                    AudioManager::stop_cdda();
-                    self.video.start();
-                    self.state = GameState::IntroVideo;
-                } else if AudioManager::cdda_finished() {
-                    // Enter Attract Demo Mode after CD track finishes
-                    AudioManager::stop_cdda();
-                    self.load_act(Act::Act1_1Drainage);
-                    self.state = GameState::AttractDemo {
-                        act: Act::Act1_1Drainage,
-                        timer: 0,
-                    };
+                if self.idle_timer > 30 && is_connected {
+                    if just_up {
+                        self.title_selection = if self.title_selection == 0 { 2 } else { self.title_selection - 1 };
+                        AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
+                    } else if just_down {
+                        self.title_selection = if self.title_selection == 2 { 0 } else { self.title_selection + 1 };
+                        AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
+                    } else if just_cross || just_start {
+                        AudioManager::play_jump();
+                        match self.title_selection {
+                            0 => {
+                                // Campaign Infiltration
+                                AudioManager::stop_cdda();
+                                self.mission_stats = MissionStats::default();
+                                self.platty.takedowns = 0;
+                                self.platty.total_damage = 0;
+                                self.video.start();
+                                self.state = GameState::IntroVideo;
+                            }
+                            1 => {
+                                // VR Training Simulator
+                                AudioManager::stop_cdda();
+                                self.state = GameState::VrMenu;
+                                self.vr_selection = 0;
+                            }
+                            _ => {
+                                // Special Options & Gear
+                                self.state = GameState::OptionsMenu;
+                                self.options_selection = 0;
+                            }
+                        }
+                    } else if AudioManager::cdda_finished() {
+                        AudioManager::stop_cdda();
+                        self.load_act(Act::Act1_1Drainage);
+                        self.state = GameState::AttractDemo {
+                            act: Act::Act1_1Drainage,
+                            timer: 0,
+                        };
+                    }
                 }
 
                 self.renderer.begin_frame();
-                self.renderer.draw_title_screen(self.frame);
+                self.renderer.draw_title_screen(self.frame, self.title_selection);
+            }
+            GameState::VrMenu => {
+                if is_connected {
+                    if just_up {
+                        self.vr_selection = if self.vr_selection == 0 { 3 } else { self.vr_selection - 1 };
+                        AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
+                    } else if just_down {
+                        self.vr_selection = if self.vr_selection == 3 { 0 } else { self.vr_selection + 1 };
+                        AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
+                    } else if just_circle {
+                        self.state = GameState::Title;
+                        self.idle_timer = 0;
+                        AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
+                    } else if just_cross || just_start {
+                        let vr_act = match self.vr_selection {
+                            0 => Act::VrSneaking,
+                            1 => Act::VrCqc,
+                            2 => Act::VrSonar,
+                            _ => Act::VrSpeed,
+                        };
+                        self.load_act(vr_act);
+                        self.state = GameState::Playing;
+                        AudioManager::play_jump();
+                    }
+                }
+
+                self.renderer.begin_frame();
+                self.renderer.draw_vr_menu(self.vr_selection, self.save_data.vr_cleared);
+            }
+            GameState::OptionsMenu => {
+                if is_connected {
+                    if just_up {
+                        self.options_selection = if self.options_selection == 0 { 2 } else { self.options_selection - 1 };
+                        AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
+                    } else if just_down {
+                        self.options_selection = if self.options_selection == 2 { 0 } else { self.options_selection + 1 };
+                        AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
+                    } else if just_circle {
+                        self.state = GameState::Title;
+                        self.idle_timer = 0;
+                        AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
+                    } else if just_left || just_right {
+                        match self.options_selection {
+                            0 => {
+                                // Cycle unlocked costumes: 0 (Default), 1 (Tuxedo), 2 (Stealth Camo)
+                                let mut next_costume = self.save_data.selected_costume;
+                                for _ in 0..3 {
+                                    next_costume = (next_costume + 1) % 3;
+                                    if next_costume == 0
+                                        || (next_costume == 1 && self.save_data.tuxedo_unlocked != 0)
+                                        || (next_costume == 2 && self.save_data.camo_unlocked != 0)
+                                    {
+                                        break;
+                                    }
+                                }
+                                self.save_data.selected_costume = next_costume;
+                                self.renderer.costume = next_costume;
+                                self.memcard.save_to_slot1(&self.save_data);
+                                AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
+                            }
+                            1 => {
+                                // Toggle Wireframe mode if unlocked
+                                if self.save_data.wireframe_unlocked != 0 {
+                                    self.save_data.wireframe_enabled = if self.save_data.wireframe_enabled == 0 { 1 } else { 0 };
+                                    self.renderer.wireframe = self.save_data.wireframe_enabled != 0;
+                                    self.memcard.save_to_slot1(&self.save_data);
+                                    AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
+                self.renderer.begin_frame();
+                self.renderer.draw_options_menu(&self.save_data, self.options_selection);
+            }
+            GameState::MissionDebriefing { ref mut timer, codename } => {
+                *timer = timer.saturating_add(1);
+
+                if *timer > 45 && (just_cross || just_start) {
+                    self.state = GameState::Ending;
+                }
+
+                self.renderer.begin_frame();
+                self.renderer.draw_debriefing_screen(
+                    self.mission_stats.play_time_frames / 60,
+                    self.mission_stats.alerts_count,
+                    self.platty.takedowns,
+                    self.platty.total_damage,
+                    self.platty.yabbies_collected,
+                    codename,
+                );
             }
             GameState::IntroVideo => {
                 let finished = self.video.update(&pad, &self.prev_buttons);
@@ -211,6 +353,13 @@ impl Game {
                                 ButtonState::from_bits(button::CROSS | button::RIGHT | button::UP)
                             } else {
                                 ButtonState::from_bits(button::RIGHT | button::UP)
+                            }
+                        }
+                        Act::VrSneaking | Act::VrCqc | Act::VrSonar | Act::VrSpeed => {
+                            if *timer < 60 {
+                                ButtonState::from_bits(button::UP)
+                            } else {
+                                ButtonState::from_bits(button::CIRCLE | button::UP)
                             }
                         }
                     };
@@ -356,6 +505,9 @@ impl Game {
                     let is_sneaking = self.platty.state == PlayerState::Sneaking;
                     let is_submerged = self.platty.state == PlayerState::Submerged;
 
+                    let prev_alert = self.entities.alert_state;
+                    self.mission_stats.play_time_frames = self.mission_stats.play_time_frames.saturating_add(1);
+
                     self.platty.update(&pad, self.prev_buttons, &self.level, &mut self.entities);
                     self.entities.update(
                         self.level.act,
@@ -370,6 +522,12 @@ impl Game {
                         self.platty.noise_radius,
                         &self.level,
                     );
+
+                    let was_alert = matches!(prev_alert, crate::entities::AlertState::Alert(_));
+                    let is_alert = matches!(self.entities.alert_state, crate::entities::AlertState::Alert(_));
+                    if !was_alert && is_alert {
+                        self.mission_stats.alerts_count = self.mission_stats.alerts_count.saturating_add(1);
+                    }
 
                     if self.platty.screen_shake > 0 {
                         self.renderer.screen_shake = self.platty.screen_shake as i16;
@@ -407,18 +565,55 @@ impl Game {
                     };
 
                     if reached_exit {
-                        // Automatically save progress & high score to Memory Card
-                        self.save_data.unlocked_act = (self.level.act as u8 + 1).max(self.save_data.unlocked_act);
-                        self.save_data.highest_score = self.save_data.highest_score.max(self.platty.score);
-                        self.save_data.total_yabbies = self.save_data.total_yabbies.saturating_add(self.platty.yabbies_collected as u16);
-                        self.memcard.save_to_slot1(&self.save_data);
-
-                        if self.level.act == Act::Act4_3ExcavatorBoss {
-                            self.state = GameState::Ending;
+                        if self.level.act.is_vr() {
+                            let vr_idx = (self.level.act as u8).saturating_sub(12);
+                            self.save_data.vr_cleared |= 1 << vr_idx;
+                            // If all 4 VR sims cleared, reward with Tuxedo & Wireframe
+                            if (self.save_data.vr_cleared & 0x0F) == 0x0F {
+                                self.save_data.tuxedo_unlocked = 1;
+                                self.save_data.wireframe_unlocked = 1;
+                            }
+                            self.memcard.save_to_slot1(&self.save_data);
                             AudioManager::play_fanfare();
+                            self.state = GameState::VrMenu;
                         } else {
-                            self.state = GameState::StageClear;
-                            AudioManager::play_fanfare();
+                            // Automatically save progress & high score to Memory Card
+                            self.save_data.unlocked_act = (self.level.act as u8 + 1).max(self.save_data.unlocked_act);
+                            self.save_data.highest_score = self.save_data.highest_score.max(self.platty.score);
+                            self.save_data.total_yabbies = self.save_data.total_yabbies.saturating_add(self.platty.yabbies_collected as u16);
+                            self.memcard.save_to_slot1(&self.save_data);
+
+                            if self.level.act == Act::Act4_3ExcavatorBoss {
+                                let time_s = self.mission_stats.play_time_frames / 60;
+                                let codename = crate::save::Codename::evaluate(
+                                    self.mission_stats.alerts_count,
+                                    self.platty.total_damage,
+                                    time_s,
+                                    self.platty.takedowns,
+                                );
+
+                                // Award unlocks
+                                self.save_data.tuxedo_unlocked = 1;
+                                self.save_data.wireframe_unlocked = 1;
+                                if codename == crate::save::Codename::BigPlatypus {
+                                    self.save_data.camo_unlocked = 1;
+                                }
+
+                                self.save_data.best_time_seconds = self.save_data.best_time_seconds.min(time_s);
+                                self.save_data.alerts_count = self.save_data.alerts_count.min(self.mission_stats.alerts_count);
+
+                                let name_bytes = codename.name().as_bytes();
+                                for (i, b) in self.save_data.best_codename.iter_mut().enumerate() {
+                                    *b = if i < name_bytes.len() { name_bytes[i] } else { b' ' };
+                                }
+
+                                self.memcard.save_to_slot1(&self.save_data);
+                                AudioManager::play_fanfare();
+                                self.state = GameState::MissionDebriefing { timer: 0, codename };
+                            } else {
+                                self.state = GameState::StageClear;
+                                AudioManager::play_fanfare();
+                            }
                         }
                     }
 
@@ -542,6 +737,8 @@ impl Game {
 
         let track = if act.is_boss() {
             crate::audio::BgmTrack::Boss
+        } else if act.is_vr() {
+            crate::audio::BgmTrack::Stealth
         } else {
             match act.chapter() {
                 1 => crate::audio::BgmTrack::Stealth,

@@ -7,7 +7,52 @@ pub const SAVE_FILENAME: &str = "BASLUS-00001PLATTY";
 pub const SAVE_TITLE: &str = "PLATTYPUS MGS";
 
 const SAVE_MAGIC: [u8; 4] = *b"PLTY";
-const SAVE_VERSION: u8 = 1;
+const SAVE_VERSION: u8 = 2;
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum Codename {
+    BigPlatypus,
+    TasmanianDevil,
+    LurkingEchidna,
+    SlyPossum,
+    DuckbillRookie,
+}
+
+impl Codename {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Codename::BigPlatypus => "BIG PLATYPUS",
+            Codename::TasmanianDevil => "TASMANIAN DEVIL",
+            Codename::LurkingEchidna => "LURKING ECHIDNA",
+            Codename::SlyPossum => "SLY POSSUM",
+            Codename::DuckbillRookie => "DUCKBILL ROOKIE",
+        }
+    }
+
+    pub fn title(&self) -> &'static str {
+        match self {
+            Codename::BigPlatypus => "FOXHOUND LEGEND (RANK S)",
+            Codename::TasmanianDevil => "AGGRESSIVE PREDATOR (RANK A)",
+            Codename::LurkingEchidna => "BURROW SHADOW (RANK A)",
+            Codename::SlyPossum => "NIGHT RUNNER (RANK B)",
+            Codename::DuckbillRookie => "JUNIOR OPERATIVE (RANK C)",
+        }
+    }
+
+    pub fn evaluate(alerts: u16, damage: u16, time_s: u32, takedowns: u16) -> Self {
+        if alerts == 0 && damage == 0 {
+            Codename::BigPlatypus
+        } else if takedowns >= 6 {
+            Codename::TasmanianDevil
+        } else if alerts <= 2 {
+            Codename::LurkingEchidna
+        } else if time_s < 450 {
+            Codename::SlyPossum
+        } else {
+            Codename::DuckbillRookie
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -20,6 +65,12 @@ pub struct SaveData {
     pub alerts_count: u16,
     pub best_time_seconds: u32,
     pub best_codename: [u8; 16],
+    pub tuxedo_unlocked: u8,
+    pub camo_unlocked: u8,
+    pub wireframe_unlocked: u8,
+    pub vr_cleared: u8,
+    pub selected_costume: u8,
+    pub wireframe_enabled: u8,
     pub checksum: u16,
 }
 
@@ -34,6 +85,12 @@ impl SaveData {
             alerts_count: 0,
             best_time_seconds: 9999,
             best_codename: *b"NEW RECRUIT     ",
+            tuxedo_unlocked: 0,
+            camo_unlocked: 0,
+            wireframe_unlocked: 1, // Available by default for retro PS1 fans!
+            vr_cleared: 0,
+            selected_costume: 0,
+            wireframe_enabled: 0,
             checksum: 0,
         };
         save.checksum = save.compute_checksum();
@@ -52,6 +109,12 @@ impl SaveData {
         for b in self.best_codename.iter() {
             sum = sum.wrapping_add(*b as u16);
         }
+        sum = sum.wrapping_add(self.tuxedo_unlocked as u16);
+        sum = sum.wrapping_add(self.camo_unlocked as u16);
+        sum = sum.wrapping_add(self.wireframe_unlocked as u16);
+        sum = sum.wrapping_add(self.vr_cleared as u16);
+        sum = sum.wrapping_add(self.selected_costume as u16);
+        sum = sum.wrapping_add(self.wireframe_enabled as u16);
         sum
     }
 

@@ -617,6 +617,10 @@ impl EntityManager {
             Act::Act4_1Dunes => self.load_act4_1(),
             Act::Act4_2PierTrench => self.load_act4_2(),
             Act::Act4_3ExcavatorBoss => self.load_act4_3(),
+            Act::VrSneaking => self.load_vr_sneaking(),
+            Act::VrCqc => self.load_vr_cqc(),
+            Act::VrSonar => self.load_vr_sonar(),
+            Act::VrSpeed => self.load_vr_speed(),
         }
     }
 
@@ -1241,7 +1245,11 @@ impl EntityManager {
             | Act::Act1_2Barracks
             | Act::Act2_2Mangroves
             | Act::Act3_2Laneways
-            | Act::Act4_2PierTrench => {
+            | Act::Act4_2PierTrench
+            | Act::VrSneaking
+            | Act::VrCqc
+            | Act::VrSonar
+            | Act::VrSpeed => {
                 self.update_act1(
                     player_x,
                     player_z,
@@ -1903,5 +1911,70 @@ impl EntityManager {
             AudioManager::play_swoosh();
             self.spawn_particle(player_x, -10, self.boss_excavator.z + 120, 0, 1, 0, 30, (80, 220, 40), 4);
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // VR TRAINING SIMULATOR LOADERS
+    // -------------------------------------------------------------------------
+    fn load_vr_sneaking(&mut self) {
+        self.spawn_sentry(0, 6 * TILE_SZ, 9 * TILE_SZ, &[
+            (6 * TILE_SZ, 9 * TILE_SZ),
+            (18 * TILE_SZ, 9 * TILE_SZ),
+        ]);
+        self.spawn_sentry(1, 18 * TILE_SZ, 15 * TILE_SZ, &[
+            (18 * TILE_SZ, 15 * TILE_SZ),
+            (6 * TILE_SZ, 15 * TILE_SZ),
+        ]);
+
+        self.spawn_item(0, CollectibleType::StarYabby, 12 * TILE_SZ, 4 * TILE_SZ, true);
+        self.spawn_item(1, CollectibleType::YabbyRation, 12 * TILE_SZ, 12 * TILE_SZ, true);
+    }
+
+    fn load_vr_cqc(&mut self) {
+        self.spawn_sentry(0, 7 * TILE_SZ, 10 * TILE_SZ, &[
+            (7 * TILE_SZ, 10 * TILE_SZ),
+            (7 * TILE_SZ, 9 * TILE_SZ),
+        ]);
+        self.spawn_sentry(1, 12 * TILE_SZ, 10 * TILE_SZ, &[
+            (12 * TILE_SZ, 10 * TILE_SZ),
+            (12 * TILE_SZ, 9 * TILE_SZ),
+        ]);
+        self.spawn_sentry(2, 17 * TILE_SZ, 10 * TILE_SZ, &[
+            (17 * TILE_SZ, 10 * TILE_SZ),
+            (17 * TILE_SZ, 9 * TILE_SZ),
+        ]);
+
+        self.spawn_item(0, CollectibleType::CardboardBox, 12 * TILE_SZ, 19 * TILE_SZ, true);
+    }
+
+    fn load_vr_sonar(&mut self) {
+        self.spawn_item(0, CollectibleType::BuriedYabby, 4 * TILE_SZ, 10 * TILE_SZ, false);
+        self.spawn_item(1, CollectibleType::BuriedYabby, 16 * TILE_SZ, 10 * TILE_SZ, false);
+        self.spawn_item(2, CollectibleType::BuriedYabby, 8 * TILE_SZ, 18 * TILE_SZ, false);
+        self.spawn_item(3, CollectibleType::StarYabby, 18 * TILE_SZ, 5 * TILE_SZ, false);
+    }
+
+    fn load_vr_speed(&mut self) {
+        self.beach_crabs[0] = BeachCrab {
+            active: true,
+            x: 10 * TILE_SZ,
+            y: 0,
+            z: 14 * TILE_SZ,
+            min_x: 9 * TILE_SZ,
+            max_x: 15 * TILE_SZ,
+            vx: 2,
+        };
+        self.beach_crabs[1] = BeachCrab {
+            active: true,
+            x: 14 * TILE_SZ,
+            y: 0,
+            z: 8 * TILE_SZ,
+            min_x: 9 * TILE_SZ,
+            max_x: 15 * TILE_SZ,
+            vx: -2,
+        };
+
+        self.spawn_item(0, CollectibleType::StarYabby, 12 * TILE_SZ, 11 * TILE_SZ, true);
+        self.spawn_item(1, CollectibleType::YabbyRation, 12 * TILE_SZ, 5 * TILE_SZ, true);
     }
 }

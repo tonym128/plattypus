@@ -35,6 +35,8 @@ pub struct Platypus {
     pub air: u8,
     pub yabbies_collected: u16,
     pub score: u32,
+    pub takedowns: u16,
+    pub total_damage: u16,
 
     pub crawl_mode: bool,
     pub has_box: bool,
@@ -71,6 +73,8 @@ impl Platypus {
             air: 100,
             yabbies_collected: 0,
             score: 0,
+            takedowns: 0,
+            total_damage: 0,
             crawl_mode: false,
             has_box: false,
             in_box: false,
@@ -396,6 +400,7 @@ impl Platypus {
                             s.stun_timer = 900;
                             s.state = SentryState::Stunned;
                             self.score += 500;
+                            self.takedowns = self.takedowns.saturating_add(1);
                             self.screen_shake = 6;
                             self.trigger_rumble_large(12, 245);
                             self.trigger_rumble_small(8);
@@ -407,6 +412,7 @@ impl Platypus {
                             s.stun_timer = 400;
                             s.state = SentryState::Stunned;
                             self.score += 200;
+                            self.takedowns = self.takedowns.saturating_add(1);
                             self.screen_shake = 5;
                             self.trigger_rumble_large(8, 220);
                             self.trigger_rumble_small(6);
@@ -940,6 +946,7 @@ impl Platypus {
         if self.health == 0 || self.invuln_timer > 0 {
             return;
         }
+        self.total_damage = self.total_damage.saturating_add(amount as u16);
         if self.health > amount {
             self.health -= amount;
         } else {

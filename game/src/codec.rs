@@ -545,6 +545,10 @@ pub fn get_act_dialogue(act: crate::level::Act) -> &'static [CodecPage] {
         crate::level::Act::Act4_1Dunes => ACT4_1_DIALOGUE,
         crate::level::Act::Act4_2PierTrench => ACT4_2_DIALOGUE,
         crate::level::Act::Act4_3ExcavatorBoss => ACT4_3_DIALOGUE,
+        crate::level::Act::VrSneaking
+        | crate::level::Act::VrCqc
+        | crate::level::Act::VrSonar
+        | crate::level::Act::VrSpeed => ACT1_1_DIALOGUE,
     }
 }
 

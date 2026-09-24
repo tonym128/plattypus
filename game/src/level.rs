@@ -61,6 +61,12 @@ pub enum Act {
     Act4_1Dunes = 9,
     Act4_2PierTrench = 10,
     Act4_3ExcavatorBoss = 11,
+
+    // VR Training Simulator Stages
+    VrSneaking = 12,
+    VrCqc = 13,
+    VrSonar = 14,
+    VrSpeed = 15,
 }
 
 impl Act {
@@ -78,6 +84,10 @@ impl Act {
             Act::Act4_1Dunes => "ACT 4-1: COASTAL DUNES (3D PLATFORMER)",
             Act::Act4_2PierTrench => "ACT 4-2: PIER UNDERSTRUCTURE (SHARK TRENCH)",
             Act::Act4_3ExcavatorBoss => "ACT 4-3: BURROW DEFENSE (EXCAVATOR CLIMAX)",
+            Act::VrSneaking => "VR-01: SNEAKING SIMULATOR",
+            Act::VrCqc => "VR-02: CQC SPUR TAKEDOWN",
+            Act::VrSonar => "VR-03: SONAR LABYRINTH",
+            Act::VrSpeed => "VR-04: SPEED HURDLES",
         }
     }
 
@@ -95,6 +105,10 @@ impl Act {
             Act::Act4_1Dunes => "Platform across dunes & bounce on parasols to reach baby sister Pip!",
             Act::Act4_2PierTrench => "Deep ocean surf! Submerge under shark patrols to find the cavern tunnel!",
             Act::Act4_3ExcavatorBoss => "Protect Pip's nursery! Overload Dr. Cane Toad's amphibian excavator!",
+            Act::VrSneaking => "Evade virtual patrol drones and reach the exit burrow undetected!",
+            Act::VrCqc => "Sneak behind unalerted guards and neutralize all targets with CQC spurs!",
+            Act::VrSonar => "Navigate the pitch black submerged maze using electro-sonar pulses!",
+            Act::VrSpeed => "Speed sprint through floating platforms & obstacles in under 30 seconds!",
         }
     }
 
@@ -112,6 +126,10 @@ impl Act {
             Act::Act4_1Dunes => "STAGE 4-1",
             Act::Act4_2PierTrench => "STAGE 4-2",
             Act::Act4_3ExcavatorBoss => "STAGE 4-3",
+            Act::VrSneaking => "VR-01",
+            Act::VrCqc => "VR-02",
+            Act::VrSonar => "VR-03",
+            Act::VrSpeed => "VR-04",
         }
     }
 
@@ -121,6 +139,7 @@ impl Act {
             Act::Act2_1Rapids | Act::Act2_2Mangroves | Act::Act2_3JetSkiBoss => 2,
             Act::Act3_1Highway | Act::Act3_2Laneways | Act::Act3_3SniperBoss => 3,
             Act::Act4_1Dunes | Act::Act4_2PierTrench | Act::Act4_3ExcavatorBoss => 4,
+            Act::VrSneaking | Act::VrCqc | Act::VrSonar | Act::VrSpeed => 5,
         }
     }
 
@@ -133,6 +152,10 @@ impl Act {
 
     pub fn is_rapids(&self) -> bool {
         matches!(self, Act::Act2_1Rapids | Act::Act2_3JetSkiBoss)
+    }
+
+    pub fn is_vr(&self) -> bool {
+        matches!(self, Act::VrSneaking | Act::VrCqc | Act::VrSonar | Act::VrSpeed)
     }
 
     pub fn next(&self) -> Option<Act> {
@@ -149,6 +172,7 @@ impl Act {
             Act::Act4_1Dunes => Some(Act::Act4_2PierTrench),
             Act::Act4_2PierTrench => Some(Act::Act4_3ExcavatorBoss),
             Act::Act4_3ExcavatorBoss => None,
+            Act::VrSneaking | Act::VrCqc | Act::VrSonar | Act::VrSpeed => None,
         }
     }
 
@@ -165,7 +189,12 @@ impl Act {
             8 => Act::Act3_3SniperBoss,
             9 => Act::Act4_1Dunes,
             10 => Act::Act4_2PierTrench,
-            _ => Act::Act4_3ExcavatorBoss,
+            11 => Act::Act4_3ExcavatorBoss,
+            12 => Act::VrSneaking,
+            13 => Act::VrCqc,
+            14 => Act::VrSonar,
+            15 => Act::VrSpeed,
+            _ => Act::Act1_1Drainage,
         }
     }
 }
@@ -270,6 +299,10 @@ impl Level {
             Act::Act4_1Dunes => self.generate_act4_1(),
             Act::Act4_2PierTrench => self.generate_act4_2(),
             Act::Act4_3ExcavatorBoss => self.generate_act4_3(),
+            Act::VrSneaking => self.generate_vr_sneaking(),
+            Act::VrCqc => self.generate_vr_cqc(),
+            Act::VrSonar => self.generate_vr_sonar(),
+            Act::VrSpeed => self.generate_vr_speed(),
         }
     }
 
@@ -858,5 +891,115 @@ impl Level {
         for (gx, gz) in grass {
             self.set_cell(gx, gz, CellType::TallGrass);
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // VR-01: SNEAKING SIMULATOR
+    // -------------------------------------------------------------------------
+    fn generate_vr_sneaking(&mut self) {
+        self.player_start_x = 3 * TILE_SZ + 32;
+        self.player_start_z = 21 * TILE_SZ + 32;
+        self.exit_x = 21 * TILE_SZ + 32;
+        self.exit_z = 3 * TILE_SZ + 32;
+
+        // Digital holographic barrier walls & pillars
+        for z in 5..19 {
+            if z % 4 == 0 {
+                for x in 4..20 {
+                    if x != 8 && x != 16 {
+                        self.set_cell(x, z, CellType::Container);
+                    }
+                }
+            }
+        }
+
+        // Low crawl vents under barriers
+        self.set_cell(8, 8, CellType::AirDuct);
+        self.set_cell(16, 12, CellType::AirDuct);
+        self.set_cell(8, 16, CellType::AirDuct);
+
+        // Simulation exit pad
+        self.set_cell(21, 3, CellType::ExitBurrow);
+    }
+
+    // -------------------------------------------------------------------------
+    // VR-02: CQC SPUR TAKEDOWN
+    // -------------------------------------------------------------------------
+    fn generate_vr_cqc(&mut self) {
+        self.player_start_x = 12 * TILE_SZ + 32;
+        self.player_start_z = 21 * TILE_SZ + 32;
+        self.exit_x = 12 * TILE_SZ + 32;
+        self.exit_z = 3 * TILE_SZ + 32;
+
+        // Partition walls creating 3 ambush staging lanes
+        for z in 5..18 {
+            self.set_cell(7, z, CellType::Wall);
+            self.set_cell(17, z, CellType::Wall);
+        }
+
+        // Cover crates to sneak behind guards
+        self.set_cell(11, 16, CellType::Crate);
+        self.set_cell(13, 16, CellType::Crate);
+        self.set_cell(4, 11, CellType::Crate);
+        self.set_cell(20, 11, CellType::Crate);
+
+        self.set_cell(12, 3, CellType::ExitBurrow);
+    }
+
+    // -------------------------------------------------------------------------
+    // VR-03: SONAR LABYRINTH
+    // -------------------------------------------------------------------------
+    fn generate_vr_sonar(&mut self) {
+        self.player_start_x = 3 * TILE_SZ + 32;
+        self.player_start_z = 21 * TILE_SZ + 32;
+        self.exit_x = 21 * TILE_SZ + 32;
+        self.exit_z = 3 * TILE_SZ + 32;
+
+        // Entire floor is pitch black submerged cyber tank
+        for z in 1..23 {
+            for x in 1..23 {
+                self.set_cell(x, z, CellType::Water);
+            }
+        }
+
+        // S-curve labyrinth barriers
+        for x in 1..18 {
+            self.set_cell(x, 7, CellType::Wall);
+            self.set_cell(GRID_W - 1 - x, 14, CellType::Wall);
+        }
+
+        // Underwater crawl tunnels
+        self.set_cell(8, 7, CellType::AirDuct);
+        self.set_cell(15, 14, CellType::AirDuct);
+
+        self.set_cell(21, 3, CellType::ExitBurrow);
+    }
+
+    // -------------------------------------------------------------------------
+    // VR-04: SPEED HURDLES
+    // -------------------------------------------------------------------------
+    fn generate_vr_speed(&mut self) {
+        self.player_start_x = 12 * TILE_SZ + 32;
+        self.player_start_z = 21 * TILE_SZ + 32;
+        self.exit_x = 12 * TILE_SZ + 32;
+        self.exit_z = 2 * TILE_SZ + 32;
+
+        // Water hazard pit surrounding elevated walkway
+        for z in 1..23 {
+            for x in 1..23 {
+                if x < 10 || x > 14 {
+                    self.set_cell(x, z, CellType::Water);
+                }
+            }
+        }
+
+        // Low crawl obstacles and crates on the sprint path
+        self.set_cell(12, 17, CellType::Crate);
+        self.set_cell(11, 13, CellType::LaserTripwire);
+        self.set_cell(12, 13, CellType::LaserTripwire);
+        self.set_cell(13, 13, CellType::LaserTripwire);
+        self.set_cell(12, 9, CellType::AirDuct);
+
+        self.set_cell(12, 2, CellType::ExitBurrow);
     }
 }

@@ -50,6 +50,8 @@ pub struct Renderer {
     pub cam_y: i32,
     pub cam_z: i32,
     pub screen_shake: i16,
+    pub costume: u8,
+    pub wireframe: bool,
 }
 
 impl Renderer {
@@ -74,6 +76,8 @@ impl Renderer {
             cam_y: -300,
             cam_z: -260,
             screen_shake: 0,
+            costume: 0,
+            wireframe: false,
         }
     }
 
@@ -712,6 +716,27 @@ impl Renderer {
             );
         }
 
+        if self.wireframe {
+            let mut proj = [scene::project_vertex(world_pts[0]); 8];
+            for i in 1..8 {
+                proj[i] = scene::project_vertex(world_pts[i]);
+            }
+            const EDGES: [(usize, usize); 12] = [
+                (0, 1), (1, 3), (3, 2), (2, 0),
+                (4, 5), (5, 7), (7, 6), (6, 4),
+                (0, 4), (1, 5), (2, 6), (3, 7),
+            ];
+            let lr = col.0.max(40);
+            let lg = col.1.max(220);
+            let lb = col.2.max(80);
+            for &(a, b) in &EDGES {
+                if proj[a].sz >= 20 && proj[b].sz >= 20 {
+                    gpu::draw_line_mono(proj[a].sx, proj[a].sy, proj[b].sx, proj[b].sy, lr, lg, lb);
+                }
+            }
+            return;
+        }
+
         if let Some(tex) = texture {
             self.draw_quad_3d_textured_gouraud(world_pts[0], world_pts[1], world_pts[2], world_pts[3], tex, FaceDirection::Top, col);
             self.draw_quad_3d_textured_gouraud(world_pts[2], world_pts[3], world_pts[6], world_pts[7], tex, FaceDirection::Front, col);
@@ -1280,24 +1305,58 @@ impl Renderer {
         let is_crawl = platty.state == PlayerState::BellyCrawl;
         let body_h = if is_crawl { 8 } else { 16 };
 
-        // 1. Platty Body (Rich warm chestnut brown fur with 4bpp pelt texture & Gouraud shading)
-        self.draw_model_box_textured(px, py, pz, -12, -body_h, -14, 24, body_h, 28, &rot, Some(TextureId::PlattyFur), (160, 110, 60));
+        // Determine costume coloring & accessories
+        let (fur_col, under_col, bill_col, tail_col, feet_col, satchel_col, bandana_col, is_tuxedo) = match self.costume {
+            1 => (
+                (28, 28, 34),     // Tuxedo jacket black
+                (245, 245, 250),  // Crisp white shirt bib
+                (140, 140, 140),  // Slate gray bill
+                (40, 40, 48),     // Black paddle tail
+                (20, 20, 25),     // Shiny black dress shoes
+                (35, 35, 42),     // Elegant black leather satchel
+                (220, 30, 30),    // Red silk bow tie
+                true,
+            ),
+            2 => (
+                (40, 180, 170),   // Stealth Camo active shimmer
+                (60, 220, 200),
+                (100, 240, 230),
+                (30, 150, 140),
+                (60, 200, 190),
+                (50, 190, 180),
+                (140, 255, 240),
+                false,
+            ),
+            _ => (
+                (160, 110, 60),   // Classic brown fur
+                (200, 150, 100),  // Underbelly cream
+                (150, 150, 150),  // Leathery duck bill
+                (130, 80, 45),    // Beaver paddle tail
+                (215, 130, 45),   // Webbed feet
+                (185, 135, 65),   // Brown leather satchel
+                (180, 230, 180),  // Solid Snake bandana
+                false,
+            ),
+        };
 
-        // 2. Underbelly Cream
-        self.draw_model_box_textured(px, py, pz, -8, -body_h / 2, -10, 16, body_h / 2, 20, &rot, Some(TextureId::PlattyFur), (200, 150, 100));
+        // 1. Platty Body
+        self.draw_model_box_textured(px, py, pz, -12, -body_h, -14, 24, body_h, 28, &rot, Some(TextureId::PlattyFur), fur_col);
+
+        // 2. Underbelly Bib
+        self.draw_model_box_textured(px, py, pz, -8, -body_h / 2, -10, 16, body_h / 2, 20, &rot, Some(TextureId::PlattyFur), under_col);
 
         // 3. Duck Bill (+Z in local facing) with leathery sensory texture
-        self.draw_model_box_textured(px, py, pz, -7, -8, 14, 14, 5, 16, &rot, Some(TextureId::PlattyBill), (150, 150, 150));
+        self.draw_model_box_textured(px, py, pz, -7, -8, 14, 14, 5, 16, &rot, Some(TextureId::PlattyBill), bill_col);
 
         // 4. Beaver Paddle Tail (-Z in local facing)
         let tail_wobble = ((platty.anim_frame / 4) % 2) as i32 * 2;
-        self.draw_model_box_textured(px, py, pz, -9 + tail_wobble, -5, -30, 18, 5, 18, &rot, Some(TextureId::PlattyFur), (130, 80, 45));
+        self.draw_model_box_textured(px, py, pz, -9 + tail_wobble, -5, -30, 18, 5, 18, &rot, Some(TextureId::PlattyFur), tail_col);
 
-        // 5. Webbed Feet (Orange-tan)
-        self.draw_model_box(px, py, pz, -15, -3, 6, 5, 3, 8, &rot, (215, 130, 45));
-        self.draw_model_box(px, py, pz, 10, -3, 6, 5, 3, 8, &rot, (215, 130, 45));
-        self.draw_model_box(px, py, pz, -15, -3, -12, 5, 3, 8, &rot, (215, 130, 45));
-        self.draw_model_box(px, py, pz, 10, -3, -12, 5, 3, 8, &rot, (215, 130, 45));
+        // 5. Webbed Feet
+        self.draw_model_box(px, py, pz, -15, -3, 6, 5, 3, 8, &rot, feet_col);
+        self.draw_model_box(px, py, pz, 10, -3, 6, 5, 3, 8, &rot, feet_col);
+        self.draw_model_box(px, py, pz, -15, -3, -12, 5, 3, 8, &rot, feet_col);
+        self.draw_model_box(px, py, pz, 10, -3, -12, 5, 3, 8, &rot, feet_col);
 
         // Glowing golden venom spurs extended on rear ankles during SpurStrike CQC
         if platty.state == PlayerState::SpurStrike {
@@ -1312,13 +1371,20 @@ impl Renderer {
         self.draw_model_box(px, py, pz, 6, -body_h - 1, 11, 2, 2, 2, &rot, (20, 20, 20));
 
         // 7. Leather Satchel with Important Letter!
-        self.draw_model_box(px, py, pz, 5, -body_h - 3, -4, 9, 8, 10, &rot, (185, 135, 65));
+        self.draw_model_box(px, py, pz, 5, -body_h - 3, -4, 9, 8, 10, &rot, satchel_col);
         self.draw_model_box(px, py, pz, 7, -body_h - 5, -2, 5, 3, 6, &rot, (255, 250, 240));
 
-        // 8. Solid Snake Bandana around forehead with knot!
-        self.draw_model_box_textured(px, py, pz, -13, -body_h - 1, 4, 26, 4, 10, &rot, Some(TextureId::PlattyBandana), (180, 230, 180));
-        let knot_flutter = if (platty.anim_frame / 6) % 2 == 0 { -3 } else { 2 };
-        self.draw_model_box_textured(px, py, pz, -15 + knot_flutter, -body_h, -10, 5, 6, 8, &rot, Some(TextureId::PlattyBandana), (170, 210, 170));
+        // 8. Head accessory: Red Bowtie (Tuxedo) or Snake Bandana
+        if is_tuxedo {
+            // Sharp red silk bowtie at collar
+            self.draw_model_box(px, py, pz, -4, -body_h / 2 - 2, 12, 8, 4, 3, &rot, bandana_col);
+            self.draw_model_box(px, py, pz, -2, -body_h / 2 - 1, 14, 4, 2, 2, &rot, (255, 80, 80));
+        } else {
+            // Solid Snake Bandana around forehead with fluttering knot
+            self.draw_model_box_textured(px, py, pz, -13, -body_h - 1, 4, 26, 4, 10, &rot, Some(TextureId::PlattyBandana), bandana_col);
+            let knot_flutter = if (platty.anim_frame / 6) % 2 == 0 { -3 } else { 2 };
+            self.draw_model_box_textured(px, py, pz, -15 + knot_flutter, -body_h, -10, 5, 6, 8, &rot, Some(TextureId::PlattyBandana), bandana_col);
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -1729,6 +1795,9 @@ impl Renderer {
             Act::Act4_3ExcavatorBoss => {
                 self.draw_excavator_boss_hud(&entities.boss_excavator);
             }
+            Act::VrSneaking | Act::VrCqc | Act::VrSonar | Act::VrSpeed => {
+                self.draw_soliton_radar(platty, entities);
+            }
         }
     }
 
@@ -1788,30 +1857,247 @@ impl Renderer {
     // TITLE, STAGE CLEAR, AND ENDING SCREENS
     // -------------------------------------------------------------------------
 
-    pub fn draw_title_screen(&self, frame: u8) {
+    pub fn draw_title_screen(&self, frame: u8, selected_menu: usize) {
         // Draw full-screen title background texture (16-bit direct color at VRAM 640,0)
         let tpage = crate::title_bg::title_bg_tpage();
         let material = psx_gpu::material::TextureMaterial::opaque(0, tpage, (0x80, 0x80, 0x80));
         psx_gpu::draw_sprite_material(0, 0, 320, 240, (0, 0), material);
 
-        self.font.draw_text(60, 40, "PLATTYPUS : TACTICAL ESPIONAGE", (120, 255, 160));
-        self.font.draw_text(90, 60, "PROJECT PSOXIDE 3D", (220, 240, 255));
+        self.font.draw_text(60, 32, "PLATTYPUS : TACTICAL ESPIONAGE", (120, 255, 160));
+        self.font.draw_text(90, 48, "PROJECT PSOXIDE 3D", (220, 240, 255));
 
         // Animated Platty emblem box
-        gpu::draw_rect_flat(120, 85, 80, 50, 20, 45, 35);
-        gpu::draw_rect_flat(122, 87, 76, 46, 120, 75, 40); // Fur
-        gpu::draw_rect_flat(155, 95, 35, 14, 65, 62, 60);  // Duck bill
-        gpu::draw_rect_flat(115, 85, 90, 8, 30, 210, 75);   // Green bandana
+        gpu::draw_rect_flat(120, 68, 80, 46, 20, 45, 35);
+        gpu::draw_rect_flat(122, 70, 76, 42, 120, 75, 40); // Fur
+        gpu::draw_rect_flat(155, 78, 35, 14, 65, 62, 60);  // Duck bill
+        gpu::draw_rect_flat(115, 68, 90, 8, 30, 210, 75);   // Green bandana
 
-        let blink = (frame / 20) % 2 == 0;
-        if blink {
-            self.font.draw_text(85, 160, "PRESS START TO INFILTRATE", (255, 230, 80));
+        // Tactical 3-Item Mission Selection Menu Box
+        gpu::draw_rect_flat(45, 126, 230, 76, 12, 20, 30);
+        gpu::draw_rect_flat(47, 128, 226, 72, 6, 10, 16);
+
+        let menu_items = [
+            "CAMPAIGN INFILTRATION",
+            "VR TRAINING SIMULATOR",
+            "SPECIAL OPTIONS & GEAR",
+        ];
+
+        for (i, label) in menu_items.iter().enumerate() {
+            let y = 136 + (i as i16 * 20);
+            if i == selected_menu {
+                gpu::draw_rect_flat(52, y - 3, 216, 16, 25, 75, 50);
+                let pulse = if (frame / 12) % 2 == 0 { (255, 240, 100) } else { (180, 255, 140) };
+                self.font.draw_text(56, y, ">", pulse);
+                self.font.draw_text(70, y, label, (255, 255, 255));
+            } else {
+                self.font.draw_text(70, y, label, (130, 160, 175));
+            }
         }
 
-        self.font.draw_text(45, 190, "STAGE 1: HEALESVILLE SANCTUARY (STEALTH)", (140, 200, 160));
-        self.font.draw_text(45, 202, "STAGE 2: YARRA RIVER RAPIDS (RUNNER)", (140, 200, 160));
-        self.font.draw_text(45, 214, "STAGE 3: MELBOURNE DOWNTOWN (FROGGER)", (140, 200, 160));
-        self.font.draw_text(45, 226, "STAGE 4: COASTAL DUNES & SURF (3D JUMP)", (140, 200, 160));
+        self.font.draw_text(48, 216, "DPAD: SELECT  |  START / CROSS: CONFIRM", (100, 150, 160));
+    }
+
+    pub fn draw_vr_menu(&self, selected_vr: usize, vr_cleared: u8) {
+        // Cyber VR matrix background
+        gpu::draw_rect_flat(0, 0, 320, 240, 6, 14, 22);
+
+        // Cyber grid lines
+        for y in (0..240).step_by(30) {
+            gpu::draw_line_mono(0, y, 319, y, 14, 30, 45);
+        }
+        for x in (0..320).step_by(40) {
+            gpu::draw_line_mono(x, 0, x, 239, 14, 30, 45);
+        }
+
+        // Header
+        gpu::draw_rect_flat(20, 12, 280, 28, 12, 35, 50);
+        gpu::draw_rect_flat(22, 14, 276, 24, 6, 20, 32);
+        self.font.draw_text(32, 20, "BURROW HQ - VR TRAINING SIMULATOR", (100, 240, 255));
+
+        // 4 VR Simulations
+        let vr_names = [
+            ("VR-01: SNEAKING BASICS", "INFILTRATE EXIT PAD UNDETECTED"),
+            ("VR-02: VENOM SPUR CQC", "NEUTRALIZE 3 SENTRIES WITH CQC"),
+            ("VR-03: ELECTRO-SONAR", "PITCH-BLACK RECON USING SONAR"),
+            ("VR-04: RAPID SPEED HURDLES", "SPRINT ELEVATED BRIDGE TO EXIT"),
+        ];
+
+        for i in 0..4 {
+            let y = 48 + (i as i16 * 34);
+            let cleared = (vr_cleared & (1 << i)) != 0;
+            let is_sel = i == selected_vr;
+
+            if is_sel {
+                gpu::draw_rect_flat(20, y, 280, 30, 20, 70, 60);
+                gpu::draw_rect_flat(22, y + 2, 276, 26, 10, 35, 30);
+                self.font.draw_text(26, y + 6, ">", (255, 235, 80));
+            } else {
+                gpu::draw_rect_flat(20, y, 280, 30, 10, 20, 30);
+                gpu::draw_rect_flat(22, y + 2, 276, 26, 6, 12, 20);
+            }
+
+            let name_col = if is_sel { (255, 255, 255) } else { (160, 190, 200) };
+            self.font.draw_text(38, y + 5, vr_names[i].0, name_col);
+
+            let sub_col = if is_sel { (140, 220, 180) } else { (100, 130, 140) };
+            self.font.draw_text(38, y + 17, vr_names[i].1, sub_col);
+
+            if cleared {
+                self.font.draw_text(224, y + 9, "[CLEARED]", (100, 255, 140));
+            } else {
+                self.font.draw_text(236, y + 9, "[OPEN]", (255, 200, 80));
+            }
+        }
+
+        // Footer hint
+        gpu::draw_rect_flat(20, 192, 280, 36, 10, 18, 28);
+        self.font.draw_text(28, 198, "CROSS: ENGAGE SIMULATION", (255, 230, 80));
+        self.font.draw_text(28, 212, "CIRCLE: RETURN TO TITLE", (160, 180, 200));
+
+        let cleared_count = (vr_cleared & 1) + ((vr_cleared >> 1) & 1) + ((vr_cleared >> 2) & 1) + ((vr_cleared >> 3) & 1);
+        if cleared_count == 4 {
+            self.font.draw_text(188, 205, "ALL SIMS 100%!", (120, 255, 160));
+        }
+    }
+
+    pub fn draw_options_menu(&self, save_data: &crate::save::SaveData, selected_opt: usize) {
+        // Tactical dark steel background
+        gpu::draw_rect_flat(0, 0, 320, 240, 12, 16, 24);
+
+        // Header
+        gpu::draw_rect_flat(20, 15, 280, 28, 25, 35, 45);
+        gpu::draw_rect_flat(22, 17, 276, 24, 10, 16, 22);
+        self.font.draw_text(42, 23, "SPECIAL OPTIONS & UNLOCKABLE GEAR", (255, 230, 80));
+
+        // Options 0: Costume
+        let opt0_y: i16 = 55;
+        let is_sel0 = selected_opt == 0;
+        let bg0 = if is_sel0 { (20, 50, 40) } else { (12, 18, 26) };
+        gpu::draw_rect_flat(20, opt0_y, 280, 36, bg0.0, bg0.1, bg0.2);
+        let cursor0 = if is_sel0 { ">" } else { " " };
+        self.font.draw_text(26, opt0_y + 6, cursor0, (255, 235, 80));
+        self.font.draw_text(38, opt0_y + 6, "INFILTRATION COSTUME:", if is_sel0 { (255, 255, 255) } else { (170, 190, 200) });
+
+        let costume_str = match save_data.selected_costume {
+            1 => "TUXEDO (CLASSIC BOND)",
+            2 => "STEALTH CAMO (SHIMMER)",
+            _ => "SNEAKING SUIT (DEFAULT)",
+        };
+        self.font.draw_text(50, opt0_y + 20, costume_str, (120, 255, 160));
+
+        // Options 1: Wireframe Mode
+        let opt1_y: i16 = 100;
+        let is_sel1 = selected_opt == 1;
+        let bg1 = if is_sel1 { (20, 50, 40) } else { (12, 18, 26) };
+        gpu::draw_rect_flat(20, opt1_y, 280, 36, bg1.0, bg1.1, bg1.2);
+        let cursor1 = if is_sel1 { ">" } else { " " };
+        self.font.draw_text(26, opt1_y + 6, cursor1, (255, 235, 80));
+        self.font.draw_text(38, opt1_y + 6, "1994 RETRO WIREFRAME:", if is_sel1 { (255, 255, 255) } else { (170, 190, 200) });
+        let wire_str = if save_data.wireframe_enabled != 0 { "< ENABLED >" } else { "< DISABLED >" };
+        self.font.draw_text(50, opt1_y + 20, wire_str, (100, 220, 255));
+
+        // Options 2: Memory Card / Status
+        let opt2_y: i16 = 145;
+        let is_sel2 = selected_opt == 2;
+        let bg2 = if is_sel2 { (20, 50, 40) } else { (12, 18, 26) };
+        gpu::draw_rect_flat(20, opt2_y, 280, 36, bg2.0, bg2.1, bg2.2);
+        let cursor2 = if is_sel2 { ">" } else { " " };
+        self.font.draw_text(26, opt2_y + 6, cursor2, (255, 235, 80));
+        self.font.draw_text(38, opt2_y + 6, "MEMORY CARD SLOT 1:", if is_sel2 { (255, 255, 255) } else { (170, 190, 200) });
+        self.font.draw_text(50, opt2_y + 20, "1 BLOCK [BASLUS-00001PLATTY]", (255, 210, 80));
+
+        // Unlocks description box
+        gpu::draw_rect_flat(20, 190, 280, 42, 8, 12, 18);
+        match selected_opt {
+            0 => {
+                self.font.draw_text(26, 195, "Tuxedo: Beat campaign. Camo: Rank S.", (180, 200, 220));
+                self.font.draw_text(26, 207, "DPAD LEFT/RIGHT: Toggle costume", (255, 230, 80));
+            }
+            1 => {
+                self.font.draw_text(26, 195, "Experience Plattypus in early 90s PS1 vectors.", (180, 200, 220));
+                self.font.draw_text(26, 207, "DPAD LEFT/RIGHT: Toggle Wireframe", (255, 230, 80));
+            }
+            _ => {
+                self.font.draw_text(26, 195, "Auto-saves progress, rankings, & unlocks.", (180, 200, 220));
+                self.font.draw_text(26, 207, "CIRCLE: Return to Main Menu", (255, 230, 80));
+            }
+        }
+    }
+
+    pub fn draw_debriefing_screen(
+        &self,
+        time_s: u32,
+        alerts: u16,
+        takedowns: u16,
+        damage: u16,
+        yabbies: u16,
+        codename: crate::save::Codename,
+    ) {
+        // Deep stealth military debriefing background
+        gpu::draw_rect_flat(0, 0, 320, 240, 8, 14, 20);
+
+        // Header banner
+        gpu::draw_rect_flat(20, 12, 280, 28, 18, 30, 42);
+        gpu::draw_rect_flat(22, 14, 276, 24, 6, 12, 18);
+        self.font.draw_text(28, 20, "OPERATION DUCK-BILL : MISSION DEBRIEFING", (120, 255, 160));
+
+        // Stats card box
+        gpu::draw_rect_flat(20, 46, 280, 92, 14, 22, 30);
+        gpu::draw_rect_flat(22, 48, 276, 88, 8, 14, 20);
+
+        // Time format MM:SS
+        let mins = time_s / 60;
+        let secs = time_s % 60;
+        let mut time_str = [b'T', b'I', b'M', b'E', b':', b' ', b'0', b'0', b':', b'0', b'0', 0];
+        time_str[6] = ((mins / 10) % 10) as u8 + b'0';
+        time_str[7] = (mins % 10) as u8 + b'0';
+        time_str[9] = ((secs / 10) % 10) as u8 + b'0';
+        time_str[10] = (secs % 10) as u8 + b'0';
+        if let Ok(st) = core::str::from_utf8(&time_str[..11]) {
+            self.font.draw_text(30, 54, st, (240, 240, 240));
+        }
+
+        // Alerts count
+        let mut alert_str = [b'A', b'L', b'E', b'R', b'T', b' ', b'P', b'H', b'A', b'S', b'E', b'S', b':', b' ', b'0', b'0', 0];
+        alert_str[14] = ((alerts / 10) % 10) as u8 + b'0';
+        alert_str[15] = (alerts % 10) as u8 + b'0';
+        if let Ok(st) = core::str::from_utf8(&alert_str[..16]) {
+            self.font.draw_text(30, 68, st, (255, 120, 100));
+        }
+
+        // Takedowns count
+        let mut cqc_str = [b'C', b'Q', b'C', b' ', b'T', b'A', b'K', b'E', b'D', b'O', b'W', b'N', b'S', b':', b' ', b'0', b'0', 0];
+        cqc_str[15] = ((takedowns / 10) % 10) as u8 + b'0';
+        cqc_str[16] = (takedowns % 10) as u8 + b'0';
+        if let Ok(st) = core::str::from_utf8(&cqc_str[..17]) {
+            self.font.draw_text(30, 82, st, (255, 230, 80));
+        }
+
+        // Damage Sustained
+        let mut dmg_str = [b'D', b'A', b'M', b'A', b'G', b'E', b' ', b'T', b'A', b'K', b'E', b'N', b':', b' ', b'0', b'0', b' ', b'H', b'P', 0];
+        dmg_str[14] = ((damage / 10) % 10) as u8 + b'0';
+        dmg_str[15] = (damage % 10) as u8 + b'0';
+        if let Ok(st) = core::str::from_utf8(&dmg_str[..19]) {
+            self.font.draw_text(30, 96, st, (255, 160, 140));
+        }
+
+        // Yabbies
+        let mut yab_str = [b'Y', b'A', b'B', b'B', b'I', b'E', b'S', b' ', b'C', b'A', b'C', b'H', b'E', b':', b' ', b'x', b'0', b'0', 0];
+        yab_str[16] = ((yabbies / 10) % 10) as u8 + b'0';
+        yab_str[17] = (yabbies % 10) as u8 + b'0';
+        if let Ok(st) = core::str::from_utf8(&yab_str[..18]) {
+            self.font.draw_text(30, 110, st, (100, 220, 255));
+        }
+
+        // Rank / Codename Insignia Box
+        gpu::draw_rect_flat(20, 144, 280, 56, 30, 45, 60);
+        gpu::draw_rect_flat(22, 146, 276, 52, 12, 18, 26);
+
+        self.font.draw_text(30, 152, "FINAL OPERATIVE EVALUATION:", (255, 230, 80));
+        self.font.draw_text(30, 166, codename.name(), (255, 255, 255));
+        self.font.draw_text(30, 178, codename.title(), (120, 255, 160));
+
+        self.font.draw_text(45, 214, "PRESS CROSS TO PROCEED TO EPILOGUE", (255, 255, 255));
     }
 
     pub fn draw_stage_clear(&self, act: Act, score: u32, yabbies: u16) {
