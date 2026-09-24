@@ -2,8 +2,8 @@
 //!
 //! Decodes 320x240 video at 15 fps using the PS1 hardware MDEC coprocessor
 //! (MDEC0 / DMA channel 0 & channel 1) with synchronized SPU ADPCM audio.
-//! Streams seek-free 8-sector (16 KiB) frames directly from CD-ROM via
-//! SectorReader, with seamless fallback to embedded ROM frames.
+//! Reads four adjacent 8-sector frames at a time from CD-ROM via SectorReader,
+//! with seamless fallback to embedded ROM frames.
 //! Playback is skippable at any time via CROSS or START.
 
 use psx_pad::{button, ButtonState, PadState};
@@ -21,11 +21,16 @@ pub const EMBEDDED_FRAME_COUNT: u16 = 16;
 pub const SECTORS_PER_FRAME: usize = 8;
 pub const WORDS_PER_FRAME: usize = 4096; // 16,384 bytes = 8 sectors
 pub const WORDS_PER_SLICE: usize = 1920; // 16 * 240 / 2 = 1,920 u32 words
+// Keep several compressed frames in RAM so CD reads can be done as one
+// sequential burst instead of seeking once for every frame.
+const PREFETCH_FRAMES: usize = 4;
 
 /// BSS-resident storage for MDEC bitstream, slice buffer, and CD reading
 struct VideoStorage {
     /// 4,096 u32 words (16 KiB) holding the active frame payload
     frame_words: [u32; WORDS_PER_FRAME],
+    /// Read-ahead batch: 64 KiB of compressed video, four frames at a time.
+    frame_cache: [[u32; WORDS_PER_FRAME]; PREFETCH_FRAMES],
     /// 1,920 u32 words (7.68 KiB) holding one decoded 16x240 slice
     slice_words: [u32; WORDS_PER_SLICE],
     /// Bounce buffer for single-sector reads (e.g. root directory scan)
@@ -36,6 +41,7 @@ impl VideoStorage {
     const fn new() -> Self {
         Self {
             frame_words: [0; WORDS_PER_FRAME],
+            frame_cache: [[0; WORDS_PER_FRAME]; PREFETCH_FRAMES],
             slice_words: [0; WORDS_PER_SLICE],
             sector_buf: [0; SECTOR_WORDS],
         }
@@ -57,6 +63,8 @@ pub struct VideoPlayer {
     last_decoded_frame: u16,
     last_uploaded_frame: u16,
     last_uploaded_buffer: u8,
+    cache_start_frame: u16,
+    cached_frames: u8,
     cd_reader: SectorReader,
 }
 
@@ -75,6 +83,8 @@ impl VideoPlayer {
             last_decoded_frame: 0xFFFF,
             last_uploaded_frame: 0xFFFF,
             last_uploaded_buffer: 0xFF,
+            cache_start_frame: 0xFFFF,
+            cached_frames: 0,
             cd_reader: SectorReader::new(),
         }
     }
@@ -133,17 +143,73 @@ impl VideoPlayer {
         None
     }
 
+    /// Read a small run of adjacent frames in one CD command. The drive is
+    /// paused at the end of the burst, so decoding cannot let its sector FIFO
+    /// overflow while the next cached frames are waiting in RAM.
+    fn prefetch_cd_batch(&mut self, first_frame: u16, storage: &mut VideoStorage) -> bool {
+        if !self.using_cd || first_frame >= self.total_frames {
+            return false;
+        }
+
+        let batch_start = (first_frame / PREFETCH_FRAMES as u16) * PREFETCH_FRAMES as u16;
+        let frame_count = core::cmp::min(
+            PREFETCH_FRAMES,
+            (self.total_frames - batch_start) as usize,
+        );
+        let lba = self.cd_start_lba
+            .wrapping_add(batch_start as u32 * SECTORS_PER_FRAME as u32);
+        if !unsafe { self.cd_reader.start_read(lba) } {
+            psx_rt::tty::println("[VIDEO] CD batch ReadN start failed");
+            self.cached_frames = 0;
+            return false;
+        }
+
+        let mut ok = true;
+        'frames: for frame in 0..frame_count {
+            for sector in 0..SECTORS_PER_FRAME {
+                let offset = sector * SECTOR_WORDS;
+                let sector_buf: &mut [u32; SECTOR_WORDS] = unsafe {
+                    &mut *(&mut storage.frame_cache[frame][offset..offset + SECTOR_WORDS]
+                        as *mut [u32] as *mut [u32; SECTOR_WORDS])
+                };
+                if !unsafe { self.cd_reader.read_sector(sector_buf) } {
+                    psx_rt::tty::print("[VIDEO] CD batch read failed at frame ");
+                    psx_rt::tty::print_hex_u32(frame as u32);
+                    psx_rt::tty::print(" sector ");
+                    psx_rt::tty::print_hex_u32(sector as u32);
+                    psx_rt::tty::print("\n");
+                    ok = false;
+                    break 'frames;
+                }
+            }
+        }
+
+        // Stop ReadN after the batch. This avoids missed sector IRQs during
+        // MDEC decoding; the next batch resumes sequentially after one seek.
+        unsafe { self.cd_reader.stop(); }
+
+        if ok {
+            self.cache_start_frame = batch_start;
+            self.cached_frames = frame_count as u8;
+        } else {
+            self.cached_frames = 0;
+        }
+        ok
+    }
+
     pub fn start(&mut self) {
         psx_rt::tty::println("[VIDEO] start() called");
         self.frame_idx = 0;
         self.tick = 0;
         self.finished = false;
         self.total_frames = TOTAL_FRAMES;
-        self.ticks_per_frame = 4;
+        self.ticks_per_frame = 1;
         self.last_decoded_frame = 0xFFFF;
         self.last_uploaded_frame = 0xFFFF;
         self.last_uploaded_buffer = 0xFF;
         self.using_cd = false;
+        self.cache_start_frame = 0xFFFF;
+        self.cached_frames = 0;
 
         // Reset and initialize hardware MDEC coprocessor with standard tables
         psx_rt::tty::println("[VIDEO] Initializing MDEC...");
@@ -152,27 +218,28 @@ impl VideoPlayer {
         psx_rt::tty::print_hex_u32(psx_io::mdec::read_stat());
         psx_rt::tty::print("\n");
 
-        // Start synchronized ADPCM audio sample via SPU
-        AudioManager::play_intro_audio();
-
         // Initialize CD streaming if possible
         let storage = unsafe { &mut *core::ptr::addr_of_mut!(STORAGE) };
-        // Each frame is read as an isolated 8-sector burst and paused before
-        // MDEC work, so double speed is safe without streaming through decode.
+        // Read several adjacent frames per CD command to amortize seek and
+        // command overhead, while keeping the drive paused during MDEC work.
         let prepared = unsafe { self.cd_reader.prepare() };
         if prepared {
             psx_rt::tty::println("[VIDEO] CD reader prepare OK");
             if let Some(lba) = unsafe { Self::find_intro_vid_lba(&mut self.cd_reader, storage) } {
                 self.cd_start_lba = lba;
-                // Start a short ReadN burst for each frame in draw(). Leaving
-                // ReadN running while MDEC/GPU work executes overruns the CD
-                // sector FIFO and shifts subsequent frame boundaries.
-                psx_rt::tty::println("[VIDEO] INTRO.VID located; using per-frame CD reads");
+                // ReadN bursts fill the four-frame cache; the reader pauses
+                // between batches so MDEC work cannot overrun the CD FIFO.
+                psx_rt::tty::println("[VIDEO] INTRO.VID located; using four-frame read-ahead");
                 self.using_cd = true;
+                let _ = self.prefetch_cd_batch(0, storage);
             }
         } else {
             psx_rt::tty::println("[VIDEO] CD reader prepare FAILED");
         }
+
+        // Start audio after the initial read-ahead burst so its first frame
+        // remains synchronized with the first displayed video frame.
+        AudioManager::play_intro_audio();
     }
 
     pub fn stop(&mut self) {
@@ -228,35 +295,20 @@ impl VideoPlayer {
             let mut read_ok = false;
 
             if self.using_cd {
-                let frame_lba = self.cd_start_lba
-                    .wrapping_add(frame_to_show as u32 * SECTORS_PER_FRAME as u32);
-                let mut all_sectors_read = unsafe { self.cd_reader.start_read(frame_lba) };
-                if !all_sectors_read {
-                    psx_rt::tty::println("[VIDEO] CD frame ReadN start failed");
-                } else {
-                    // Read this frame from its explicit LBA. Leave ReadN
-                    // active while MDEC decodes; the next frame's Setloc
-                    // repositions the stream at its known sector boundary.
-                    for sec in 0..SECTORS_PER_FRAME {
-                        let off = sec * SECTOR_WORDS;
-                        let sec_buf: &mut [u32; SECTOR_WORDS] = unsafe {
-                            &mut *(&mut storage.frame_words[off..off + SECTOR_WORDS] as *mut [u32] as *mut [u32; SECTOR_WORDS])
-                        };
-                        if !unsafe { self.cd_reader.read_sector(sec_buf) } {
-                            psx_rt::tty::print("[VIDEO] CD read_sector FAILED at sec ");
-                            psx_rt::tty::print_hex_u32(sec as u32);
-                            psx_rt::tty::print("\n");
-                            all_sectors_read = false;
-                            break;
-                        }
+                let cache_end = self.cache_start_frame.saturating_add(self.cached_frames as u16);
+                if frame_to_show < self.cache_start_frame || frame_to_show >= cache_end {
+                    if !self.prefetch_cd_batch(frame_to_show, storage) {
+                        self.using_cd = false;
                     }
                 }
-                if all_sectors_read {
+
+                if self.using_cd
+                    && frame_to_show >= self.cache_start_frame
+                    && frame_to_show < self.cache_start_frame.saturating_add(self.cached_frames as u16)
+                {
+                    let cache_slot = (frame_to_show - self.cache_start_frame) as usize;
+                    storage.frame_words.copy_from_slice(&storage.frame_cache[cache_slot]);
                     read_ok = true;
-                } else {
-                    // Fall back to embedded ROM frames on CD error
-                    psx_rt::tty::println("[VIDEO] Falling back to embedded ROM frames");
-                    self.using_cd = false;
                 }
             }
 
