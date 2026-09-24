@@ -105,16 +105,16 @@ These 5 items form the core technical foundation required for a commercial-grade
 
 ## Phase 5: Replayability, Modes & Commercial Polish
 
-- [ ] **MGS Codename Mission Ranking**
-  - [ ] Track stats: time elapsed, alert phases, rations eaten, guards neutralized, damage taken
-  - [ ] Award end-game codenames (*Big Platypus*, *Tasmanian Devil*, *Lurking Echidna*, *Sly Possum*)
-- [ ] **VR Training Simulator Mode**
-  - [ ] Add VR Training menu option with 15 test stages (Sneaking, CQC, Runner, Platforming)
-  - [ ] Time trial leaderboards saved to Memory Card
-- [ ] **Unlockable Content & New Game+**
-  - [ ] Tuxedo Platty costume (unlocked after beating game)
-  - [ ] Stealth Camo Bandana (infinite air & invisible to radar)
-  - [ ] Retro 1994 Flat-Shaded Wireframe mode
+- [x] **MGS Codename Mission Ranking**
+  - [x] Track stats: time elapsed, alert phases, rations eaten, guards neutralized, damage taken
+  - [x] Award end-game codenames (*Big Platypus*, *Tasmanian Devil*, *Lurking Echidna*, *Sly Possum*, *Duckbill Rookie*)
+- [x] **VR Training Simulator Mode**
+  - [x] Add VR Training menu option with standalone test stages (VR-01 Sneaking, VR-02 CQC, VR-03 Sonar, VR-04 Speed Hurdles)
+  - [x] Progression flags & high scores saved to Memory Card
+- [x] **Unlockable Content & New Game+**
+  - [x] Tuxedo Platty costume (unlocked after beating game)
+  - [x] Stealth Camo Bandana (optical shimmering active camouflage)
+  - [x] Retro 1994 Flat-Shaded Wireframe mode
 
 ---
 
