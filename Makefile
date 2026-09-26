@@ -5,7 +5,7 @@ DIST     := $(ROOT)/dist
 GAME_EXE := $(GAME_DIR)/target/$(TARGET)/release/plattypus.exe
 MKISOPSX := $(ROOT)/psoxide/tools/mkisopsx
 
-.PHONY: all exe disc clean run help
+.PHONY: all exe disc clean run test help
 
 all: disc
 
@@ -13,8 +13,12 @@ help:
 	@echo "Plattypus (PSX / PSoXide) Build Targets:"
 	@echo "  make exe   - Compile PSX-EXE (MIPS R3000 bare-metal binary)"
 	@echo "  make disc  - Master bootable PS1 disc image (dist/plattypus.{bin,cue})"
+	@echo "  make test  - Run automated host-side game logic test suite"
 	@echo "  make run   - Run disc in DuckStation, RetroArch, or configured emulator"
 	@echo "  make clean - Clean build artifacts"
+
+test:
+	cargo run --manifest-path $(ROOT)/tools/test_game_logic/Cargo.toml
 
 exe:
 	@mkdir -p $(DIST)

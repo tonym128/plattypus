@@ -60,25 +60,29 @@ Burrow Command has dispatched operative **AGENT PLATTY**: a cyber-augmented duck
 | Button | Primary Action (Infiltration) | Swimming / Submerged | CODEC / Tuner Mode |
 |---|---|---|---|
 | **D-Pad / Left Stick** | 8-Way Sneak / Directional Move | Submerged Swim Heading | Adjust Radio Frequency |
-| **CROSS (✕)** | Spur Strike CQC / Action / Jump | Surface Kick / Ascend | Confirm / Advance Page |
-| **SQUARE (□)** | Belly Crawl / Prone Sneak Toggle | Dive Submerged (Hold) | Cancel / Back |
-| **CIRCLE (○)** | Equip / Conceal in Cardboard Box | Surface Emerge | Codec Radio Exit |
+| **CROSS (✕)** | Jump / Leap (Over Obstacles) | Dive Submerged (Hold) | Confirm / Advance Page |
+| **SQUARE (□)** | Venom Spur Strike (CQC Takedown) | Dive Submerged (Hold) | Cancel / Back |
+| **CIRCLE (○)** | Belly Crawl / Prone Sneak Toggle | Surface Emerge | Codec Radio Exit |
+| **L1** | Equip / Conceal in Cardboard Box | Surface Emerge | Fine Frequency Tune (-0.01) |
+| **R1** | Unassigned | Surface Emerge | Fine Frequency Tune (+0.01) |
 | **TRIANGLE (△)** | Charge & Fire Electro-Sonar Pulse | Echo-Locate Underwater | Quick Frequency Reset |
 | **START** | Pause / Mission Menu | Pause Game | Quick CODEC Skip |
 | **SELECT** | Open Wireless CODEC Radio | Open CODEC Radio | Close CODEC Radio |
-| **L1 / R1** | Tactical Strafe (Left / Right) | Lateral Fin Roll | Fine Frequency Tune (±0.01) |
 
 ---
 
 ## 5. TACTICAL INFILTRATION MANEUVERS
 ### Upright Stance vs. Prone Belly-Crawl
 * **Standing Infiltration**: Full movement speed. Useful for crossing open pavement quickly.
-* **Belly-Crawl (Prone)**: Press **SQUARE** to drop onto your belly. Reduces Platty's hit profile by 50%, muffles footstep acoustics, and permits crawling beneath low laser barriers, security conduits, and pipe ducts.
+* **Belly-Crawl (Prone)**: Press **CIRCLE** to drop onto your belly. Reduces Platty's hit profile by 50%, muffles footstep acoustics, and permits crawling beneath low laser barriers, security conduits, and pipe ducts.
 
 ### Aquatic Infiltration (Submerged Mode)
 Plattypus excels in river waterways! Jump into rapids, mangroves, or surf channels to enter swim mode:
 * **Surface Swimming**: Conserves energy and allows rapid river transit.
-* **Submerged Diving**: Press **SQUARE** underwater to dive below surface searchlights. Watch your O2 gauge! Surface before oxygen depletes to avoid asphyxiation damage.
+* **Submerged Diving**: Hold **CROSS** or **SQUARE** underwater to dive below surface searchlights. Watch your O2 gauge! Surface before oxygen depletes to avoid asphyxiation damage.
+
+### Cardboard Box Infiltration
+* **Deploy Disguise**: Press **L1** to conceal Platty under an authentic Melbourne Fruit Co cardboard box. Sentry patrols will ignore stationary boxes unless bumped!
 
 ---
 

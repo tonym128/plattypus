@@ -29,7 +29,7 @@ pub enum GameState {
     Playing,
     InGameCodec,
     StageClear,
-    Ending,
+    Ending { codename: Option<crate::save::Codename> },
     GameOver,
     AttractDemo { act: Act, timer: u16 },
     BossIntroCutscene { act: Act, timer: u16 },
@@ -155,35 +155,70 @@ impl Game {
                 }
                 self.idle_timer += 1;
 
+                let has_save = self.save_data.unlocked_act > 0;
+                let max_selection = if has_save { 3 } else { 2 };
+
                 if self.idle_timer > 30 && is_connected {
                     if just_up {
-                        self.title_selection = if self.title_selection == 0 { 2 } else { self.title_selection - 1 };
+                        self.title_selection = if self.title_selection == 0 { max_selection } else { self.title_selection - 1 };
                         AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                     } else if just_down {
-                        self.title_selection = if self.title_selection == 2 { 0 } else { self.title_selection + 1 };
+                        self.title_selection = if self.title_selection >= max_selection { 0 } else { self.title_selection + 1 };
                         AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                     } else if just_cross || just_start {
                         AudioManager::play_jump();
-                        match self.title_selection {
-                            0 => {
-                                // Campaign Infiltration
-                                AudioManager::stop_cdda();
-                                self.mission_stats = MissionStats::default();
-                                self.platty.takedowns = 0;
-                                self.platty.total_damage = 0;
-                                self.video.start();
-                                self.state = GameState::IntroVideo;
+                        if has_save {
+                            match self.title_selection {
+                                0 => {
+                                    // Continue Campaign from unlocked act
+                                    AudioManager::stop_cdda();
+                                    let act = Act::from_u8(self.save_data.unlocked_act);
+                                    self.load_act(act);
+                                    let briefing = get_act_dialogue(act);
+                                    self.codec.start_conversation(briefing);
+                                    self.state = GameState::StageIntroCodec;
+                                }
+                                1 => {
+                                    // New Campaign Infiltration
+                                    AudioManager::stop_cdda();
+                                    self.mission_stats = MissionStats::default();
+                                    self.platty.reset_for_new_game();
+                                    self.video.start();
+                                    self.state = GameState::IntroVideo;
+                                }
+                                2 => {
+                                    // VR Training Simulator
+                                    AudioManager::stop_cdda();
+                                    self.state = GameState::VrMenu;
+                                    self.vr_selection = 0;
+                                }
+                                _ => {
+                                    // Special Options & Gear
+                                    self.state = GameState::OptionsMenu;
+                                    self.options_selection = 0;
+                                }
                             }
-                            1 => {
-                                // VR Training Simulator
-                                AudioManager::stop_cdda();
-                                self.state = GameState::VrMenu;
-                                self.vr_selection = 0;
-                            }
-                            _ => {
-                                // Special Options & Gear
-                                self.state = GameState::OptionsMenu;
-                                self.options_selection = 0;
+                        } else {
+                            match self.title_selection {
+                                0 => {
+                                    // Campaign Infiltration
+                                    AudioManager::stop_cdda();
+                                    self.mission_stats = MissionStats::default();
+                                    self.platty.reset_for_new_game();
+                                    self.video.start();
+                                    self.state = GameState::IntroVideo;
+                                }
+                                1 => {
+                                    // VR Training Simulator
+                                    AudioManager::stop_cdda();
+                                    self.state = GameState::VrMenu;
+                                    self.vr_selection = 0;
+                                }
+                                _ => {
+                                    // Special Options & Gear
+                                    self.state = GameState::OptionsMenu;
+                                    self.options_selection = 0;
+                                }
                             }
                         }
                     } else if AudioManager::cdda_finished() {
@@ -197,7 +232,7 @@ impl Game {
                 }
 
                 self.renderer.begin_frame();
-                self.renderer.draw_title_screen(self.frame, self.title_selection);
+                self.renderer.draw_title_screen(self.frame, self.title_selection, &self.save_data);
             }
             GameState::VrMenu => {
                 if is_connected {
@@ -315,7 +350,7 @@ impl Game {
                 *timer = timer.saturating_add(1);
 
                 if *timer > 45 && (just_cross || just_start) {
-                    self.state = GameState::Ending;
+                    self.state = GameState::Ending { codename: Some(codename) };
                 }
 
                 self.renderer.begin_frame();
@@ -700,9 +735,9 @@ impl Game {
                     }
                     crate::codec::CodecMode::InCall => {
                         if self.codec.pending_save {
-                            self.save_data.unlocked_act = (self.level.act as u8 + 1).max(self.save_data.unlocked_act);
+                            self.save_data.unlocked_act = (self.level.act as u8).max(self.save_data.unlocked_act);
                             self.save_data.highest_score = self.save_data.highest_score.max(self.platty.score);
-                            self.save_data.total_yabbies = self.save_data.total_yabbies.saturating_add(self.platty.yabbies_collected as u16);
+                            self.save_data.total_yabbies = self.save_data.total_yabbies.max(self.platty.yabbies_collected as u16);
                             self.memcard.save_to_slot1(&self.save_data);
                             self.codec.pending_save = false;
                         }
@@ -721,19 +756,24 @@ impl Game {
             GameState::StageClear => {
                 if just_cross || just_start {
                     if let Some(next_act) = self.level.act.next() {
+                        self.save_data.unlocked_act = (next_act as u8).max(self.save_data.unlocked_act);
+                        self.save_data.highest_score = self.save_data.highest_score.max(self.platty.score);
+                        self.save_data.total_yabbies = self.save_data.total_yabbies.max(self.platty.yabbies_collected as u16);
+                        self.memcard.save_to_slot1(&self.save_data);
+
                         self.load_act(next_act);
                         let briefing = get_act_dialogue(next_act);
                         self.codec.start_conversation(briefing);
                         self.state = GameState::StageIntroCodec;
                     } else {
-                        self.state = GameState::Ending;
+                        self.state = GameState::Ending { codename: None };
                     }
                 }
 
                 self.renderer.begin_frame();
                 self.renderer.draw_stage_clear(self.level.act, self.platty.score, self.platty.yabbies_collected);
             }
-            GameState::Ending => {
+            GameState::Ending { codename } => {
                 if just_start || just_cross {
                     self.load_act(Act::Act1_1Drainage);
                     self.state = GameState::Title;
@@ -741,12 +781,14 @@ impl Game {
                 }
 
                 self.renderer.begin_frame();
-                self.renderer.draw_ending(self.frame);
+                self.renderer.draw_ending(self.frame, codename);
             }
             GameState::GameOver => {
                 // MGS Classic Game Over: "PLATTY? PLATTY? PLATTYYYYY!"
                 self.idle_timer = self.idle_timer.saturating_add(1);
                 let can_retry = self.idle_timer > 45 && (just_cross || just_start);
+                let return_to_title = self.idle_timer > 45 && (just_circle || just_select || buttons.is_held(button::TRIANGLE) && !self.prev_buttons.is_held(button::TRIANGLE));
+
                 if can_retry {
                     // Retry current stage cleanly
                     let act = self.level.act;
@@ -754,6 +796,12 @@ impl Game {
                     self.idle_timer = 0;
                     self.prev_buttons = ButtonState::NONE;
                     self.state = GameState::Playing;
+                } else if return_to_title {
+                    // Abort to Title Screen
+                    self.load_act(Act::Act1_1Drainage);
+                    self.state = GameState::Title;
+                    self.idle_timer = 0;
+                    self.prev_buttons = ButtonState::NONE;
                 }
 
                 self.renderer.begin_frame();
@@ -761,7 +809,7 @@ impl Game {
                 self.renderer.font.draw_text(115, 80, "GAME OVER", (255, 40, 40));
                 self.renderer.font.draw_text(60, 110, "BURROW HQ: PLATTY? PLATTYYYY!", (255, 220, 220));
                 if self.idle_timer > 45 {
-                    self.renderer.font.draw_text(75, 150, "PRESS CROSS TO RETRY MISSION", (255, 255, 255));
+                    self.renderer.font.draw_text(42, 150, "CROSS: RETRY MISSION    TRIANGLE: TITLE", (255, 255, 255));
                 }
             }
         }

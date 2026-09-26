@@ -158,10 +158,10 @@ impl Renderer {
         }
 
         // Row-based depth sorting (far to near) to eliminate clipping
-        let min_gx = ((self.cam_x - 320) / TILE_SZ).max(0) as usize;
-        let max_gx = ((self.cam_x + 320) / TILE_SZ + 1).min(GRID_W as i32) as usize;
-        let min_gz = ((self.cam_z + 80) / TILE_SZ).max(0) as usize;
-        let max_gz = ((self.cam_z + 680) / TILE_SZ + 1).min(GRID_D as i32) as usize;
+        let min_gx = ((self.cam_x - 320) / TILE_SZ).clamp(0, GRID_W as i32) as usize;
+        let max_gx = ((self.cam_x + 320) / TILE_SZ + 1).clamp(0, GRID_W as i32) as usize;
+        let min_gz = ((self.cam_z + 80) / TILE_SZ).clamp(0, GRID_D as i32) as usize;
+        let max_gz = ((self.cam_z + 680) / TILE_SZ + 1).clamp(0, GRID_D as i32) as usize;
 
         for gz in min_gz..max_gz {
             let row_z_min = (gz as i32) * TILE_SZ;
@@ -175,19 +175,19 @@ impl Renderer {
                 self.draw_cell(cell, wx, wz, level.act, frame);
             }
 
-            // 2. Draw entities situated in this row
+            // 2. Draw entities situated in this row (with horizontal frustum culling)
             for s in entities.sentries.iter() {
-                if s.active && s.z >= row_z_min && s.z < row_z_max {
+                if s.active && (s.x - self.cam_x).abs() < 340 && s.z >= row_z_min && s.z < row_z_max {
                     self.draw_sentry(s, entities.frame);
                 }
             }
             for d in entities.drones.iter() {
-                if d.active && d.z >= row_z_min && d.z < row_z_max {
+                if d.active && (d.x - self.cam_x).abs() < 340 && d.z >= row_z_min && d.z < row_z_max {
                     self.draw_drone(d, frame);
                 }
             }
             for c in entities.power_conduits.iter() {
-                if c.active && c.z >= row_z_min && c.z < row_z_max {
+                if c.active && (c.x - self.cam_x).abs() < 340 && c.z >= row_z_min && c.z < row_z_max {
                     self.draw_power_conduit(c, frame);
                 }
             }
@@ -208,22 +208,22 @@ impl Renderer {
                 self.draw_excavator_boss(exc, frame);
             }
             for obs in entities.river_obstacles.iter() {
-                if obs.active && obs.z >= row_z_min && obs.z < row_z_max {
+                if obs.active && (obs.x - self.cam_x).abs() < 340 && obs.z >= row_z_min && obs.z < row_z_max {
                     self.draw_river_obstacle(obs, frame);
                 }
             }
             for v in entities.vehicles.iter() {
-                if v.active && v.z >= row_z_min && v.z < row_z_max {
+                if v.active && (v.x - self.cam_x).abs() < 340 && v.z >= row_z_min && v.z < row_z_max {
                     self.draw_vehicle(v);
                 }
             }
             for p in entities.beach_platforms.iter() {
-                if p.active && p.z >= row_z_min && p.z < row_z_max {
+                if p.active && (p.x - self.cam_x).abs() < 340 && p.z >= row_z_min && p.z < row_z_max {
                     self.draw_beach_platform(p);
                 }
             }
             for crab in entities.beach_crabs.iter() {
-                if crab.active && crab.z >= row_z_min && crab.z < row_z_max {
+                if crab.active && (crab.x - self.cam_x).abs() < 340 && crab.z >= row_z_min && crab.z < row_z_max {
                     self.draw_crab(crab, frame);
                 }
             }
@@ -1875,7 +1875,12 @@ impl Renderer {
     // TITLE, STAGE CLEAR, AND ENDING SCREENS
     // -------------------------------------------------------------------------
 
-    pub fn draw_title_screen(&self, frame: u8, selected_menu: usize) {
+    pub fn draw_title_screen(
+        &self,
+        frame: u8,
+        selected_menu: usize,
+        save_data: &crate::save::SaveData,
+    ) {
         // Draw full-screen title background texture (16-bit direct color at VRAM 640,0)
         let tpage = crate::title_bg::title_bg_tpage();
         let material = psx_gpu::material::TextureMaterial::opaque(0, tpage, (0x80, 0x80, 0x80));
@@ -1890,47 +1895,85 @@ impl Renderer {
         gpu::draw_rect_flat(155, 78, 35, 14, 65, 62, 60);  // Duck bill
         gpu::draw_rect_flat(115, 68, 90, 8, 30, 210, 75);   // Green bandana
 
-        // Tactical 3-Item Mission Selection Menu Box
-        gpu::draw_rect_flat(45, 126, 230, 76, 12, 20, 30);
-        gpu::draw_rect_flat(47, 128, 226, 72, 6, 10, 16);
+        let has_save = save_data.unlocked_act > 0;
+        let act = Act::from_u8(save_data.unlocked_act);
+        let stage_label = act.stage_label();
 
-        let menu_items = match self.language {
-            1 => [
-                "INFILTRATION CAMPAGNE",
-                "SIMULATEUR ENTRAINEMENT VR",
-                "OPTIONS ET EQUIPEMENT",
-            ],
-            2 => [
-                "KAMPAGNEN-INFILTRATION",
-                "VR-TRAININGSSIMULATOR",
-                "OPTIONEN UND AUSRUESTUNG",
-            ],
-            3 => [
-                "INFILTRACION DE CAMPANA",
-                "SIMULADOR ENTRENAMIENTO VR",
-                "OPCIONES Y EQUIPO",
-            ],
-            4 => [
-                "SAKUSEN SENNYUU (CAMPAIGN)",
-                "VR KUNREN SIMULATOR",
-                "TOKUSHU SOUBI (OPTIONS)",
-            ],
-            _ => [
-                "CAMPAIGN INFILTRATION",
-                "VR TRAINING SIMULATOR",
-                "SPECIAL OPTIONS & GEAR",
-            ],
-        };
+        if has_save {
+            // Tactical 4-Item Mission Selection Menu Box (with Continue)
+            gpu::draw_rect_flat(38, 118, 244, 94, 12, 20, 30);
+            gpu::draw_rect_flat(40, 120, 240, 90, 6, 10, 16);
 
-        for (i, label) in menu_items.iter().enumerate() {
-            let y = 136 + (i as i16 * 20);
-            if i == selected_menu {
-                gpu::draw_rect_flat(52, y - 3, 216, 16, 25, 75, 50);
-                let pulse = if (frame / 12) % 2 == 0 { (255, 240, 100) } else { (180, 255, 140) };
-                self.font.draw_text(56, y, ">", pulse);
-                self.font.draw_text(70, y, label, (255, 255, 255));
-            } else {
-                self.font.draw_text(70, y, label, (130, 160, 175));
+            let (cont_text, new_text, vr_text, opt_text) = match self.language {
+                1 => ("CONTINUER", "NOUVELLE CAMPAGNE", "SIMULATEUR ENTRAINEMENT VR", "OPTIONS ET EQUIPEMENT"),
+                2 => ("FORTSETZEN", "NEUE KAMPAGNE", "VR-TRAININGSSIMULATOR", "OPTIONEN UND AUSRUESTUNG"),
+                3 => ("CONTINUAR", "NUEVA CAMPANA", "SIMULADOR ENTRENAMIENTO VR", "OPCIONES Y EQUIPO"),
+                4 => ("SAIKAI", "SHINKI SAKUSEN", "VR KUNREN SIMULATOR", "TOKUSHU SOUBI (OPTIONS)"),
+                _ => ("CONTINUE", "NEW CAMPAIGN", "VR TRAINING SIMULATOR", "SPECIAL OPTIONS & GEAR"),
+            };
+
+            let menu_items = [cont_text, new_text, vr_text, opt_text];
+
+            for (i, label) in menu_items.iter().enumerate() {
+                let y = 126 + (i as i16 * 21);
+                if i == selected_menu {
+                    gpu::draw_rect_flat(46, y - 3, 228, 17, 25, 75, 50);
+                    let pulse = if (frame / 12) % 2 == 0 { (255, 240, 100) } else { (180, 255, 140) };
+                    self.font.draw_text(50, y, ">", pulse);
+                    self.font.draw_text(62, y, label, (255, 255, 255));
+                    if i == 0 {
+                        self.font.draw_text(178, y, stage_label, (255, 235, 80));
+                    }
+                } else {
+                    self.font.draw_text(62, y, label, (130, 160, 175));
+                    if i == 0 {
+                        self.font.draw_text(178, y, stage_label, (180, 200, 140));
+                    }
+                }
+            }
+        } else {
+            // Tactical 3-Item Mission Selection Menu Box (Standard)
+            gpu::draw_rect_flat(45, 126, 230, 76, 12, 20, 30);
+            gpu::draw_rect_flat(47, 128, 226, 72, 6, 10, 16);
+
+            let menu_items = match self.language {
+                1 => [
+                    "INFILTRATION CAMPAGNE",
+                    "SIMULATEUR ENTRAINEMENT VR",
+                    "OPTIONS ET EQUIPEMENT",
+                ],
+                2 => [
+                    "KAMPAGNEN-INFILTRATION",
+                    "VR-TRAININGSSIMULATOR",
+                    "OPTIONEN UND AUSRUESTUNG",
+                ],
+                3 => [
+                    "INFILTRACION DE CAMPANA",
+                    "SIMULADOR ENTRENAMIENTO VR",
+                    "OPCIONES Y EQUIPO",
+                ],
+                4 => [
+                    "SAKUSEN SENNYUU (CAMPAIGN)",
+                    "VR KUNREN SIMULATOR",
+                    "TOKUSHU SOUBI (OPTIONS)",
+                ],
+                _ => [
+                    "CAMPAIGN INFILTRATION",
+                    "VR TRAINING SIMULATOR",
+                    "SPECIAL OPTIONS & GEAR",
+                ],
+            };
+
+            for (i, label) in menu_items.iter().enumerate() {
+                let y = 136 + (i as i16 * 20);
+                if i == selected_menu {
+                    gpu::draw_rect_flat(52, y - 3, 216, 16, 25, 75, 50);
+                    let pulse = if (frame / 12) % 2 == 0 { (255, 240, 100) } else { (180, 255, 140) };
+                    self.font.draw_text(56, y, ">", pulse);
+                    self.font.draw_text(70, y, label, (255, 255, 255));
+                } else {
+                    self.font.draw_text(70, y, label, (130, 160, 175));
+                }
             }
         }
 
@@ -2089,29 +2132,30 @@ impl Renderer {
         self.font.draw_text(224, 172, "CARD: 1 BLK", (100, 255, 140));
 
         // Description box
-        gpu::draw_rect_flat(20, 190, 280, 44, 8, 12, 16);
+        gpu::draw_rect_flat(20, 188, 280, 48, 8, 12, 16);
         match selected_opt {
             0 => {
-                self.font.draw_text(26, 195, "Tuxedo: Beat campaign. Camo: Rank S.", (180, 200, 220));
-                self.font.draw_text(26, 209, "DPAD LEFT/RIGHT: Switch costume", (255, 230, 80));
+                self.font.draw_text(26, 192, "Tuxedo: Beat campaign. Camo: Rank S.", (180, 200, 220));
+                self.font.draw_text(26, 205, "DPAD LEFT/RIGHT: Switch costume", (255, 230, 80));
             }
             1 => {
-                self.font.draw_text(26, 195, "Experience Plattypus in early 90s PS1 vectors.", (180, 200, 220));
-                self.font.draw_text(26, 209, "DPAD LEFT/RIGHT: Toggle Wireframe", (255, 230, 80));
+                self.font.draw_text(26, 192, "Experience Plattypus in early 90s PS1 vectors.", (180, 200, 220));
+                self.font.draw_text(26, 205, "DPAD LEFT/RIGHT: Toggle Wireframe", (255, 230, 80));
             }
             2 => {
-                self.font.draw_text(26, 195, "Select game language / Choisir la langue.", (180, 200, 220));
-                self.font.draw_text(26, 209, "DPAD LEFT/RIGHT: Change Language", (255, 230, 80));
+                self.font.draw_text(26, 192, "Select menu language / Choisir la langue.", (180, 200, 220));
+                self.font.draw_text(26, 205, "DPAD LEFT/RIGHT: Change Language", (255, 230, 80));
             }
             3 => {
-                self.font.draw_text(26, 195, "Switch between 60Hz NTSC and 50Hz PAL modes.", (180, 200, 220));
-                self.font.draw_text(26, 209, "DPAD LEFT/RIGHT: Toggle Video Mode", (255, 230, 80));
+                self.font.draw_text(26, 192, "Switch between 60Hz NTSC and 50Hz PAL modes.", (180, 200, 220));
+                self.font.draw_text(26, 205, "DPAD LEFT/RIGHT: Toggle Video Mode", (255, 230, 80));
             }
             _ => {
-                self.font.draw_text(26, 195, "Adjust vertical display centering on CRT.", (180, 200, 220));
-                self.font.draw_text(26, 209, "DPAD LEFT/RIGHT: Shift Scanlines", (255, 230, 80));
+                self.font.draw_text(26, 192, "Adjust vertical display centering on CRT.", (180, 200, 220));
+                self.font.draw_text(26, 205, "DPAD LEFT/RIGHT: Shift Scanlines", (255, 230, 80));
             }
         }
+        self.font.draw_text(26, 222, "CIRCLE: RETURN TO TITLE SCREEN", (130, 180, 210));
     }
 
     pub fn draw_debriefing_screen(
@@ -2216,30 +2260,38 @@ impl Renderer {
         self.font.draw_text(75, 175, "PRESS CROSS FOR NEXT ACT BRIEFING", (255, 255, 255));
     }
 
-    pub fn draw_ending(&self, frame: u8) {
+    pub fn draw_ending(&self, frame: u8, codename: Option<crate::save::Codename>) {
         gpu::draw_rect_flat(0, 0, 320, 240, 30, 80, 140); // Sunset coastal sky
-        gpu::draw_rect_flat(0, 150, 320, 90, 220, 190, 130); // Golden sand beach
+        gpu::draw_rect_flat(0, 142, 320, 98, 220, 190, 130); // Golden sand beach
 
-        self.font.draw_text(70, 30, "MISSION ACCOMPLISHED!", (255, 240, 120));
-        self.font.draw_text(50, 50, "WELCOME TO THE WORLD, BABY PIP!", (255, 255, 255));
+        self.font.draw_text(70, 14, "MISSION ACCOMPLISHED!", (255, 240, 120));
+        self.font.draw_text(50, 28, "WELCOME TO THE WORLD, BABY PIP!", (255, 255, 255));
+
+        if let Some(c) = codename {
+            gpu::draw_rect_flat(30, 44, 260, 34, 15, 30, 45);
+            gpu::draw_rect_flat(32, 46, 256, 30, 10, 18, 28);
+            self.font.draw_text(40, 49, "OPERATIVE RANK:", (180, 220, 240));
+            self.font.draw_text(152, 49, c.name(), (255, 235, 80));
+            self.font.draw_text(40, 62, c.title(), (120, 255, 160));
+        }
 
         // Platty (big brother)
-        gpu::draw_rect_flat(80, 130, 48, 28, 145, 95, 48);
-        gpu::draw_rect_flat(120, 138, 26, 12, 65, 62, 60); // Bill
-        gpu::draw_rect_flat(75, 130, 56, 6, 30, 210, 75);  // Green bandana
+        gpu::draw_rect_flat(80, 118, 48, 28, 145, 95, 48);
+        gpu::draw_rect_flat(120, 126, 26, 12, 65, 62, 60); // Bill
+        gpu::draw_rect_flat(75, 118, 56, 6, 30, 210, 75);  // Green bandana
 
         // Baby sister Pip (little golden-brown hatchling platypus!)
         let pip_bounce = if (frame / 12) % 2 == 0 { 2 } else { 0 };
-        gpu::draw_rect_flat(175, 142 - pip_bounce, 24, 16, 200, 150, 90);
-        gpu::draw_rect_flat(195, 146 - pip_bounce, 14, 8, 80, 75, 70); // Tiny duck bill
-        gpu::draw_rect_flat(182, 140 - pip_bounce, 4, 4, 255, 150, 180); // Little pink bow!
+        gpu::draw_rect_flat(175, 130 - pip_bounce, 24, 16, 200, 150, 90);
+        gpu::draw_rect_flat(195, 134 - pip_bounce, 14, 8, 80, 75, 70); // Tiny duck bill
+        gpu::draw_rect_flat(182, 128 - pip_bounce, 4, 4, 255, 150, 180); // Little pink bow!
 
         // Golden egg shell fragments
-        gpu::draw_rect_flat(165, 150, 10, 8, 255, 240, 180);
-        gpu::draw_rect_flat(210, 150, 8, 8, 255, 240, 180);
+        gpu::draw_rect_flat(165, 138, 10, 8, 255, 240, 180);
+        gpu::draw_rect_flat(210, 138, 8, 8, 255, 240, 180);
 
-        self.font.draw_text(60, 185, "BURROW COMMAND: WE'RE SO PROUD!", (100, 255, 160));
-        self.font.draw_text(85, 215, "THANK YOU FOR PLAYING!", (255, 255, 255));
+        self.font.draw_text(60, 182, "BURROW COMMAND: WE'RE SO PROUD!", (100, 255, 160));
+        self.font.draw_text(85, 208, "THANK YOU FOR PLAYING!", (255, 255, 255));
     }
 
     pub fn draw_cinematic_letterbox(&self) {

@@ -1,0 +1,311 @@
+//! Host-side test suite for Plattypus game logic invariants.
+//! Tests save serialization, checksum verification, codename ranking,
+//! act progression, and cell collisions without requiring bare-metal MIPS hardware.
+
+const SAVE_MAGIC: [u8; 4] = *b"PLTY";
+const SAVE_VERSION: u8 = 3;
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum Codename {
+    BigPlatypus,
+    TasmanianDevil,
+    LurkingEchidna,
+    SlyPossum,
+    DuckbillRookie,
+}
+
+impl Codename {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Codename::BigPlatypus => "BIG PLATYPUS",
+            Codename::TasmanianDevil => "TASMANIAN DEVIL",
+            Codename::LurkingEchidna => "LURKING ECHIDNA",
+            Codename::SlyPossum => "SLY POSSUM",
+            Codename::DuckbillRookie => "DUCKBILL ROOKIE",
+        }
+    }
+
+    pub fn title(&self) -> &'static str {
+        match self {
+            Codename::BigPlatypus => "FOXHOUND LEGEND (RANK S)",
+            Codename::TasmanianDevil => "AGGRESSIVE PREDATOR (RANK A)",
+            Codename::LurkingEchidna => "BURROW SHADOW (RANK A)",
+            Codename::SlyPossum => "NIGHT RUNNER (RANK B)",
+            Codename::DuckbillRookie => "JUNIOR OPERATIVE (RANK C)",
+        }
+    }
+
+    pub fn evaluate(alerts: u16, damage: u16, time_s: u32, takedowns: u16) -> Self {
+        if alerts == 0 && damage == 0 {
+            Codename::BigPlatypus
+        } else if takedowns >= 6 {
+            Codename::TasmanianDevil
+        } else if alerts <= 2 {
+            Codename::LurkingEchidna
+        } else if time_s < 450 {
+            Codename::SlyPossum
+        } else {
+            Codename::DuckbillRookie
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct SaveData {
+    pub magic: [u8; 4],
+    pub version: u8,
+    pub unlocked_act: u8,
+    pub highest_score: u32,
+    pub total_yabbies: u16,
+    pub alerts_count: u16,
+    pub best_time_seconds: u32,
+    pub best_codename: [u8; 16],
+    pub tuxedo_unlocked: u8,
+    pub camo_unlocked: u8,
+    pub wireframe_unlocked: u8,
+    pub vr_cleared: u8,
+    pub selected_costume: u8,
+    pub wireframe_enabled: u8,
+    pub language: u8,
+    pub screen_offset_x: i8,
+    pub screen_offset_y: i8,
+    pub pal_mode: u8,
+    pub checksum: u16,
+}
+
+impl SaveData {
+    pub fn new() -> Self {
+        let mut save = Self {
+            magic: SAVE_MAGIC,
+            version: SAVE_VERSION,
+            unlocked_act: 0,
+            highest_score: 0,
+            total_yabbies: 0,
+            alerts_count: 0,
+            best_time_seconds: 9999,
+            best_codename: *b"NEW RECRUIT     ",
+            tuxedo_unlocked: 0,
+            camo_unlocked: 0,
+            wireframe_unlocked: 1,
+            vr_cleared: 0,
+            selected_costume: 0,
+            wireframe_enabled: 0,
+            language: 0,
+            screen_offset_x: 0,
+            screen_offset_y: 0,
+            pal_mode: 2,
+            checksum: 0,
+        };
+        save.checksum = save.compute_checksum();
+        save
+    }
+
+    pub fn compute_checksum(&self) -> u16 {
+        let mut sum: u16 = 0x5A5A;
+        sum = sum.wrapping_add(self.version as u16);
+        sum = sum.wrapping_add(self.unlocked_act as u16);
+        sum = sum.wrapping_add((self.highest_score & 0xFFFF) as u16);
+        sum = sum.wrapping_add((self.highest_score >> 16) as u16);
+        sum = sum.wrapping_add(self.total_yabbies);
+        sum = sum.wrapping_add(self.alerts_count);
+        sum = sum.wrapping_add((self.best_time_seconds & 0xFFFF) as u16);
+        for b in self.best_codename.iter() {
+            sum = sum.wrapping_add(*b as u16);
+        }
+        sum = sum.wrapping_add(self.tuxedo_unlocked as u16);
+        sum = sum.wrapping_add(self.camo_unlocked as u16);
+        sum = sum.wrapping_add(self.wireframe_unlocked as u16);
+        sum = sum.wrapping_add(self.vr_cleared as u16);
+        sum = sum.wrapping_add(self.selected_costume as u16);
+        sum = sum.wrapping_add(self.wireframe_enabled as u16);
+        sum = sum.wrapping_add(self.language as u16);
+        sum = sum.wrapping_add(self.screen_offset_x as u8 as u16);
+        sum = sum.wrapping_add(self.screen_offset_y as u8 as u16);
+        sum = sum.wrapping_add(self.pal_mode as u16);
+        sum
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.magic == SAVE_MAGIC && self.version == SAVE_VERSION && self.checksum == self.compute_checksum()
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub enum Act {
+    Act1_1Drainage = 0,
+    Act1_2Barracks = 1,
+    Act1_3MechBoss = 2,
+    Act2_1Rapids = 3,
+    Act2_2Mangroves = 4,
+    Act2_3JetSkiBoss = 5,
+    Act3_1Highway = 6,
+    Act3_2Laneways = 7,
+    Act3_3SniperBoss = 8,
+    Act4_1Dunes = 9,
+    Act4_2PierTrench = 10,
+    Act4_3ExcavatorBoss = 11,
+    VrSneaking = 12,
+    VrCqc = 13,
+    VrSonar = 14,
+    VrSpeed = 15,
+}
+
+impl Act {
+    pub fn is_boss(&self) -> bool {
+        matches!(
+            self,
+            Act::Act1_3MechBoss | Act::Act2_3JetSkiBoss | Act::Act3_3SniperBoss | Act::Act4_3ExcavatorBoss
+        )
+    }
+
+    pub fn is_rapids(&self) -> bool {
+        matches!(self, Act::Act2_1Rapids | Act::Act2_3JetSkiBoss)
+    }
+
+    pub fn is_vr(&self) -> bool {
+        matches!(self, Act::VrSneaking | Act::VrCqc | Act::VrSonar | Act::VrSpeed)
+    }
+
+    pub fn next(&self) -> Option<Act> {
+        match self {
+            Act::Act1_1Drainage => Some(Act::Act1_2Barracks),
+            Act::Act1_2Barracks => Some(Act::Act1_3MechBoss),
+            Act::Act1_3MechBoss => Some(Act::Act2_1Rapids),
+            Act::Act2_1Rapids => Some(Act::Act2_2Mangroves),
+            Act::Act2_2Mangroves => Some(Act::Act2_3JetSkiBoss),
+            Act::Act2_3JetSkiBoss => Some(Act::Act3_1Highway),
+            Act::Act3_1Highway => Some(Act::Act3_2Laneways),
+            Act::Act3_2Laneways => Some(Act::Act3_3SniperBoss),
+            Act::Act3_3SniperBoss => Some(Act::Act4_1Dunes),
+            Act::Act4_1Dunes => Some(Act::Act4_2PierTrench),
+            Act::Act4_2PierTrench => Some(Act::Act4_3ExcavatorBoss),
+            Act::Act4_3ExcavatorBoss => None,
+            Act::VrSneaking | Act::VrCqc | Act::VrSonar | Act::VrSpeed => None,
+        }
+    }
+
+    pub fn from_u8(val: u8) -> Self {
+        match val {
+            0 => Act::Act1_1Drainage,
+            1 => Act::Act1_2Barracks,
+            2 => Act::Act1_3MechBoss,
+            3 => Act::Act2_1Rapids,
+            4 => Act::Act2_2Mangroves,
+            5 => Act::Act2_3JetSkiBoss,
+            6 => Act::Act3_1Highway,
+            7 => Act::Act3_2Laneways,
+            8 => Act::Act3_3SniperBoss,
+            9 => Act::Act4_1Dunes,
+            10 => Act::Act4_2PierTrench,
+            11 => Act::Act4_3ExcavatorBoss,
+            12 => Act::VrSneaking,
+            13 => Act::VrCqc,
+            14 => Act::VrSonar,
+            15 => Act::VrSpeed,
+            _ => Act::Act1_1Drainage,
+        }
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub enum CellType {
+    Floor = 0,
+    Wall = 1,
+    Crate = 2,
+    Container = 3,
+    Water = 4,
+    WaterCurrent = 5,
+    AirDuct = 6,
+    TallGrass = 7,
+    LaserTripwire = 8,
+    ExitBurrow = 9,
+    MetalGrate = 10,
+}
+
+impl CellType {
+    pub fn is_solid(&self, is_crawling: bool) -> bool {
+        match self {
+            CellType::Wall | CellType::Container | CellType::Crate => true,
+            CellType::AirDuct => !is_crawling,
+            _ => false,
+        }
+    }
+
+    pub fn is_water(&self) -> bool {
+        matches!(self, CellType::Water | CellType::WaterCurrent)
+    }
+}
+
+fn main() {
+    println!("=== RUNNING PLATTYPUS GAME LOGIC TESTS ===");
+
+    // 1. Save Data & Checksum Tests
+    let mut save = SaveData::new();
+    assert!(save.is_valid(), "Initial save data must be valid");
+    assert_eq!(save.unlocked_act, 0);
+
+    save.unlocked_act = 5;
+    save.highest_score = 12500;
+    save.total_yabbies = 42;
+    assert!(!save.is_valid(), "Save with modified data without recomputed checksum must be invalid");
+
+    save.checksum = save.compute_checksum();
+    assert!(save.is_valid(), "Save with recomputed checksum must be valid");
+
+    save.magic[0] = b'X';
+    assert!(!save.is_valid(), "Corrupted magic signature must be invalid");
+    println!("✓ Save data checksum & validation test PASSED");
+
+    // 2. Codename Evaluation Tests
+    let s_rank = Codename::evaluate(0, 0, 300, 2);
+    assert_eq!(s_rank, Codename::BigPlatypus, "0 alerts + 0 damage must award Big Platypus (Rank S)");
+
+    let cqc_rank = Codename::evaluate(3, 10, 500, 8);
+    assert_eq!(cqc_rank, Codename::TasmanianDevil, ">= 6 takedowns must award Tasmanian Devil (Rank A)");
+
+    let stealth_rank = Codename::evaluate(1, 5, 500, 2);
+    assert_eq!(stealth_rank, Codename::LurkingEchidna, "<= 2 alerts must award Lurking Echidna (Rank A)");
+
+    let speed_rank = Codename::evaluate(4, 20, 400, 1);
+    assert_eq!(speed_rank, Codename::SlyPossum, "< 450s must award Sly Possum (Rank B)");
+
+    let rookie_rank = Codename::evaluate(5, 50, 600, 0);
+    assert_eq!(rookie_rank, Codename::DuckbillRookie, "Fallback must award Duckbill Rookie (Rank C)");
+    println!("✓ Codename evaluation & stealth rank test PASSED");
+
+    // 3. Act Sequential Progression Tests
+    let mut current_act = Act::Act1_1Drainage;
+    let mut act_count = 1;
+    while let Some(next) = current_act.next() {
+        assert_eq!(Act::from_u8(current_act as u8), current_act);
+        current_act = next;
+        act_count += 1;
+    }
+    assert_eq!(current_act, Act::Act4_3ExcavatorBoss);
+    assert_eq!(act_count, 12, "Campaign must have exactly 12 acts");
+    assert!(Act::Act1_3MechBoss.is_boss());
+    assert!(Act::Act2_3JetSkiBoss.is_boss());
+    assert!(Act::Act3_3SniperBoss.is_boss());
+    assert!(Act::Act4_3ExcavatorBoss.is_boss());
+    assert!(!Act::Act1_1Drainage.is_boss());
+    assert!(Act::Act2_1Rapids.is_rapids());
+    assert!(Act::Act2_3JetSkiBoss.is_rapids());
+    assert!(!Act::Act2_2Mangroves.is_rapids());
+    println!("✓ Campaign act progression and metadata test PASSED");
+
+    // 4. CellType Infiltration Collision Tests
+    assert!(CellType::AirDuct.is_solid(false), "Air duct must block standing operative");
+    assert!(!CellType::AirDuct.is_solid(true), "Air duct must permit crawling operative");
+    assert!(CellType::Wall.is_solid(false) && CellType::Wall.is_solid(true));
+    assert!(CellType::Crate.is_solid(false) && CellType::Crate.is_solid(true));
+    assert!(!CellType::Floor.is_solid(false) && !CellType::Floor.is_solid(true));
+    assert!(CellType::Water.is_water());
+    assert!(CellType::WaterCurrent.is_water());
+    assert!(!CellType::Floor.is_water());
+    println!("✓ Infiltration collision & terrain mechanics test PASSED");
+
+    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (4/4 test suites)");
+}

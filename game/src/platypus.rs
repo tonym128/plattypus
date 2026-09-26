@@ -103,8 +103,8 @@ impl Platypus {
         self.angle = 128; // Face North / Forward towards the stage mission!
         self.state = PlayerState::Standing;
         self.crawl_mode = false;
-        self.has_box = false;
         self.in_box = false;
+        // NOTE: has_box, score, and yabbies_collected persist across stage transitions!
         self.electro_charge = 0;
         self.electro_timer = 0;
         self.strike_timer = 0;
@@ -117,8 +117,15 @@ impl Platypus {
         self.rumble_large_intensity = 0;
         self.health = self.max_health;
         self.air = 100;
-        self.yabbies_collected = 0;
+    }
+
+    pub fn reset_for_new_game(&mut self) {
         self.score = 0;
+        self.yabbies_collected = 0;
+        self.takedowns = 0;
+        self.total_damage = 0;
+        self.has_box = false;
+        self.in_box = false;
     }
 
     pub fn trigger_rumble_small(&mut self, duration: u8) {
@@ -211,7 +218,7 @@ impl Platypus {
 
         // Water submersion vs Land/Rapids Jump/Crawl
         if in_water && !is_rapids {
-            if buttons.is_held(button::CROSS) {
+            if buttons.is_held(button::CROSS) || buttons.is_held(button::SQUARE) {
                 self.state = PlayerState::Submerged;
                 self.y = 18; // Submerged depth
                 if self.air > 0 {
