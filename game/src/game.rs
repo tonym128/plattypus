@@ -5,7 +5,7 @@ use crate::audio::AudioManager;
 use crate::codec::{CodecManager, INTRO_DIALOGUE, ACT1_1_DIALOGUE, get_act_dialogue};
 use crate::dualshock::DualShockController;
 use crate::entities::EntityManager;
-use crate::level::{Act, CellType, Level, TILE_SZ};
+use crate::level::{Act, Level, TILE_SZ};
 use crate::platypus::{PlayerState, Platypus};
 use crate::renderer::Renderer;
 use psx_gpu as gpu;
@@ -355,61 +355,61 @@ impl Game {
                     *timer += 1;
 
                     // Simulated demo inputs for each act (gameplay only, no CODEC)
-                    // UP = North (-Z), DOWN = South (+Z)
+                    // DOWN = North (-Z), UP = South (+Z) [controls now inverted]
                     let sim_buttons = match *act {
                         Act::Act1_1Drainage | Act::Act1_2Barracks => {
                             if *timer < 50 {
-                                ButtonState::from_bits(button::DOWN)
-                            } else if *timer < 100 {
-                                ButtonState::from_bits(button::RIGHT)
-                            } else {
-                                ButtonState::from_bits(button::CIRCLE | button::DOWN)
-                            }
-                        }
-                        Act::Act1_3MechBoss | Act::Act2_3JetSkiBoss | Act::Act3_3SniperBoss | Act::Act4_3ExcavatorBoss => {
-                            if *timer < 50 {
                                 ButtonState::from_bits(button::UP)
                             } else if *timer < 100 {
-                                ButtonState::from_bits(button::RIGHT)
+                                ButtonState::from_bits(button::LEFT)
                             } else {
                                 ButtonState::from_bits(button::CIRCLE | button::UP)
                             }
                         }
+                        Act::Act1_3MechBoss | Act::Act2_3JetSkiBoss | Act::Act3_3SniperBoss | Act::Act4_3ExcavatorBoss => {
+                            if *timer < 50 {
+                                ButtonState::from_bits(button::DOWN)
+                            } else if *timer < 100 {
+                                ButtonState::from_bits(button::LEFT)
+                            } else {
+                                ButtonState::from_bits(button::CIRCLE | button::DOWN)
+                            }
+                        }
                         Act::Act2_1Rapids | Act::Act2_2Mangroves => {
                             if *timer < 50 {
-                                ButtonState::from_bits(button::LEFT)
+                                ButtonState::from_bits(button::RIGHT)
                             } else if *timer < 90 {
                                 ButtonState::from_bits(button::CROSS)
                             } else {
-                                ButtonState::from_bits(button::RIGHT)
+                                ButtonState::from_bits(button::LEFT)
                             }
                         }
                         Act::Act3_1Highway => {
                             if (*timer / 25) % 2 == 0 {
-                                ButtonState::from_bits(button::UP)
+                                ButtonState::from_bits(button::DOWN)
                             } else {
                                 ButtonState::NONE
                             }
                         }
                         Act::Act3_2Laneways => {
                             if *timer < 60 {
-                                ButtonState::from_bits(button::SQUARE | button::UP)
+                                ButtonState::from_bits(button::SQUARE | button::DOWN)
                             } else {
-                                ButtonState::from_bits(button::UP)
+                                ButtonState::from_bits(button::DOWN)
                             }
                         }
                         Act::Act4_1Dunes | Act::Act4_2PierTrench => {
                             if (*timer / 30) % 2 == 0 {
-                                ButtonState::from_bits(button::CROSS | button::RIGHT | button::UP)
+                                ButtonState::from_bits(button::CROSS | button::LEFT | button::DOWN)
                             } else {
-                                ButtonState::from_bits(button::RIGHT | button::UP)
+                                ButtonState::from_bits(button::LEFT | button::DOWN)
                             }
                         }
                         Act::VrSneaking | Act::VrCqc | Act::VrSonar | Act::VrSpeed => {
                             if *timer < 60 {
-                                ButtonState::from_bits(button::UP)
+                                ButtonState::from_bits(button::DOWN)
                             } else {
-                                ButtonState::from_bits(button::CIRCLE | button::UP)
+                                ButtonState::from_bits(button::CIRCLE | button::DOWN)
                             }
                         }
                     };
@@ -597,14 +597,9 @@ impl Game {
                     // Check exit or goal reached
                     let reached_exit = match self.level.act {
                         Act::Act1_3MechBoss => {
-                            if self.entities.boss_mech.is_defeated() {
-                                self.level.set_cell(11, 1, CellType::ExitBurrow);
-                                self.level.set_cell(12, 1, CellType::ExitBurrow);
-                                self.level.set_cell(13, 1, CellType::ExitBurrow);
-                                self.platty.z <= 2 * TILE_SZ || self.level.is_exit_at(self.platty.x, self.platty.z)
-                            } else {
-                                false
-                            }
+                            // Stage ends immediately when the mech boss is defeated,
+                            // consistent with how the other boss stages (Act2/3/4) work.
+                            self.entities.boss_mech.is_defeated()
                         }
                         Act::Act2_3JetSkiBoss => self.entities.boss_jetski.is_defeated(),
                         Act::Act3_3SniperBoss => self.entities.boss_sniper.is_defeated(),

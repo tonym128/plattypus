@@ -624,8 +624,8 @@ impl Platypus {
                 let speed = speed.max(1);
 
                 self.vx = (sx_i32 * speed) / 127;
-                // Stick UP (negative sy) = North / forward (-Z), stick DOWN (positive sy) = South / backward (+Z)
-                self.vz = (sy_i32 * speed) / 127;
+                // Stick UP (negative sy) = South (+Z), stick DOWN (positive sy) = North (-Z)
+                self.vz = (-sy_i32 * speed) / 127;
 
                 if level.act.is_rapids() {
                     self.vz -= 2; // Rushing downriver!
@@ -667,12 +667,12 @@ impl Platypus {
             let mut move_x = 0;
             let mut move_z = 0;
 
-            // UP = North / forward (-Z), DOWN = South / backward (+Z)
+            // UP = South (+Z), DOWN = North (-Z), LEFT = West (-X), RIGHT = East (+X)
             if btn_up {
-                move_z -= 1;
+                move_z += 1;
             }
             if btn_down {
-                move_z += 1;
+                move_z -= 1;
             }
             if btn_left {
                 move_x -= 1;
@@ -702,21 +702,21 @@ impl Platypus {
 
                 // Facing angle: 0=South (+Z), 64=East (+X), 128=North (-Z), 192=West (-X)
                 if move_x > 0 && move_z == 0 {
-                    self.angle = 64;
+                    self.angle = 64;  // East
                 } else if move_x < 0 && move_z == 0 {
-                    self.angle = 192;
+                    self.angle = 192; // West
                 } else if move_z > 0 && move_x == 0 {
-                    self.angle = 0;
+                    self.angle = 0;   // South
                 } else if move_z < 0 && move_x == 0 {
-                    self.angle = 128;
+                    self.angle = 128; // North
                 } else if move_x > 0 && move_z > 0 {
-                    self.angle = 32;
+                    self.angle = 32;  // SE
                 } else if move_x > 0 && move_z < 0 {
-                    self.angle = 96;
+                    self.angle = 96;  // NE
                 } else if move_x < 0 && move_z > 0 {
-                    self.angle = 224;
+                    self.angle = 224; // SW
                 } else if move_x < 0 && move_z < 0 {
-                    self.angle = 160;
+                    self.angle = 160; // NW
                 }
 
                 if self.in_box {
@@ -855,12 +855,30 @@ impl Platypus {
                     }
                 }
 
-                // Physical Mech body collision
+                // Physical Mech body collision.
+                // If the mech is actively walking toward the player it rammed us
+                // → deal damage + knockback.  If the player walked into the mech
+                // (mech is stationary or moving away) → bounce them back, no damage.
                 let dx = (self.x - mech.x).abs();
                 let dz = (self.z - mech.z).abs();
                 if dx < 36 && dz < 36 && mech.y >= -10 {
-                    self.take_damage(1);
-                    self.vz = 8;
+                    // mech.walk_dir is +1 (walking right/+X) or -1 (walking left/-X).
+                    // The mech is "moving toward" the player when its direction closes
+                    // the signed X gap between them.
+                    let signed_dx = self.x - mech.x;
+                    let mech_approaching = (mech.walk_dir > 0 && signed_dx > 0)
+                        || (mech.walk_dir < 0 && signed_dx < 0);
+                    if mech_approaching {
+                        // Mech walked into Platty — deal damage and knock back
+                        self.take_damage(1);
+                        self.vx = mech.walk_dir * 8;
+                        self.vz = 6;
+                        self.trigger_rumble_large(16, 200);
+                    } else {
+                        // Platty walked into the mech — bounce off, no damage
+                        self.vx = -mech.walk_dir * 6;
+                        self.vz = -4;
+                    }
                 }
             }
         }
