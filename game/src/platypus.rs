@@ -866,18 +866,19 @@ impl Platypus {
                     // The mech is "moving toward" the player when its direction closes
                     // the signed X gap between them.
                     let signed_dx = self.x - mech.x;
+                    let signed_dz = self.z - mech.z;
                     let mech_approaching = (mech.walk_dir > 0 && signed_dx > 0)
                         || (mech.walk_dir < 0 && signed_dx < 0);
                     if mech_approaching {
                         // Mech walked into Platty — deal damage and knock back
                         self.take_damage(1);
                         self.vx = mech.walk_dir * 8;
-                        self.vz = 6;
+                        self.vz = if signed_dz < 0 { -6 } else { 6 };
                         self.trigger_rumble_large(16, 200);
                     } else {
                         // Platty walked into the mech — bounce off, no damage
                         self.vx = -mech.walk_dir * 6;
-                        self.vz = -4;
+                        self.vz = if signed_dz < 0 { -4 } else { 4 };
                     }
                 }
             }

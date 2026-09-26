@@ -129,6 +129,34 @@ def encode_macroblock(buf, blk, ys, cs):
     return off
 
 
+def encode_ycbcr(data, luma_scale=16, chroma_scale=24,
+                 width=DEFAULT_WIDTH, height=DEFAULT_HEIGHT):
+    """
+    Encode an already converted YCbCr array (H, W, 3) in [Y, Cb, Cr] order
+    into an MDEC bitstream.
+
+    Parameters
+    ----------
+    data         : numpy uint8 array (H, W, 3) where channels are [Y, Cb, Cr]
+    luma_scale   : quantisation scale for luma blocks (1–63)
+    chroma_scale : quantisation scale for chroma blocks (1–63)
+    width        : output width in pixels (multiple of 16)
+    height       : output height in pixels (multiple of 16)
+
+    Returns
+    -------
+    (rl_bytes, data_words)
+    """
+    buf = np.empty(0x80000, np.uint16)
+    off = 0
+    for x in range(0, width, 16):
+        for y in range(0, height, 16):
+            off += encode_macroblock(buf[off:], data[y:y+16, x:x+16], luma_scale, chroma_scale)
+
+    data_words = (off + 1) // 2
+    return buf[:data_words * 2].tobytes(), data_words
+
+
 def encode_frame(frame_bgr, luma_scale=16, chroma_scale=24,
                  width=DEFAULT_WIDTH, height=DEFAULT_HEIGHT):
     """
@@ -151,22 +179,28 @@ def encode_frame(frame_bgr, luma_scale=16, chroma_scale=24,
     import cv2  # imported here so unit tests don't require cv2
     resized = cv2.resize(frame_bgr, (width, height), interpolation=cv2.INTER_AREA)
     ycbcr = cv2.cvtColor(resized, cv2.COLOR_BGR2YCrCb)
-    y_plane  = ycbcr[:, :, 0]
-    cr_plane = ycbcr[:, :, 1]
-    cb_plane = ycbcr[:, :, 2]
-    data = np.stack([y_plane, cb_plane, cr_plane], axis=2)
+    data = np.stack([ycbcr[:, :, 0], ycbcr[:, :, 2], ycbcr[:, :, 1]], axis=2)
+    return encode_ycbcr(data, luma_scale=luma_scale, chroma_scale=chroma_scale,
+                        width=width, height=height)
 
-    buf = np.empty(0x80000, np.uint16)
-    off = 0
-    for x in range(0, width, 16):
-        for y in range(0, height, 16):
-            off += encode_macroblock(buf[off:], data[y:y+16, x:x+16], luma_scale, chroma_scale)
 
-    # `off` counts 16-bit MDEC run/level values. The MDEC command length
-    # and DMA transfer are measured in 32-bit words, so retain both
-    # halfwords in every word instead of truncating the stream to half size.
-    data_words = (off + 1) // 2
-    return buf[:data_words * 2].tobytes(), data_words
+def encode_ycbcr_adaptive(data, max_payload_bytes,
+                          width=DEFAULT_WIDTH, height=DEFAULT_HEIGHT):
+    """
+    Encode preprocessed YCbCr data, increasing the quantisation scale until
+    the bitstream fits within max_payload_bytes (including 4-byte command word).
+    """
+    for scale in range(16, 64, 2):
+        chroma = min(63, int(scale * 1.25))
+        rl_bytes, data_words = encode_ycbcr(data, luma_scale=scale,
+                                            chroma_scale=chroma,
+                                            width=width, height=height)
+        dma_words = (data_words + 31) & ~31
+        if 4 + dma_words * 4 <= max_payload_bytes:
+            return rl_bytes, data_words, scale
+    rl_bytes, data_words = encode_ycbcr(data, luma_scale=63, chroma_scale=63,
+                                        width=width, height=height)
+    return rl_bytes, data_words, 63
 
 
 def encode_frame_adaptive(frame_bgr, max_payload_bytes,
@@ -174,22 +208,17 @@ def encode_frame_adaptive(frame_bgr, max_payload_bytes,
     """
     Encode a frame, increasing the quantisation scale until the bitstream fits
     within *max_payload_bytes* (which must include the 4-byte MDEC command word).
+    Performs resize and color conversion once per frame.
 
     Returns
     -------
     (rl_bytes, data_words, used_scale)
     """
-    for scale in range(16, 64, 2):
-        chroma = min(63, int(scale * 1.25))
-        rl_bytes, data_words = encode_frame(frame_bgr, luma_scale=scale,
-                                            chroma_scale=chroma,
-                                            width=width, height=height)
-        dma_words = (data_words + 31) & ~31
-        if 4 + dma_words * 4 <= max_payload_bytes:
-            return rl_bytes, data_words, scale
-    rl_bytes, data_words = encode_frame(frame_bgr, luma_scale=63, chroma_scale=63,
-                                        width=width, height=height)
-    return rl_bytes, data_words, 63
+    import cv2
+    resized = cv2.resize(frame_bgr, (width, height), interpolation=cv2.INTER_AREA)
+    ycbcr = cv2.cvtColor(resized, cv2.COLOR_BGR2YCrCb)
+    data = np.stack([ycbcr[:, :, 0], ycbcr[:, :, 2], ycbcr[:, :, 1]], axis=2)
+    return encode_ycbcr_adaptive(data, max_payload_bytes, width=width, height=height)
 
 
 # ---------------------------------------------------------------------------
@@ -242,39 +271,13 @@ class TestMdecEncoder(unittest.TestCase):
     # 3. encode_frame_adaptive fits payload
     # ------------------------------------------------------------------
     def test_adaptive_scale_fits(self):
-        """encode_frame_adaptive result must fit within max_payload_bytes."""
-        # Build a synthetic YCbCr frame and call the encode path directly,
-        # bypassing cv2 by operating at the encode_frame level.
+        """encode_ycbcr_adaptive result must fit within max_payload_bytes."""
         width, height = 320, 240
         max_payload_bytes = DEFAULT_FRAME_WORDS * 4  # 16384
-
-        # Use a pure-numpy encode path: manufacture the ycbcr data array
-        # ourselves and call encode_macroblock directly (same as encode_frame
-        # but without cv2.resize / cv2.cvtColor).
-        def _encode_frame_no_cv2(ys, cs):
-            data = self._solid_ycbcr_frame(width, height)
-            buf = np.empty(0x80000, np.uint16)
-            off = 0
-            for x in range(0, width, 16):
-                for y in range(0, height, 16):
-                    off += encode_macroblock(buf[off:], data[y:y+16, x:x+16], ys, cs)
-            data_words = (off + 1) // 2
-            return buf[:data_words * 2].tobytes(), data_words
-
-        # Mirror encode_frame_adaptive logic without cv2
-        result = None
-        for scale in range(16, 64, 2):
-            chroma = min(63, int(scale * 1.25))
-            rl_bytes, data_words = _encode_frame_no_cv2(scale, chroma)
-            dma_words = (data_words + 31) & ~31
-            if 4 + dma_words * 4 <= max_payload_bytes:
-                result = (rl_bytes, data_words, scale)
-                break
-        if result is None:
-            rl_bytes, data_words = _encode_frame_no_cv2(63, 63)
-            result = (rl_bytes, data_words, 63)
-
-        rl_bytes, data_words, used_scale = result
+        data = self._solid_ycbcr_frame(width, height)
+        rl_bytes, data_words, used_scale = encode_ycbcr_adaptive(
+            data, max_payload_bytes, width=width, height=height
+        )
         dma_words = (data_words + 31) & ~31
         payload_size = 4 + dma_words * 4
         self.assertLessEqual(payload_size, max_payload_bytes,
@@ -363,6 +366,10 @@ def build_parser():
     parser.add_argument("--no-adaptive", action="store_true",
                         help="Disable adaptive quantisation; use fixed "
                              "--luma-scale / --chroma-scale values")
+    parser.add_argument("--embedded", metavar="PATH", default=None,
+                        help="Optional output path for embedded ROM fallback bitstream (first N frames)")
+    parser.add_argument("--embedded-frames", type=int, default=16, metavar="N",
+                        help="Number of initial frames to include in embedded fallback output (default: 16)")
     parser.add_argument("--verbose", action="store_true",
                         help="Print per-frame encoding statistics")
     parser.add_argument("--selftest", action="store_true",
@@ -440,6 +447,7 @@ def main():
     )
 
     full_data     = bytearray()
+    embedded_data = bytearray()
     max_words_used = 0
     frames_written = 0
 
@@ -489,6 +497,8 @@ def main():
         # Pad remainder of the frame slot with zeros
         frame_payload += b"\x00" * (FRAME_BYTES - len(frame_payload))
         full_data.extend(frame_payload)
+        if args.embedded and i < args.embedded_frames:
+            embedded_data.extend(frame_payload)
         frames_written += 1
 
         if args.verbose or (i + 1) % 15 == 0 or i == target_frames - 1:
@@ -508,6 +518,14 @@ def main():
         print(f"Error: could not write output file '{args.output}': {e}", file=sys.stderr)
         sys.exit(1)
 
+    if args.embedded:
+        try:
+            with open(args.embedded, "wb") as f:
+                f.write(embedded_data)
+        except OSError as e:
+            print(f"Error: could not write embedded file '{args.embedded}': {e}", file=sys.stderr)
+            sys.exit(1)
+
     total_bytes = len(full_data)
     print(
         f"\nDone.\n"
@@ -515,6 +533,11 @@ def main():
         f"  Total bytes    : {total_bytes} ({total_bytes // 2048} sectors)\n"
         f"  Output file    : {args.output}"
     )
+    if args.embedded:
+        print(
+            f"  Embedded file  : {args.embedded} "
+            f"({min(frames_written, args.embedded_frames)} frames, {len(embedded_data)} bytes)"
+        )
 
 
 if __name__ == "__main__":

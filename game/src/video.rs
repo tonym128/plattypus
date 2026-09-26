@@ -61,8 +61,7 @@ pub struct VideoPlayer {
     pub using_cd: bool,
     pub cd_start_lba: u32,
     last_decoded_frame: u16,
-    last_uploaded_frame: u16,
-    last_uploaded_buffer: u8,
+    saved_irq_mask: u32,
     cache_start_frame: u16,
     cached_frames: u8,
     cd_reader: SectorReader,
@@ -81,8 +80,7 @@ impl VideoPlayer {
             using_cd: false,
             cd_start_lba: 0,
             last_decoded_frame: 0xFFFF,
-            last_uploaded_frame: 0xFFFF,
-            last_uploaded_buffer: 0xFF,
+            saved_irq_mask: 0,
             cache_start_frame: 0xFFFF,
             cached_frames: 0,
             cd_reader: SectorReader::new(),
@@ -203,13 +201,12 @@ impl VideoPlayer {
         self.tick = 0;
         self.finished = false;
         self.total_frames = TOTAL_FRAMES;
-        self.ticks_per_frame = 1;
+        self.ticks_per_frame = 4; // 60 Hz / 4 = 15 fps
         self.last_decoded_frame = 0xFFFF;
-        self.last_uploaded_frame = 0xFFFF;
-        self.last_uploaded_buffer = 0xFF;
         self.using_cd = false;
         self.cache_start_frame = 0xFFFF;
         self.cached_frames = 0;
+        self.saved_irq_mask = psx_io::irq::mask();
 
         // Reset and initialize hardware MDEC coprocessor with standard tables
         psx_rt::tty::println("[VIDEO] Initializing MDEC...");
@@ -251,8 +248,8 @@ impl VideoPlayer {
         if self.using_cd {
             unsafe {
                 self.cd_reader.stop();
-                // Restore standard VBlank IRQ mask
-                psx_io::irq::set_mask(1 << psx_io::irq::source::VBLANK);
+                // Restore previous IRQ mask
+                psx_io::irq::set_mask(self.saved_irq_mask);
             }
             self.using_cd = false;
         }
@@ -367,7 +364,7 @@ impl VideoPlayer {
                             while psx_io::mdec::read_stat() & psx_hw::mdec::status::DATA_OUT_EMPTY != 0
                                 && (psx_io::mdec::is_busy()
                                     || psx_io::dma::is_busy(psx_io::dma::Channel::MdecIn))
-                                && spins < 5_000_000
+                                && spins < 10_000
                             {
                                 spins += 1;
                                 core::hint::spin_loop();
