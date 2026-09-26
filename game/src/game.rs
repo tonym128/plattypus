@@ -601,7 +601,11 @@ impl Game {
                             // consistent with how the other boss stages (Act2/3/4) work.
                             self.entities.boss_mech.is_defeated()
                         }
-                        Act::Act2_3JetSkiBoss => self.entities.boss_jetski.is_defeated(),
+                        Act::Act2_3JetSkiBoss => {
+                            self.entities.boss_jetski.is_defeated()
+                                || self.platty.z <= 3 * TILE_SZ
+                                || self.level.is_exit_at(self.platty.x, self.platty.z)
+                        }
                         Act::Act3_3SniperBoss => self.entities.boss_sniper.is_defeated(),
                         Act::Act4_3ExcavatorBoss => self.entities.boss_excavator.is_defeated(),
                         Act::Act2_1Rapids => self.platty.z <= 3 * TILE_SZ || self.level.is_exit_at(self.platty.x, self.platty.z),
