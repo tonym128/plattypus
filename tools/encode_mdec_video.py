@@ -173,7 +173,7 @@ def encode_frame_adaptive(frame_bgr, max_payload_bytes,
                           width=DEFAULT_WIDTH, height=DEFAULT_HEIGHT):
     """
     Encode a frame, increasing the quantisation scale until the bitstream fits
-    within *max_payload_bytes* (which includes the 4-byte command word).
+    within *max_payload_bytes* (which must include the 4-byte MDEC command word).
 
     Returns
     -------
@@ -305,6 +305,16 @@ class TestMdecEncoder(unittest.TestCase):
             self.assertEqual(low16, dma_words & 0xFFFF,
                              f"Command word low 16 bits wrong for dma_words={dma_words}")
 
+    # ------------------------------------------------------------------
+    # 6. Frame words slot validation
+    # ------------------------------------------------------------------
+    def test_frame_words_slot_validation(self):
+        """Frame words slot must be a positive multiple of 32 (DMA block size)."""
+        self.assertTrue(DEFAULT_FRAME_WORDS >= 32 and DEFAULT_FRAME_WORDS % 32 == 0)
+        self.assertEqual(DEFAULT_FRAME_WORDS * 4 % 2048, 0,
+                         "Default frame slot size in bytes is not sector-aligned")
+
+
 
 # ---------------------------------------------------------------------------
 # CLI entry point
@@ -378,7 +388,12 @@ def main():
         print(f"Error: --height {args.height} is not a multiple of 16", file=sys.stderr)
         sys.exit(1)
 
-    # ---- Validate scales ----------------------------------------------------
+    # ---- Validate frame slot words ------------------------------------------
+    if args.frame_words < 32 or args.frame_words % 32 != 0:
+        print(f"Error: --frame-words ({args.frame_words}) must be a multiple of 32 and at least 32",
+              file=sys.stderr)
+        sys.exit(1)
+
     for name, val in [("--luma-scale", args.luma_scale),
                       ("--chroma-scale", args.chroma_scale)]:
         if val is not None and not (1 <= val <= 63):
