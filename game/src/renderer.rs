@@ -442,11 +442,28 @@ impl Renderer {
             }
             CellType::Crate => {
                 self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b, act);
+                // Subtle dark ground shadow / ambient occlusion footprint beneath crate
+                let (sr, sg, sb) = (floor_r / 2, floor_g / 2, floor_b / 2);
+                Self::draw_quad_3d(
+                    Vec3I16::new((wx + 6) as i16, 0, (wz + 6) as i16),
+                    Vec3I16::new((wx + 58) as i16, 0, (wz + 6) as i16),
+                    Vec3I16::new((wx + 6) as i16, 0, (wz + 60) as i16),
+                    Vec3I16::new((wx + 58) as i16, 0, (wz + 60) as i16),
+                    sr, sg, sb,
+                );
                 // 48x48x48 cargo crate with texture & Gouraud shading
                 self.draw_box_3d_textured(wx + 8, wz + 8, 48, 48, 48, TextureId::Crate, (180, 180, 180));
             }
             CellType::Container => {
                 self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b, act);
+                let (sr, sg, sb) = (floor_r / 2, floor_g / 2, floor_b / 2);
+                Self::draw_quad_3d(
+                    Vec3I16::new(wx as i16, 0, wz as i16),
+                    Vec3I16::new((wx + 64) as i16, 0, wz as i16),
+                    Vec3I16::new(wx as i16, 0, (wz + 64) as i16),
+                    Vec3I16::new((wx + 64) as i16, 0, (wz + 64) as i16),
+                    sr, sg, sb,
+                );
                 let (c_tex, c_col, h) = match act.chapter() {
                     1 => (TextureId::ConcreteWall, (150, 150, 150), 70),
                     2 => (TextureId::RiverLog, (140, 140, 140), 64),
@@ -488,6 +505,14 @@ impl Renderer {
             }
             CellType::AirDuct => {
                 self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b, act);
+                let (sr, sg, sb) = (floor_r / 2, floor_g / 2, floor_b / 2);
+                Self::draw_quad_3d(
+                    Vec3I16::new((wx + 6) as i16, 0, (wz + 6) as i16),
+                    Vec3I16::new((wx + 58) as i16, 0, (wz + 6) as i16),
+                    Vec3I16::new((wx + 6) as i16, 0, (wz + 60) as i16),
+                    Vec3I16::new((wx + 58) as i16, 0, (wz + 60) as i16),
+                    sr, sg, sb,
+                );
                 // Low ventilation shaft passable only when crawling
                 self.draw_box_3d_textured(wx + 8, wz + 8, 48, 24, 48, TextureId::MetalGrate, (150, 150, 150));
             }

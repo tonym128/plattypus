@@ -505,12 +505,12 @@ pub fn gouraud_face_colors(
 ) -> [(u8, u8, u8); 4] {
     // Light intensity percentages for vertices [TL, TR, BL, BR]
     let (i0, i1, i2, i3) = match face_type {
-        FaceDirection::Top => (105, 95, 95, 85),          // Overhead direct sunlight
-        FaceDirection::Front => (90, 80, 75, 65),         // Front specular falloff
-        FaceDirection::Back => (70, 60, 55, 45),          // Back ambient shadow
-        FaceDirection::Left => (85, 75, 70, 60),          // Key-light side
-        FaceDirection::Right => (65, 55, 50, 40),         // Fill-light side
-        FaceDirection::Bottom => (45, 40, 35, 30),        // Occluded ground shadow
+        FaceDirection::Top => (108, 98, 98, 88),          // Overhead direct sunlight
+        FaceDirection::Front => (92, 85, 78, 70),         // Front specular falloff
+        FaceDirection::Back => (58, 50, 46, 38),          // Back ambient shadow
+        FaceDirection::Left => (68, 62, 56, 50),          // Key-light side (distinct step from front)
+        FaceDirection::Right => (54, 48, 44, 38),         // Fill-light side (deep shadow)
+        FaceDirection::Bottom => (38, 32, 28, 22),        // Occluded ground shadow
     };
 
     [
