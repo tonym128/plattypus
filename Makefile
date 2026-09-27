@@ -34,7 +34,9 @@ disc: exe
 		--volume PLATTYPUS \
 		--cdda-track $(ROOT)/Music/title_music.cdda \
 		--str-file $(ROOT)/Videos/INTRO.STR \
-		--str-file $(ROOT)/Videos/INTRO.VID
+		--str-file $(ROOT)/Videos/INTRO.VID \
+		--str-file $(ROOT)/Videos/OUTRO.STR \
+		--str-file $(ROOT)/Videos/OUTRO.VID
 	@echo "SUCCESS! Bootable PS1 Disc Mastered:"
 	@echo "  CUE: $(DIST)/plattypus.cue"
 	@echo "  BIN: $(DIST)/plattypus.bin"

@@ -50,7 +50,14 @@ impl VideoStorage {
 
 static mut STORAGE: VideoStorage = VideoStorage::new();
 
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum VideoKind {
+    Intro,
+    Outro,
+}
+
 pub struct VideoPlayer {
+    pub kind: VideoKind,
     pub frame_idx: u16,
     pub tick: u8,
     pub ticks_per_frame: u8,
@@ -70,6 +77,7 @@ pub struct VideoPlayer {
 impl VideoPlayer {
     pub fn new() -> Self {
         Self {
+            kind: VideoKind::Intro,
             frame_idx: 0,
             tick: 0,
             ticks_per_frame: 4, // 60 Hz / 4 = 15 fps
@@ -87,8 +95,8 @@ impl VideoPlayer {
         }
     }
 
-    /// Locate INTRO.VID on disc by scanning the ISO 9660 root directory (Sector 20).
-    unsafe fn find_intro_vid_lba(reader: &mut SectorReader, storage: &mut VideoStorage) -> Option<u32> {
+    /// Locate specified video file on disc by scanning the ISO 9660 root directory (Sector 20).
+    unsafe fn find_vid_lba(filename: &[u8], reader: &mut SectorReader, storage: &mut VideoStorage) -> Option<u32> {
         psx_rt::tty::println("[VIDEO] Scanning root directory (Sector 20)...");
         // Sector 20 is the ISO 9660 root directory extent
         // Use the reader's implicit SetLoc+ReadN path here. The explicit BIOS
@@ -128,8 +136,8 @@ impl VideoPlayer {
             let name_len = bytes[off + 32] as usize;
             if off + 33 + name_len <= bytes.len() {
                 let name = &bytes[off + 33..off + 33 + name_len];
-                if name.starts_with(b"INTRO.VID") {
-                    psx_rt::tty::print("[VIDEO] Found INTRO.VID at LBA: ");
+                if name.starts_with(filename) {
+                    psx_rt::tty::print("[VIDEO] Found video file at LBA: ");
                     psx_rt::tty::print_hex_u32(lba);
                     psx_rt::tty::print("\n");
                     return Some(lba);
@@ -137,7 +145,7 @@ impl VideoPlayer {
             }
             off += record_len;
         }
-        psx_rt::tty::println("[VIDEO] INTRO.VID not found in Sector 20");
+        psx_rt::tty::println("[VIDEO] Video file not found in Sector 20");
         None
     }
 
@@ -196,7 +204,20 @@ impl VideoPlayer {
     }
 
     pub fn start(&mut self) {
-        psx_rt::tty::println("[VIDEO] start() called");
+        self.start_video(VideoKind::Intro);
+    }
+
+    pub fn start_intro(&mut self) {
+        self.start_video(VideoKind::Intro);
+    }
+
+    pub fn start_outro(&mut self) {
+        self.start_video(VideoKind::Outro);
+    }
+
+    pub fn start_video(&mut self, kind: VideoKind) {
+        psx_rt::tty::println("[VIDEO] start_video() called");
+        self.kind = kind;
         self.frame_idx = 0;
         self.tick = 0;
         self.finished = false;
@@ -215,6 +236,11 @@ impl VideoPlayer {
         psx_rt::tty::print_hex_u32(psx_io::mdec::read_stat());
         psx_rt::tty::print("\n");
 
+        let filename: &[u8] = match kind {
+            VideoKind::Intro => b"INTRO.VID",
+            VideoKind::Outro => b"OUTRO.VID",
+        };
+
         // Initialize CD streaming if possible
         let storage = unsafe { &mut *core::ptr::addr_of_mut!(STORAGE) };
         // Read several adjacent frames per CD command to amortize seek and
@@ -222,11 +248,11 @@ impl VideoPlayer {
         let prepared = unsafe { self.cd_reader.prepare() };
         if prepared {
             psx_rt::tty::println("[VIDEO] CD reader prepare OK");
-            if let Some(lba) = unsafe { Self::find_intro_vid_lba(&mut self.cd_reader, storage) } {
+            if let Some(lba) = unsafe { Self::find_vid_lba(filename, &mut self.cd_reader, storage) } {
                 self.cd_start_lba = lba;
                 // ReadN bursts fill the four-frame cache; the reader pauses
                 // between batches so MDEC work cannot overrun the CD FIFO.
-                psx_rt::tty::println("[VIDEO] INTRO.VID located; using four-frame read-ahead");
+                psx_rt::tty::println("[VIDEO] Target video located; using four-frame read-ahead");
                 self.using_cd = true;
                 let _ = self.prefetch_cd_batch(0, storage);
             }
@@ -236,7 +262,10 @@ impl VideoPlayer {
 
         // Start audio after the initial read-ahead burst so its first frame
         // remains synchronized with the first displayed video frame.
-        AudioManager::play_intro_audio();
+        match kind {
+            VideoKind::Intro => AudioManager::play_intro_audio(),
+            VideoKind::Outro => AudioManager::play_outro_audio(),
+        }
     }
 
     pub fn stop(&mut self) {
@@ -255,6 +284,7 @@ impl VideoPlayer {
         }
 
         AudioManager::stop_intro_audio();
+        AudioManager::stop_outro_audio();
     }
 
     pub fn update(&mut self, pad: &PadState, prev: &ButtonState) -> bool {

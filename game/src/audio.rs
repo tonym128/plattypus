@@ -16,6 +16,7 @@ static SELECT_SFX: &[u8] = include_bytes!("../../psoxide/assets/audio/freesfx/ps
 
 static TITLE_MUSIC_ADPCM: &[u8] = include_bytes!("../../Music/title_music.adpcm");
 static INTRO_AUDIO_VAG: &[u8] = include_bytes!("../../Videos/intro_audio.vag");
+static OUTRO_AUDIO_VAG: &[u8] = include_bytes!("../../Videos/outro_audio.vag");
 
 const SPU_SAMPLE_BASE: u32 = 0x1010;
 
@@ -34,9 +35,10 @@ pub const VOICE_CHIME: Voice = Voice::new(10);
 pub const VOICE_VOICE: Voice = Voice::new(11);
 pub const VOICE_SELECT: Voice = Voice::new(12);
 
-// Custom Title Music Voice & Cinematic Intro Voice
+// Custom Title Music Voice & Cinematic Video Voices
 pub const VOICE_TITLE: Voice = Voice::new(13);
 pub const VOICE_INTRO: Voice = Voice::new(14);
+pub const VOICE_OUTRO: Voice = Voice::new(15);
 
 // Music Synthesizer Voices (16..19)
 pub const VOICE_BASS: Voice = Voice::new(16);
@@ -145,6 +147,15 @@ impl AudioManager {
             let adpcm_data = &INTRO_AUDIO_VAG[48..];
             spu::upload_adpcm(addr_intro, adpcm_data);
             VOICE_INTRO.configure_sample(addr_intro, 22050, Volume::MAX, Adsr::sample());
+            next_addr += (adpcm_data.len() as u32 + 7) & !7;
+        }
+
+        // Upload Outro Video audio sample (22050 Hz mono VAG)
+        if OUTRO_AUDIO_VAG.len() > 48 {
+            let addr_outro = SpuAddr::new(next_addr);
+            let adpcm_data = &OUTRO_AUDIO_VAG[48..];
+            spu::upload_adpcm(addr_outro, adpcm_data);
+            VOICE_OUTRO.configure_sample(addr_outro, 22050, Volume::MAX, Adsr::sample());
             next_addr += (adpcm_data.len() as u32 + 7) & !7;
         }
 
@@ -485,5 +496,15 @@ impl AudioManager {
     /// Stop cinematic intro video audio.
     pub fn stop_intro_audio() {
         Voice::key_off(VOICE_INTRO.mask());
+    }
+
+    /// Play cinematic outro video audio (SPU ADPCM sample).
+    pub fn play_outro_audio() {
+        Voice::key_on(VOICE_OUTRO.mask());
+    }
+
+    /// Stop cinematic outro video audio.
+    pub fn stop_outro_audio() {
+        Voice::key_off(VOICE_OUTRO.mask());
     }
 }

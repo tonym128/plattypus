@@ -24,6 +24,7 @@ pub enum GameState {
     OptionsMenu,
     MissionDebriefing { timer: u16, codename: crate::save::Codename },
     IntroVideo,
+    OutroVideo { codename: crate::save::Codename },
     IntroCodec,
     StageIntroCodec,
     Playing,
@@ -379,6 +380,19 @@ impl Game {
                     psx_rt::interrupts::wait_vblank();
                 }
             }
+            GameState::OutroVideo { codename } => {
+                let finished = self.video.update(&pad, &self.prev_buttons);
+                if finished {
+                    self.video.stop();
+                    AudioManager::play_fanfare();
+                    self.state = GameState::MissionDebriefing { timer: 0, codename };
+                } else if self.video.needs_redraw() {
+                    self.renderer.begin_frame();
+                    self.video.draw(&self.renderer);
+                } else {
+                    psx_rt::interrupts::wait_vblank();
+                }
+            }
             GameState::AttractDemo { ref mut act, ref mut timer } => {
                 // Any button press returns to title (only if controller is connected)
                 let any_button = is_connected && buttons.bits() != 0;
@@ -692,8 +706,8 @@ impl Game {
                                 }
 
                                 self.memcard.save_to_slot1(&self.save_data);
-                                AudioManager::play_fanfare();
-                                self.state = GameState::MissionDebriefing { timer: 0, codename };
+                                self.video.start_outro();
+                                self.state = GameState::OutroVideo { codename };
                             } else {
                                 self.state = GameState::StageClear;
                                 AudioManager::play_fanfare();
