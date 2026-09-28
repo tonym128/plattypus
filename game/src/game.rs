@@ -36,6 +36,7 @@ pub enum GameState {
     AttractDemo { act: Act, timer: u16 },
     BossIntroCutscene { act: Act, timer: u16 },
     ChapterTitleCard { act: Act, timer: u16 },
+    StageSelect,
 }
 
 pub struct Game {
@@ -56,6 +57,7 @@ pub struct Game {
     pub mission_stats: MissionStats,
     pub title_selection: usize,
     pub vr_selection: usize,
+    pub stage_selection: usize,
     pub options_selection: usize,
     pub pause_selection: usize,
     pub stage_time_frames: u32,
@@ -109,6 +111,7 @@ impl Game {
             mission_stats: MissionStats::default(),
             title_selection: 0,
             vr_selection: 0,
+            stage_selection: 0,
             options_selection: 0,
             pause_selection: 0,
             stage_time_frames: 0,
@@ -181,14 +184,21 @@ impl Game {
                         if has_save {
                             match self.title_selection {
                                 0 => {
-                                    // Continue Campaign from unlocked act (clamped to campaign acts 0..=11)
-                                    AudioManager::stop_cdda();
-                                    let act_idx = self.save_data.unlocked_act.min(11);
-                                    let act = Act::from_u8(act_idx);
-                                    self.load_act(act);
-                                    let briefing = get_act_dialogue(act);
-                                    self.codec.start_conversation(briefing);
-                                    self.state = GameState::StageIntroCodec;
+                                    if self.save_data.unlocked_act >= 11 {
+                                        // Unlocked Post-Campaign Stage Select
+                                        AudioManager::stop_cdda();
+                                        self.state = GameState::StageSelect;
+                                        self.stage_selection = 0;
+                                    } else {
+                                        // Continue Campaign from unlocked act (clamped to campaign acts 0..=11)
+                                        AudioManager::stop_cdda();
+                                        let act_idx = self.save_data.unlocked_act.min(11);
+                                        let act = Act::from_u8(act_idx);
+                                        self.load_act(act);
+                                        let briefing = get_act_dialogue(act);
+                                        self.codec.start_conversation(briefing);
+                                        self.state = GameState::StageIntroCodec;
+                                    }
                                 }
                                 1 => {
                                     // New Campaign Infiltration
@@ -245,6 +255,50 @@ impl Game {
 
                 self.renderer.begin_frame();
                 self.renderer.draw_title_screen(self.frame, self.title_selection, &self.save_data);
+            }
+            GameState::StageSelect => {
+                if is_connected {
+                    if just_up {
+                        if self.stage_selection % 6 == 0 {
+                            self.stage_selection += 5;
+                        } else {
+                            self.stage_selection -= 1;
+                        }
+                        AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
+                    } else if just_down {
+                        if self.stage_selection % 6 == 5 {
+                            self.stage_selection -= 5;
+                        } else {
+                            self.stage_selection += 1;
+                        }
+                        AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
+                    } else if just_left || just_right {
+                        if self.stage_selection < 6 {
+                            self.stage_selection += 6;
+                        } else {
+                            self.stage_selection -= 6;
+                        }
+                        AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
+                    } else if just_circle {
+                        self.state = GameState::Title;
+                        self.idle_timer = 0;
+                        AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
+                    } else if just_cross || just_start {
+                        AudioManager::stop_cdda();
+                        let target_act = Act::from_u8(self.stage_selection as u8);
+                        self.load_act(target_act);
+                        if target_act.is_boss() {
+                            self.state = GameState::BossIntroCutscene { act: target_act, timer: 0 };
+                        } else {
+                            let briefing = get_act_dialogue(target_act);
+                            self.codec.start_conversation(briefing);
+                            self.state = GameState::StageIntroCodec;
+                        }
+                    }
+                }
+
+                self.renderer.begin_frame();
+                self.renderer.draw_stage_select_menu(self.stage_selection, self.save_data.unlocked_act);
             }
             GameState::VrMenu => {
                 if is_connected {

@@ -2055,15 +2055,17 @@ impl Renderer {
             gpu::draw_rect_flat(38, 118, 244, 94, 12, 20, 30);
             gpu::draw_rect_flat(40, 120, 240, 90, 6, 10, 16);
 
+            let is_completed = save_data.unlocked_act >= 11;
             let (cont_text, new_text, vr_text, opt_text) = match self.language {
-                1 => ("CONTINUER", "NOUVELLE CAMPAGNE", "SIMULATEUR ENTRAINEMENT VR", "OPTIONS ET EQUIPEMENT"),
-                2 => ("FORTSETZEN", "NEUE KAMPAGNE", "VR-TRAININGSSIMULATOR", "OPTIONEN UND AUSRUESTUNG"),
-                3 => ("CONTINUAR", "NUEVA CAMPANA", "SIMULADOR ENTRENAMIENTO VR", "OPCIONES Y EQUIPO"),
-                4 => ("SAIKAI", "SHINKI SAKUSEN", "VR KUNREN SIMULATOR", "TOKUSHU SOUBI (OPTIONS)"),
-                _ => ("CONTINUE", "NEW CAMPAIGN", "VR TRAINING SIMULATOR", "SPECIAL OPTIONS & GEAR"),
+                1 => (if is_completed { "SELECTION ETAPES" } else { "CONTINUER" }, "NOUVELLE CAMPAGNE", "SIMULATEUR ENTRAINEMENT VR", "OPTIONS ET EQUIPEMENT"),
+                2 => (if is_completed { "STAGE-AUSWAHL" } else { "FORTSETZEN" }, "NEUE KAMPAGNE", "VR-TRAININGSSIMULATOR", "OPTIONEN UND AUSRUESTUNG"),
+                3 => (if is_completed { "SELECCION ETAPA" } else { "CONTINUAR" }, "NUEVA CAMPANA", "SIMULADOR ENTRENAMIENTO VR", "OPCIONES Y EQUIPO"),
+                4 => (if is_completed { "STAGE SELECT" } else { "SAIKAI" }, "SHINKI SAKUSEN", "VR KUNREN SIMULATOR", "TOKUSHU SOUBI (OPTIONS)"),
+                _ => (if is_completed { "STAGE SELECT" } else { "CONTINUE" }, "NEW CAMPAIGN", "VR TRAINING SIMULATOR", "SPECIAL OPTIONS & GEAR"),
             };
 
             let menu_items = [cont_text, new_text, vr_text, opt_text];
+            let active_stage_label = if is_completed { "[ALL OPEN]" } else { stage_label };
 
             for (i, label) in menu_items.iter().enumerate() {
                 let y = 126 + (i as i16 * 21);
@@ -2073,12 +2075,12 @@ impl Renderer {
                     self.font.draw_text(50, y, ">", pulse);
                     self.font.draw_text(62, y, label, (255, 255, 255));
                     if i == 0 {
-                        self.font.draw_text(178, y, stage_label, (255, 235, 80));
+                        self.font.draw_text(178, y, active_stage_label, (255, 235, 80));
                     }
                 } else {
                     self.font.draw_text(62, y, label, (130, 160, 175));
                     if i == 0 {
-                        self.font.draw_text(178, y, stage_label, (180, 200, 140));
+                        self.font.draw_text(178, y, active_stage_label, (180, 200, 140));
                     }
                 }
             }
@@ -2602,5 +2604,73 @@ impl Renderer {
         if timer > 60 && (timer / 15) % 2 == 0 {
             self.font.draw_text(180, 222, "CROSS: SKIP", (160, 160, 160));
         }
+    }
+
+    pub fn draw_stage_select_menu(&self, selected_stage: usize, _unlocked_act: u8) {
+        // Dark tactical cyber grid background
+        gpu::draw_rect_flat(0, 0, 320, 240, 6, 16, 14);
+
+        for y in (0..240).step_by(30) {
+            gpu::draw_line_mono(0, y, 319, y, 12, 32, 24);
+        }
+        for x in (0..320).step_by(40) {
+            gpu::draw_line_mono(x, 0, x, 239, 12, 32, 24);
+        }
+
+        // Header
+        gpu::draw_rect_flat(14, 10, 292, 24, 12, 35, 50);
+        gpu::draw_rect_flat(16, 12, 288, 20, 6, 20, 32);
+        self.font.draw_text(34, 15, "BURROW HQ - MISSION STAGE SELECT", (100, 240, 255));
+
+        // 12 Stages:
+        // Left Column (0..5): Acts 1-1, 1-2, 1-3, 2-1, 2-2, 2-3
+        // Right Column (6..11): Acts 3-1, 3-2, 3-3, 4-1, 4-2, 4-3
+        let stage_names = [
+            "1-1: DRAINAGE",
+            "1-2: BARRACKS",
+            "1-3: MECH BOSS",
+            "2-1: RAPIDS",
+            "2-2: MANGROVES",
+            "2-3: JET SKI",
+            "3-1: HIGHWAY",
+            "3-2: LANEWAYS",
+            "3-3: SNIPER",
+            "4-1: DUNES",
+            "4-2: PIER TRENCH",
+            "4-3: EXCAVATOR",
+        ];
+
+        for i in 0..12 {
+            let col = i / 6;
+            let row = i % 6;
+            let col_x: i16 = if col == 0 { 14 } else { 164 };
+            let row_y: i16 = 38 + (row as i16 * 27);
+            let w: u16 = 142;
+            let h: u16 = 24;
+
+            let is_sel = i == selected_stage;
+            let is_boss = (i % 3) == 2;
+
+            if is_sel {
+                let border_col = if is_boss { (220, 70, 70) } else { (25, 80, 60) };
+                let bg_col = if is_boss { (70, 20, 20) } else { (12, 40, 30) };
+                gpu::draw_rect_flat(col_x, row_y, w, h, border_col.0, border_col.1, border_col.2);
+                gpu::draw_rect_flat(col_x + 1, row_y + 1, w - 2, h - 2, bg_col.0, bg_col.1, bg_col.2);
+                self.font.draw_text(col_x + 4, row_y + 5, ">", (255, 235, 80));
+                self.font.draw_text(col_x + 14, row_y + 5, stage_names[i], (255, 255, 255));
+            } else {
+                let border_col = if is_boss { (100, 30, 30) } else { (12, 35, 25) };
+                let bg_col = if is_boss { (30, 10, 10) } else { (6, 18, 14) };
+                gpu::draw_rect_flat(col_x, row_y, w, h, border_col.0, border_col.1, border_col.2);
+                gpu::draw_rect_flat(col_x + 1, row_y + 1, w - 2, h - 2, bg_col.0, bg_col.1, bg_col.2);
+                let text_col = if is_boss { (255, 140, 140) } else { (160, 190, 180) };
+                self.font.draw_text(col_x + 12, row_y + 5, stage_names[i], text_col);
+            }
+        }
+
+        // Footer
+        gpu::draw_rect_flat(14, 208, 292, 22, 10, 25, 20);
+        gpu::draw_rect_flat(16, 210, 288, 18, 5, 14, 10);
+        self.font.draw_text(22, 213, "DPAD: SELECT  |  CROSS: DEPLOY  |  CIRCLE: BACK", (120, 230, 180));
     }
 }
