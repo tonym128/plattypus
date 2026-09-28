@@ -136,7 +136,7 @@ impl Game {
         if !is_connected && is_gameplay {
             self.renderer.begin_frame();
             self.renderer.draw_3d_scene(&self.level, &self.platty, &self.entities, self.frame);
-            self.renderer.draw_hud(&self.platty, &self.entities, self.level.act);
+            self.renderer.draw_hud(&self.platty, &self.entities, &self.level, self.frame);
             self.draw_controller_disconnected_overlay();
             self.prev_buttons = ButtonState::NONE;
             return;
@@ -498,7 +498,7 @@ impl Game {
                     // Render 3D Scene & HUD
                     self.renderer.begin_frame();
                     self.renderer.draw_3d_scene(&self.level, &self.platty, &self.entities, self.frame);
-                    self.renderer.draw_hud(&self.platty, &self.entities, self.level.act);
+                    self.renderer.draw_hud(&self.platty, &self.entities, &self.level, self.frame);
 
                     // Cycle to next demo act every 180 frames (3 seconds)
                     if *timer >= 180 {
@@ -732,7 +732,7 @@ impl Game {
                     // Render 3D World & HUD
                     self.renderer.begin_frame();
                     self.renderer.draw_3d_scene(&self.level, &self.platty, &self.entities, self.frame);
-                    self.renderer.draw_hud(&self.platty, &self.entities, self.level.act);
+                    self.renderer.draw_hud(&self.platty, &self.entities, &self.level, self.frame);
 
                     // Memory Card tactical OSD message
                     match self.memcard.status {
@@ -878,7 +878,7 @@ impl Game {
                 // Render background 3D Scene + HUD + Pause Tactical Overlay
                 self.renderer.begin_frame();
                 self.renderer.draw_3d_scene(&self.level, &self.platty, &self.entities, self.frame);
-                self.renderer.draw_hud(&self.platty, &self.entities, self.level.act);
+                self.renderer.draw_hud(&self.platty, &self.entities, &self.level, self.frame);
                 self.draw_pause_overlay(self.pause_selection);
             }
         }

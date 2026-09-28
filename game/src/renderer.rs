@@ -1710,7 +1710,7 @@ impl Renderer {
     // HUD & STAGE INTERFACES
     // -------------------------------------------------------------------------
 
-    pub fn draw_hud(&self, platty: &Platypus, entities: &EntityManager, act: Act) {
+    pub fn draw_hud(&self, platty: &Platypus, entities: &EntityManager, level: &Level, frame: u8) {
         // TOP-LEFT: LIFE BAR & STAGE LABEL (x: 8, y: 8, w: 100, h: 36)
         gpu::draw_rect_flat(8, 8, 100, 36, 12, 18, 24);
         gpu::draw_rect_flat(10, 10, 96, 32, 4, 8, 12);
@@ -1733,7 +1733,7 @@ impl Renderer {
             let o2_col = if platty.air < 30 { (255, 60, 50) } else { (80, 220, 255) };
             gpu::draw_rect_flat(41, 28, o2_w, 5, o2_col.0, o2_col.1, o2_col.2);
         } else {
-            self.font.draw_text(14, 26, act.stage_label(), (240, 210, 100));
+            self.font.draw_text(14, 26, level.act.stage_label(), (240, 210, 100));
         }
 
         // TOP-CENTER: SCORE & YABBIES COUNTER (x: 114, y: 8, w: 96, h: 36)
@@ -1783,10 +1783,10 @@ impl Renderer {
         }
 
         // STAGE-SPECIFIC TOP-RIGHT HUD
-        match act {
+        match level.act {
             Act::Act1_1Drainage | Act::Act1_2Barracks | Act::Act3_2Laneways => {
                 // Metal Gear Solid Soliton Radar for stealth/urban infiltration
-                self.draw_soliton_radar(platty, entities);
+                self.draw_soliton_radar(platty, entities, level, frame);
             }
             Act::Act1_3MechBoss => {
                 // Searchlight Mech Boss Health Bar
@@ -1839,12 +1839,12 @@ impl Renderer {
                 self.draw_excavator_boss_hud(&entities.boss_excavator);
             }
             Act::VrSneaking | Act::VrCqc | Act::VrSonar | Act::VrSpeed => {
-                self.draw_soliton_radar(platty, entities);
+                self.draw_soliton_radar(platty, entities, level, frame);
             }
         }
     }
 
-    fn draw_soliton_radar(&self, platty: &Platypus, entities: &EntityManager) {
+    fn draw_soliton_radar(&self, platty: &Platypus, entities: &EntityManager, level: &Level, frame: u8) {
         let rx: i16 = 236;
         let ry: i16 = 8;
         let rw: u16 = 76;
@@ -1866,6 +1866,52 @@ impl Renderer {
 
         let center_x = rx + (rw as i16 / 2);
         let center_y = ry + (rh as i16 / 2);
+
+        // Exit Burrow / Objective Marker (blinking yellow diamond / chevron)
+        if level.exit_x > 0 || level.exit_z > 0 {
+            let obj_dx = ((level.exit_x - platty.x) / 12) as i16;
+            let obj_dz = ((level.exit_z - platty.z) / 12) as i16;
+            let target_x = center_x + obj_dx;
+            let target_y = center_y + obj_dz;
+
+            let min_x = rx + 5;
+            let max_x = rx + rw as i16 - 6;
+            let min_y = ry + 5;
+            let max_y = ry + rh as i16 - 6;
+
+            let is_outside = target_x < min_x || target_x > max_x || target_y < min_y || target_y > max_y;
+
+            let (mx, my) = if is_outside {
+                // Project vector to radar boundary
+                let abs_x = obj_dx.abs();
+                let abs_z = obj_dz.abs();
+                let max_abs = abs_x.max(abs_z);
+                if max_abs > 0 {
+                    let edge_r = (rw as i16 / 2) - 6; // 32 pixels
+                    let ex = (center_x + (obj_dx * edge_r) / max_abs).clamp(min_x, max_x);
+                    let ey = (center_y + (obj_dz * edge_r) / max_abs).clamp(min_y, max_y);
+                    (ex, ey)
+                } else {
+                    (center_x, center_y)
+                }
+            } else {
+                (target_x, target_y)
+            };
+
+            // Blinking beacon (flashes every 8 frames)
+            if (frame / 8) % 2 == 0 {
+                if is_outside {
+                    // Off-radar chevron indicator (amber/yellow square)
+                    gpu::draw_rect_flat(mx - 2, my - 2, 4, 4, 255, 230, 40);
+                    gpu::draw_rect_flat(mx - 1, my - 1, 2, 2, 255, 255, 200);
+                } else {
+                    // On-radar burrow target (yellow diamond with center pip)
+                    gpu::draw_rect_flat(mx - 2, my - 2, 5, 5, 255, 230, 40);
+                    gpu::draw_rect_flat(mx - 1, my - 1, 3, 3, 20, 50, 30);
+                    gpu::draw_rect_flat(mx, my, 1, 1, 255, 255, 180);
+                }
+            }
+        }
 
         // Platty Chevron at center
         gpu::draw_rect_flat(center_x - 2, center_y - 2, 4, 4, 255, 255, 255);
