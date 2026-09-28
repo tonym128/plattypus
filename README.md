@@ -1,91 +1,91 @@
-# Plattypus 🦆 (PSX / PlayStation 1)
+# Plattypus: Tactical Espionage Action 🦆 (Sony PlayStation 1 / PSX)
 
-A side-scrolling platformer for the original **Sony PlayStation (PS1 / PSX)**, developed in bare-metal **Rust** using the **[PSoXide](https://github.com/EBonura/PSoXide)** SDK.
-
----
-
-## 📜 Story & Narrative
-
-Platty is a contented platypus living at **Healesville Sanctuary** in Victoria, Australia. He chose sanctuary life for its pristine creek water, abundance of sweet freshwater yabbies, and peaceful eucalyptus groves.
-
-One evening, a kookaburra courier delivers an urgent letter from his parents in his satchel:
-> *"Dearest Platty, We have wonderful news! You are going to be a big brother! An egg has hatched in the coastal burrow. Please hurry home as fast as you can to be there for the family! Love, Mom & Dad"*
-
-Determined to get home to meet his new baby sibling, Platty packs his satchel, keeping the letter close, and embarks on an epic journey across Victoria.
+A 3D tactical stealth action infiltration thriller for the original **Sony PlayStation (PS1 / PSX)**, developed in bare-metal **Rust** using the **[PSoXide](https://github.com/EBonura/PSoXide)** SDK.
 
 ---
 
-## 🗺️ The 4 Acts
+## 📜 Mission Dossier & Story
 
-1. **Act 1: Night Escape from Healesville Sanctuary**
-   - Sneak past sleepy sanctuary keepers and avoid their flashlight beams.
-   - Leap across wooden boardwalks, pond reeds, and security wire fences.
-   - Slide down the park’s overflow water flume to escape into the wild!
-2. **Act 2: The Bushland Backroads & Billabongs**
-   - Deep eucalyptus bushland, gravel roads, and winding creeks of the Yarra Valley.
-   - High-speed mud and grass belly-slides down steep red-earth gullies.
-   - Dodge nocturnal wombats charging out of burrows and swim across fast-flowing billabongs.
-3. **Act 3: Melbourne City Transit & Rooftops**
-   - Navigate the urban neon jungle, fire escapes, brick chimneys, and telephone wires.
-   - Sprint across the roofs of moving city trams.
-   - Dive through underground stormwater drainage tunnels leading toward the bay.
-4. **Act 4: The Coastal Native Shore & Estuary**
-   - Golden beaches, coastal cliffs, rock pools, and crashing ocean waves.
-   - Swim through the tidal estuary against the ocean surge.
-   - Arrive at the family burrow for the heartwarming reunion with Mom, Dad, and the newly hatched baby sister Pip!
+Deep in Victoria, Australia, peaceful wildlife habitats are under threat. Healesville Sanctuary has been locked down by corporate security walkers, surveillance drones, and laser fences. 
+
+One evening, an encrypted transmission reaches Agent Platty's tactical earpiece from Burrow Command (Mom & Dad):
+> *"Platty, darling! A golden egg was laid in Coastal Burrow! You're going to be a big brother to baby sister Pip! But the reserve is on high alert — searchlight mechs and patrol craft block every exit. Execute tactical espionage action to escape and hurry home!"*
+
+Equipped with his combat headband, venomous ankle spurs, and bio-electric electro-sonar bill, Platty must infiltrate 4 high-security chapters, disable lethal combat mechs, and reach the coastal nursery burrow before Dr. Cane Toad's excavator strikes!
 
 ---
 
-## 🎮 Controls
+## 🎮 Key Features
 
-| Button | Action | Description |
-| :--- | :--- | :--- |
-| **D-Pad / Left Stick** | Move / Swim | Walk and run on land (waddle); 360° directional swimming in water. |
-| **Cross ($\times$)** | Jump / Flutter / Paddle | Jump on land; press while falling for a flutter kick; paddle faster in water. |
-| **Down + Cross** | **Belly Slide** | Dive into a low-profile belly slide! Accelerates down slopes and glides under barriers. |
-| **Square ($\Box$)** | **Tail Thwap** | Spin 180° to strike with Platty’s beaver tail, stunning enemies and breaking obstacles. |
-| **Triangle ($\triangle$)** | **Bill Sense** | Platypus electro-reception! Emits a pulsing radar wave revealing hidden yabbies and paths. |
-| **Start** | Start / Advance | Start game, progress dialogue, and continue between acts. |
+* **3D Tactical Espionage Gameplay**: Fully 3D environments with GTE-accelerated geometry, directional Gouraud shading, and affine texture mapping.
+* **Soliton Radar System**: Real-time tactical radar displaying enemy positions, patrol headings, and vision cones.
+* **Multi-Frequency CODEC Radio**: Authentic MGS-style wireless communications with frequency tuning (Burrow Command: 140.85, Field Save: 140.96, Bushland Intel: 141.12, Tactical Gear: 141.80).
+* **Tactical Infiltration Abilities**:
+  * **Venom Spur Strike (CQC)**: Execute silent rear takedowns on unaware guards.
+  * **Electro-Sonar Detection**: Hold to charge and discharge a bio-electric wave revealing hidden yabbies and stunning nearby electronics.
+  * **The Bill Box**: Conceal yourself under a cardboard shipping crate to evade roving sentries.
+  * **Belly Crawl / Prone Mode**: Crawl through low ventilation shafts and beneath laser tripwires.
+  * **Subsurface Diving**: Submerge underwater to swim beneath surface searchlights and patrol craft.
+* **4 Epic Chapters (12 Campaign Acts + 4 Boss Encounters)**:
+  * **Chapter 1**: Healesville Sanctuary (Drainage Outflow, Barracks Maze, Searchlight Mech Boss).
+  * **Chapter 2**: Yarra River Wilds (5-Lane Gorge Rapids, Mangrove Sonar Caverns, Ranger Jet Ski Pursuit Boss).
+  * **Chapter 3**: Melbourne Downtown (Rush-Hour Highway Frogger, Flinders Laneways, Sniper Kookaburra Boss).
+  * **Chapter 4**: Coastal Beachhead (Sandstone Cliff Platforming, Pier Shark Trench, Dr. Cane Toad's Excavator Climax).
+* **VR Training Simulator**: 4 standalone training missions (Sneaking, CQC, Sonar Labyrinth, Speed Hurdles).
+* **DualShock® Analog & Rumble Support**: Full 360° analog stealth speed control and dual-motor vibration feedback.
+* **Hardware MDEC Video Streaming**: High-resolution cinematics streamed directly from CD-ROM sectors using the PS1 MDEC hardware coprocessor.
+* **PlayStation Memory Card Integration**: 1-block save support with custom animated 16x16 3-frame BIOS save icon.
+
+---
+
+## 🕹️ Controls
+
+| Button | Tactical Action (Infiltration) | Water / Submerged | CODEC / Tuner Mode |
+| :--- | :--- | :--- | :--- |
+| **D-Pad / Left Stick** | 360° Movement / Stealth Stalk | Swim 360° | Tune Radio Frequency |
+| **Cross ($\times$)** | Jump / Flutter | Submerge / Dive Deep | Advance Text / Confirm |
+| **Circle ($\bigcirc$)** | Toggle Belly Crawl (Prone) | Paddle Forward | Cancel / Back |
+| **Square ($\Box$)** | Venom Spur Strike (CQC Takedown) | Submerge / Dive Deep | - |
+| **Triangle ($\triangle$)** | Charge / Fire Electro-Sonar Pulse | Charge Sonar | - |
+| **L1** | Toggle Cardboard Box Disguise | - | - |
+| **Select** | Open CODEC Wireless Radio | Open CODEC Radio | Exit CODEC |
+| **Start** | In-Game Pause Menu | In-Game Pause Menu | Skip Transmission |
 
 ---
 
 ## 🛠️ Building & Mastering
 
 ### Prerequisites
-- Rust nightly toolchain with `rust-src` and `llvm-tools` (automatically managed by rustup).
+- Rust nightly toolchain with `rust-src` and `llvm-tools` (managed via `rustup`).
 - Host C/C++ compiler and Python 3.
 
 ### Build Targets
 
 ```sh
-# Build both the MIPS binary and master the bootable PS1 disc
-make disc
+# Run automated host-side game logic tests (saves, codenames, acts, collisions)
+make test
 
-# Output files generated in dist/:
-#   dist/plattypus.exe  - MIPS R3000 bare-metal executable
-#   dist/plattypus.bin  - Raw 2352-byte/sector disc image
-#   dist/plattypus.cue  - Disc cue sheet
+# Compile MIPS R3000 bare-metal executable
+make exe
+
+# Master complete bootable PS1 disc image (CD-DA audio + MDEC video streams)
+make disc
 ```
+
+### Output Files (`dist/`):
+- `dist/plattypus.exe` — Bare-metal MIPS R3000 PlayStation executable
+- `dist/plattypus.bin` — Raw 2352-byte/sector Mode 2 Form 1/2 disc image
+- `dist/plattypus.cue` — Red-book disc cue sheet with CD-DA title audio track
 
 ---
 
-## 🕹️ Playing
+## 💿 Emulation & Real Hardware
 
-### Emulators
-Open [`dist/plattypus.cue`](dist/plattypus.cue) in any PlayStation emulator:
-- **DuckStation** (Recommended)
+### Recommended Emulators:
+Open [`dist/plattypus.cue`](dist/plattypus.cue) in:
+- **DuckStation** (Recommended — full hardware MDEC and SPU timing accuracy)
 - **RetroArch** (Beetle PSX or SwanStation core): `make run`
 - **PCSX-Redux** / **Mednafen**
 
-### Real PlayStation Hardware
-Burn `dist/plattypus.cue` to a CD-R using your favorite burner (e.g. `cdrdao` or ImgBurn) at low speed (4x), and boot on an original PlayStation with a modchip, PSIO, or UniROM.
-
----
-
-## ⚙️ Technical Architecture
-
-- **Platform**: Sony PlayStation 1 (MIPS R3000A @ 33.868 MHz).
-- **Video**: 320 $\times$ 240 NTSC, double-buffered framebuffers in 1MB VRAM, VBlank IRQ synchronization (`wait_vblank()`).
-- **Math**: Deterministic 16.16 fixed-point arithmetic (`Fixed`) for smooth 60fps physics without floating-point emulation.
-- **Audio**: Native SPU sound processor with ADPCM samples uploaded to SPU RAM (`jump`, `pickup_coin`, `swoosh`, `hit_punch`, `ui_beep`, `footstep`, `ui_select`).
-- **Rendering**: Hardware GPU commands (flat quads, triangles, blended translucent lighting cones, line primitives, and bitmap fonts).
+### Real PlayStation Hardware:
+Burn `dist/plattypus.cue` to a CD-R at low speed (4x) using `cdrdao` or ImgBurn, and boot on an original PlayStation console equipped with a modchip, UniROM, PSIO, or XStation ODE.
