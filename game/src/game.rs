@@ -838,7 +838,15 @@ impl Game {
                         }
                         crate::save::SaveStatus::SaveErrorNoCard => {
                             gpu::draw_rect_flat(88, 214, 144, 18, 35, 10, 10);
-                            self.renderer.font.draw_text(94, 218, "NO MEMORY CARD IN SLOT 1", (255, 160, 160));
+                            self.renderer.font.draw_text(94, 218, "NO MEMORY CARD FOUND", (255, 160, 160));
+                        }
+                        crate::save::SaveStatus::SaveErrorUnformatted => {
+                            gpu::draw_rect_flat(88, 214, 144, 18, 35, 25, 10);
+                            self.renderer.font.draw_text(94, 218, "CARD IS UNFORMATTED", (255, 200, 100));
+                        }
+                        crate::save::SaveStatus::SaveErrorFailed => {
+                            gpu::draw_rect_flat(88, 214, 144, 18, 35, 10, 10);
+                            self.renderer.font.draw_text(94, 218, "SAVE OPERATION FAILED", (255, 160, 160));
                         }
                         _ => {}
                     }
@@ -1038,7 +1046,7 @@ impl Game {
         // Header warning
         self.renderer.font.draw_text(box_x + 22, box_y + 14, "! CONTROLLER DISCONNECTED !", (255, 60, 60));
         self.renderer.font.draw_text(box_x + 18, box_y + 36, "PLEASE CONNECT A CONTROLLER", (220, 230, 240));
-        self.renderer.font.draw_text(box_x + 52, box_y + 50, "TO CONTROLLER PORT 1", (220, 230, 240));
+        self.renderer.font.draw_text(box_x + 40, box_y + 50, "TO PORT 1 OR PORT 2", (220, 230, 240));
         self.renderer.font.draw_text(box_x + 28, box_y + 68, "[ DUALSHOCK / DIGITAL PAD ]", (120, 180, 220));
     }
 

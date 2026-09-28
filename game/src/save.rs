@@ -276,6 +276,7 @@ pub enum SaveStatus {
     Saving,
     SaveSuccess,
     SaveErrorNoCard,
+    SaveErrorUnformatted,
     SaveErrorFailed,
     Loading,
     LoadSuccess,
@@ -305,33 +306,51 @@ impl MemoryCardManager {
         }
     }
 
-    /// Attempt to save game progress to Slot 1 with BIOS animated icon.
+    /// Attempt to save game progress (queries Slot 1 first, falls back to Slot 2).
     pub fn save_to_slot1(&mut self, data: &SaveData) -> bool {
-        self.status = SaveStatus::Saving;
-        let mut card = Card::new(HardwareCard::new(Slot::One));
+        self.save_game(data)
+    }
 
-        // Format if virgin card
-        match card.is_formatted() {
-            Ok(false) => {
-                if card.format().is_err() {
-                    self.status = SaveStatus::SaveErrorFailed;
-                    self.status_timer = 120;
-                    return false;
+    pub fn save_game(&mut self, data: &SaveData) -> bool {
+        self.status = SaveStatus::Saving;
+        let slots = [Slot::One, Slot::Two];
+        let mut target_slot = None;
+        let mut unformatted_found = false;
+
+        for &slot in &slots {
+            let mut card = Card::new(HardwareCard::new(slot));
+            match card.is_formatted() {
+                Ok(true) => {
+                    target_slot = Some(slot);
+                    break;
+                }
+                Ok(false) => {
+                    // SE-2: Never auto-format silently without user prompt to protect unseated/virgin cards
+                    unformatted_found = true;
+                }
+                Err(psx_mc::Error::NoCard) => {
+                    continue;
+                }
+                Err(_) => {
+                    continue;
                 }
             }
-            Err(psx_mc::Error::NoCard) => {
-                self.status = SaveStatus::SaveErrorNoCard;
-                self.status_timer = 120;
-                return false;
-            }
-            Err(_) => {
-                self.status = SaveStatus::SaveErrorFailed;
-                self.status_timer = 120;
-                return false;
-            }
-            Ok(true) => {}
         }
 
+        let slot = match target_slot {
+            Some(s) => s,
+            None => {
+                if unformatted_found {
+                    self.status = SaveStatus::SaveErrorUnformatted;
+                } else {
+                    self.status = SaveStatus::SaveErrorNoCard;
+                }
+                self.status_timer = 120;
+                return false;
+            }
+        };
+
+        let mut card = Card::new(HardwareCard::new(slot));
         let icon = get_platty_save_icon();
         let payload = unsafe {
             core::slice::from_raw_parts(
@@ -359,45 +378,33 @@ impl MemoryCardManager {
         }
     }
 
-    /// Attempt to load game progress from Slot 1.
+    /// Attempt to load game progress (queries Slot 1 first, falls back to Slot 2).
     pub fn load_from_slot1(&mut self) -> Option<SaveData> {
-        self.status = SaveStatus::Loading;
-        let mut card = Card::new(HardwareCard::new(Slot::One));
+        self.load_game()
+    }
 
-        let mut buf = [0u8; 128];
-        match card.read(SAVE_FILENAME, &mut buf) {
-            Ok(len) if len >= core::mem::size_of::<SaveData>() => {
-                let save = unsafe { core::ptr::read_unaligned(buf.as_ptr() as *const SaveData) };
-                if save.is_valid() {
-                    self.status = SaveStatus::LoadSuccess;
-                    self.status_timer = 90;
-                    Some(save)
-                } else {
-                    self.status = SaveStatus::LoadError;
-                    self.status_timer = 120;
-                    None
+    pub fn load_game(&mut self) -> Option<SaveData> {
+        self.status = SaveStatus::Loading;
+        let slots = [Slot::One, Slot::Two];
+
+        for &slot in &slots {
+            let mut card = Card::new(HardwareCard::new(slot));
+            let mut buf = [0u8; 128];
+            match card.read(SAVE_FILENAME, &mut buf) {
+                Ok(len) if len >= core::mem::size_of::<SaveData>() => {
+                    let save = unsafe { core::ptr::read_unaligned(buf.as_ptr() as *const SaveData) };
+                    if save.is_valid() {
+                        self.status = SaveStatus::LoadSuccess;
+                        self.status_timer = 90;
+                        return Some(save);
+                    }
                 }
-            }
-            Ok(_) => {
-                self.status = SaveStatus::LoadError;
-                self.status_timer = 120;
-                None
-            }
-            Err(psx_mc::Error::NotFound) => {
-                self.status = SaveStatus::LoadNotFound;
-                self.status_timer = 90;
-                None
-            }
-            Err(psx_mc::Error::NoCard) => {
-                self.status = SaveStatus::SaveErrorNoCard;
-                self.status_timer = 120;
-                None
-            }
-            Err(_) => {
-                self.status = SaveStatus::LoadError;
-                self.status_timer = 120;
-                None
+                _ => {}
             }
         }
+
+        self.status = SaveStatus::LoadNotFound;
+        self.status_timer = 90;
+        None
     }
 }

@@ -20,6 +20,7 @@ const STAT_RX_NOT_EMPTY: u32 = sio0::stat::RX_NOT_EMPTY;
 pub struct DualShockController {
     pub is_analog: bool,
     pub deadzone: Deadzone,
+    pub active_port: bool,
 }
 
 impl DualShockController {
@@ -27,60 +28,107 @@ impl DualShockController {
         Self {
             is_analog: false,
             deadzone: Deadzone::new(18),
+            active_port: false,
         }
     }
 
     /// Initialize DualShock analog mode and configure vibration actuators.
+    /// Probes Port 1 first, falling back to Port 2 if Port 1 is disconnected.
     pub fn init(&mut self) -> bool {
-        self.is_analog = init_dualshock_actuators();
-        self.is_analog
+        if init_dualshock_actuators(false) {
+            self.active_port = false;
+            self.is_analog = true;
+            return true;
+        }
+        let s1 = poll_port_rumble(false, false, 0);
+        if s1.is_connected() {
+            self.active_port = false;
+            self.is_analog = s1.is_analog();
+            return self.is_analog;
+        }
+
+        if init_dualshock_actuators(true) {
+            self.active_port = true;
+            self.is_analog = true;
+            return true;
+        }
+        let s2 = poll_port_rumble(true, false, 0);
+        if s2.is_connected() {
+            self.active_port = true;
+            self.is_analog = s2.is_analog();
+            return self.is_analog;
+        }
+
+        self.active_port = false;
+        self.is_analog = false;
+        false
     }
 
-    /// Poll Port 1 with vibration commands for both motors.
+    /// Poll active controller port with vibration commands for both motors.
+    /// Supports automatic failover / hot-swap to the other port if disconnected.
     /// - `small_motor`: High-frequency small motor (true = spin, false = off).
     /// - `large_motor`: Low-frequency weighted motor (0 = off, 1..255 = speed/intensity).
-    pub fn poll(&self, small_motor: bool, large_motor: u8) -> PadState {
-        poll_port1_rumble(small_motor, large_motor)
+    pub fn poll(&mut self, small_motor: bool, large_motor: u8) -> PadState {
+        let s = poll_port_rumble(self.active_port, small_motor, large_motor);
+        if s.is_connected() {
+            return s;
+        }
+
+        // SE-4: Port failover / hot-swap to alternate port
+        let alt_port = !self.active_port;
+        let alt_s = poll_port_rumble(alt_port, small_motor, large_motor);
+        if alt_s.is_connected() {
+            self.active_port = alt_port;
+            self.is_analog = init_dualshock_actuators(alt_port);
+            return alt_s;
+        }
+
+        s
     }
 }
 
 /// Configure DualShock: enter config mode, set analog locked mode, map vibration actuators (0x4D), exit config mode.
-fn init_dualshock_actuators() -> bool {
+fn init_dualshock_actuators(port2: bool) -> bool {
     unsafe {
         // Enter config mode (0x43)
-        transaction(false, [0x43, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00]);
+        transaction(port2, [0x43, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00]);
         delay_reads(CONFIG_COMMAND_GAP_SPINS);
 
         // Lock analog mode (0x44)
-        transaction(false, [0x44, 0x00, 0x01, 0x03, 0x00, 0x00, 0x00, 0x00]);
+        transaction(port2, [0x44, 0x00, 0x01, 0x03, 0x00, 0x00, 0x00, 0x00]);
         delay_reads(CONFIG_COMMAND_GAP_SPINS);
 
         // Configure actuator mapping (0x4D):
         // Byte 2 = 0x00 (map small motor to byte index 0 of poll payload)
         // Byte 3 = 0x01 (map large motor to byte index 1 of poll payload)
         // Bytes 4..7 = 0xFF (unmapped)
-        transaction(false, [0x4D, 0x00, 0x00, 0x01, 0xFF, 0xFF, 0xFF, 0xFF]);
+        transaction(port2, [0x4D, 0x00, 0x00, 0x01, 0xFF, 0xFF, 0xFF, 0xFF]);
         delay_reads(CONFIG_COMMAND_GAP_SPINS);
 
         // Exit config mode (0x43)
-        transaction(false, [0x43, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+        transaction(port2, [0x43, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
         delay_reads(CONFIG_COMMAND_GAP_SPINS);
     }
 
     // Verify current mode
-    let s = poll_port1_rumble(false, 0);
+    let s = poll_port_rumble(port2, false, 0);
     s.is_analog()
 }
 
 /// Poll controller in Port 1, retrying garbled reads.
 pub fn poll_port1_rumble(small_motor: bool, large_motor: u8) -> PadState {
+    poll_port_rumble(false, small_motor, large_motor)
+}
+
+/// Poll controller in specified port (false = Port 1, true = Port 2), retrying garbled reads.
+pub fn poll_port_rumble(port2: bool, small_motor: bool, large_motor: u8) -> PadState {
     let mut last = PadState::NONE;
     let mut tries = 0;
     let motor0 = if small_motor { 0x01 } else { 0x00 };
     let motor1 = large_motor;
 
     while tries < 4 {
-        let s = unsafe { poll_port1_rumble_raw(motor0, motor1) };
+        let s = unsafe { poll_port_rumble_raw(port2, motor0, motor1) };
         if !s.is_connected() {
             return s; // No controller connected
         }
@@ -94,9 +142,9 @@ pub fn poll_port1_rumble(small_motor: bool, large_motor: u8) -> PadState {
 }
 
 /// Execute a single poll transaction with vibration motor outputs.
-unsafe fn poll_port1_rumble_raw(motor0: u8, motor1: u8) -> PadState {
+unsafe fn poll_port_rumble_raw(port2: bool, motor0: u8, motor1: u8) -> PadState {
     unsafe {
-        select(false);
+        select(port2);
         delay_reads(DEFAULT_SETUP_SPINS);
         drain_rx();
 
