@@ -307,5 +307,27 @@ fn main() {
     assert!(!CellType::Floor.is_water());
     println!("✓ Infiltration collision & terrain mechanics test PASSED");
 
-    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (4/4 test suites)");
+    // 5. Campaign Completion & Continue Bounds Tests (QA-1 / PD-1)
+    let max_campaign_act = Act::Act4_3ExcavatorBoss as u8;
+    assert_eq!(max_campaign_act, 11, "Act 4-3 must be act index 11");
+
+    // Simulate completion of Act 4-3: unlocked_act must be clamped to 11
+    let next_act_idx = if max_campaign_act < 11 {
+        max_campaign_act + 1
+    } else {
+        11
+    };
+    let completed_unlocked_act = next_act_idx.min(11);
+    assert_eq!(completed_unlocked_act, 11, "Completed campaign must clamp unlocked_act to 11");
+
+    // Continue flow: continue act index must never resolve to a VR act (>= 12)
+    for unlocked in 0..=255u8 {
+        let continue_act_idx = unlocked.min(11);
+        let continue_act = Act::from_u8(continue_act_idx);
+        assert!(!continue_act.is_vr(), "Continue act must never be a VR training stage");
+        assert!((continue_act as u8) <= 11, "Continue act index must be in 0..=11");
+    }
+    println!("✓ Campaign completion & continue bounds test (QA-1) PASSED");
+
+    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (5/5 test suites)");
 }

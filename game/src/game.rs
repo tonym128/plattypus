@@ -171,9 +171,10 @@ impl Game {
                         if has_save {
                             match self.title_selection {
                                 0 => {
-                                    // Continue Campaign from unlocked act
+                                    // Continue Campaign from unlocked act (clamped to campaign acts 0..=11)
                                     AudioManager::stop_cdda();
-                                    let act = Act::from_u8(self.save_data.unlocked_act);
+                                    let act_idx = self.save_data.unlocked_act.min(11);
+                                    let act = Act::from_u8(act_idx);
                                     self.load_act(act);
                                     let briefing = get_act_dialogue(act);
                                     self.codec.start_conversation(briefing);
@@ -676,7 +677,13 @@ impl Game {
                             self.state = GameState::VrMenu;
                         } else {
                             // Automatically save progress & high score to Memory Card
-                            self.save_data.unlocked_act = (self.level.act as u8 + 1).max(self.save_data.unlocked_act);
+                            // Clamp campaign progression to Act 4-3 (index 11) so VR stages are not loaded as campaign
+                            let next_act_idx = if (self.level.act as u8) < 11 {
+                                self.level.act as u8 + 1
+                            } else {
+                                11
+                            };
+                            self.save_data.unlocked_act = next_act_idx.max(self.save_data.unlocked_act).min(11);
                             self.save_data.highest_score = self.save_data.highest_score.max(self.platty.score);
                             self.save_data.total_yabbies = self.save_data.total_yabbies.saturating_add(self.platty.yabbies_collected as u16);
                             self.memcard.save_to_slot1(&self.save_data);
@@ -770,7 +777,7 @@ impl Game {
             GameState::StageClear => {
                 if just_cross || just_start {
                     if let Some(next_act) = self.level.act.next() {
-                        self.save_data.unlocked_act = (next_act as u8).max(self.save_data.unlocked_act);
+                        self.save_data.unlocked_act = (next_act as u8).min(11).max(self.save_data.unlocked_act);
                         self.save_data.highest_score = self.save_data.highest_score.max(self.platty.score);
                         self.save_data.total_yabbies = self.save_data.total_yabbies.max(self.platty.yabbies_collected as u16);
                         self.memcard.save_to_slot1(&self.save_data);
