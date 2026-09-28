@@ -291,7 +291,7 @@ pub static ACT3_2_DIALOGUE: &[CodecPage] = &[
     CodecPage {
         speaker: Speaker::Mom,
         line1: "Pavement makes loud footsteps!",
-        line2: "Hold SQUARE to sneak silently!",
+        line2: "Tilt stick softly to sneak!",
     },
     CodecPage {
         speaker: Speaker::Dad,
@@ -480,7 +480,7 @@ pub static JACK_CH3_DIALOGUE: &[CodecPage] = &[
     },
     CodecPage {
         speaker: Speaker::JackKookaburra,
-        line1: "Hold SQUARE to walk in stealth,",
+        line1: "Tilt stick softly to sneak,",
         line2: "or duck under a Cardboard Box!",
     },
 ];
