@@ -1,149 +1,208 @@
-# Plattypus — Comprehensive Multi-Perspective Game Review
+# Plattypus: Tactical Espionage Action — Comprehensive Multi-Perspective Project Review
 
-A thorough review of the complete 10,589-line codebase across 15 source files, 12 campaign stages, 4 VR training missions, 4 boss encounters, and full PS1 hardware integration.
-
----
-
-## 🏗️ Principal Developer — Architecture & Technical Debt
-
-### Bugs & Logic Issues
-
-| # | Severity | File | Issue | Recommendation |
-|---|----------|------|-------|----------------|
-| **PD-1** | 🔴 **Critical** | [game.rs:679](file:///home/tonym/Projects/plattypus-psoxide/game/src/game.rs#L679) | **Continue after campaign completion loads VR stage.** After beating Act 4-3 (index 11), `unlocked_act` is set to `12`. `Act::from_u8(12)` maps to `VrSneaking`. Selecting "CONTINUE" on the title screen loads VR-01 as if it were a campaign stage with a story CODEC briefing. | Clamp `unlocked_act` to `11` after Act 4-3, or treat `unlocked_act >= 12` as "campaign complete" and either replay Act 4-3 or show a "Campaign Complete — New Game+" prompt. |
-| **PD-2** | 🟡 **Medium** | [platypus.rs:225](file:///home/tonym/Projects/plattypus-psoxide/game/src/platypus.rs#L225) | **Oxygen depletes too fast.** Air drains `1` per 2 frames = ~3.33 seconds total underwater. Combined with `1 damage per frame` at air=0, this is punishingly lethal. For Act 4-2 (Pier Shark Trench) which requires sustained diving, this may be too tight for casual players. | Consider draining every 3-4 frames (~5-6.7 seconds total), or start with `air = 150`. Keep the current rate as a "Hard Mode" option if desired. |
-| **PD-3** | 🟡 **Medium** | [save.rs:95](file:///home/tonym/Projects/plattypus-psoxide/game/src/save.rs#L95) | **Speedrun codename "Sly Possum" threshold (< 450s / 7:30) may be unrealistic.** 12 stages × ~37.5 seconds each average is extremely aggressive for a stealth game. Unless `time_s` only counts gameplay frames (not CODEC/cutscenes), this rank may be effectively unachievable. | Verify whether CODEC dialogue and cutscene time is excluded from `play_time_frames`. If not, either exclude it or raise the threshold to ~900s (15 minutes). |
-| **PD-4** | 🟢 **Low** | [game.rs:407](file:///home/tonym/Projects/plattypus-psoxide/game/src/game.rs#L407) | **D-pad UP = South (+Z), DOWN = North (-Z).** This is intentional and documented, but counter-intuitive. In most stages the player starts at Z=21 and exits at Z=2, meaning pressing DOWN moves "forward" toward the objective. | Consider swapping so UP moves toward the exit (North / -Z) to match player expectation, or add a brief on-screen compass during the first play. |
-| **PD-5** | 🟢 **Low** | [platypus.rs:103](file:///home/tonym/Projects/plattypus-psoxide/game/src/platypus.rs#L103) | **`reset_position` sets angle to 128 (North) but Act 1-1 exit is South.** In Act 1-1, the player spawns at Z=2 and must reach Z=21 (South). Starting facing North means the player initially faces away from the objective. | Set spawn facing angle based on whether the exit is North or South of the spawn point. |
-
-### Code Quality Observations
-
-| # | Area | Observation |
-|---|------|-------------|
-| **PD-6** | Magic Numbers | Over 120 hardcoded numeric constants scattered through gameplay code (collision radii, stun durations, speeds, scores). These should be extracted into named `const` declarations at the top of each module for maintainability and tuning. |
-| **PD-7** | HUD in Renderer | All HUD drawing (~500 lines) lives in [renderer.rs](file:///home/tonym/Projects/plattypus-psoxide/game/src/renderer.rs) rather than a dedicated `hud.rs`. This file is 2,377 lines — the largest in the project. Extracting HUD into its own module would improve readability. |
-| **PD-8** | No TODO/FIXME | Zero TODO or FIXME comments remain — all development checklist items in `TODO.md` are marked complete. This is excellent. |
-| **PD-9** | Test Coverage | The 4 test suites cover save data, codename ranking, act progression, and collision mechanics. Missing coverage: boss state machines, collectible pickup logic, oxygen depletion/recovery, electro-sonar stun radius, and river current physics. |
-| **PD-10** | Fixed-Point | `fixed.rs` (87 lines) implements 16.16 fixed-point math but is never imported or used by any game module. It should either be used for deterministic physics or removed as dead code. |
+A comprehensive, in-depth architectural and product audit of the **Plattypus** codebase (~10,600 lines of bare-metal Rust across 17 source files, 16 playable stages, 4 boss battles, custom MDEC video streaming, SPU audio synthesizer, DualShock vibration drivers, and physical jewel-case packaging specifications).
 
 ---
 
-## ⚙️ Senior Engineer — Performance, Stability & Hardware
+## 🧭 Executive Summary
 
-### Performance
+**Plattypus** is an extraordinary technical achievement: a full 3D tactical stealth action game running bare-metal on 1994 Sony PlayStation hardware (MIPS R3000A @ 33.8MHz, 2MB RAM) written entirely in modern `no_std` Rust via the PSoXide SDK. It features GTE-accelerated 3D rendering, procedural Gouraud texturing, multi-frequency CODEC wireless radio communication, an animated BIOS memory card manager, DualShock analog/rumble integration, and custom hardware MDEC video streaming.
 
-| # | Area | Issue | Recommendation |
-|---|------|-------|----------------|
-| **SE-1** | GPU Fill Rate | Ground contact shadows (new) add a flat quad draw call per Crate, Container, and AirDuct tile. In worst case (a level densely packed with crates), this could add ~50+ extra `GP0(0x28)` quad submissions per frame. | Profile on real hardware or accurate emulator (Mednafen). The PS1 GPU rasterizes ~360K flat-shaded pixels/frame at 30fps; these small shadow quads are likely <5% overhead, but verify. |
-| **SE-2** | Row Sorting | The painter's algorithm row-based depth sort in [renderer.rs:160-166](file:///home/tonym/Projects/plattypus-psoxide/game/src/renderer.rs#L160-L166) iterates entities per row per type (sentries, drones, searchlights, vehicles, crabs, collectibles, particles). With `MAX_SENTRIES=6, MAX_DRONES=3, MAX_COLLECTIBLES=16, MAX_PARTICLES=24`, each row scans ~67 entities. Over ~10 visible rows, that's ~670 entity checks per frame. | This is acceptable for PS1 R3000 at 33MHz. No change needed unless profiling shows a bottleneck. |
-| **SE-3** | MDEC Fallback | [video.rs](file:///home/tonym/Projects/plattypus-psoxide/game/src/video.rs) has a PIO fallback if DMA Channel 1 stalls (10,000 spin limit). This is defensive but could silently drop a vertical slice column on slow disc reads. | Add a visual indicator (brief static bar) if a PIO fallback triggers, so it's diagnosable. |
-| **SE-4** | SPU Voices | 13 of 24 SPU voices are allocated to SFX, 3 to audio streams, 4 to the synth sequencer, leaving 4 free. If future features add environmental ambience or more SFX variety, voice contention could occur. | Document the voice allocation table in `audio.rs` header comments. Currently undocumented. |
+However, behind the high technical baseline lies a collection of critical bugs, legacy holdovers, UX friction points, and packaging mismatches that prevent it from being a polished, retail-grade commercial PS1 release.
 
-### Stability
-
-| # | Area | Issue | Recommendation |
-|---|------|-------|----------------|
-| **SE-5** | Controller Hot-Plug | Controller disconnect overlay freezes gameplay — excellent. But reconnection requires the game to re-init analog mode (`command 0x44`) and motor mapping (`command 0x4D`). | Verify that hot-plugging mid-game correctly re-enters analog mode on reconnection, and doesn't leave the controller in digital-only mode. |
-| **SE-6** | Memory Card Edge Cases | `SaveStatus::SaveErrorFailed` is handled but no retry mechanism is offered — the message displays briefly and disappears. | Show "SAVE FAILED — RETRY? (CROSS/TRIANGLE)" prompt so the player can retry before the status clears. |
-| **SE-7** | `i16` Overflow Risk | World coordinates use `i32` but are cast to `i16` for GTE projection (e.g., `wx as i16`). With `GRID_W=24 × TILE_SZ=64 = 1536`, maximum coordinate is 1536 which fits in `i16` (max 32767). Safe, but any future grid size increase would silently wrap. | Add a compile-time assertion: `const _: () = assert!((GRID_W as i32 * TILE_SZ) < i16::MAX as i32);` |
+### High-Priority Core Issues:
+1. **The Campaign-to-VR Overflow Loop ([game.rs:679](file:///home/tonym/Projects/plattypus-psoxide/game/src/game.rs#L679))**: Beating the final boss unlocks Act 12 (`VrSneaking`). Selecting "CONTINUE" loads VR-01 as a story stage.
+2. **README.md Identity Crisis ([README.md:1-50](file:///home/tonym/Projects/plattypus-psoxide/README.md#L1-L50))**: The project README still advertises an early 2D side-scrolling platformer about "belly slides and flutter kicks", while the actual product is a 3D tactical espionage action title.
+3. **ROM Executable Bloat (654 KB embedded assets in 2MB RAM)**: 256 KB of fallback video and 248 KB of VAG audio are embedded directly into `.rodata` via `include_bytes!`, consuming 50% of the entire system RAM on boot.
+4. **Missing In-Game Pause ([game.rs:596-602](file:///home/tonym/Projects/plattypus-psoxide/game/src/game.rs#L596-L602))**: Pressing START during active gameplay does nothing.
+5. **False Dialogue Instructions ([codec.rs:294](file:///home/tonym/Projects/plattypus-psoxide/game/src/codec.rs#L294))**: In Act 3-2, CODEC tells the player *"Hold SQUARE to sneak silently"*, but SQUARE triggers a venom spur attack.
 
 ---
 
-## 🎨 Product Designer — UX, Interface & Player Experience
+## 🏗️ 1. Principal Developer — Architecture & Technical Debt
 
-### Onboarding & Tutorials
+Focus: *System architecture, memory budgeting, code maintainability, engine modularity, and technical debt.*
 
-| # | Priority | Issue | Recommendation |
-|---|----------|-------|----------------|
-| **UX-1** | 🔴 **High** | **No in-game controls tutorial.** The game has 8+ distinct abilities (Crawl, Box, Sonar, Spur Strike, Dive, Jump) mapped to specific buttons, but no tutorial overlay or button prompt is shown outside of the CODEC conversations. New players will miss abilities entirely. | Add a brief HUD prompt on first use: e.g., "Press ○ to CRAWL" when approaching an AirDuct for the first time, "Press △ to charge SONAR" on Act 2-2 start, etc. |
-| **UX-2** | 🔴 **High** | **No pause menu.** Pressing START during gameplay does nothing — there's no way to pause, view controls, adjust options, or quit to title mid-stage. SELECT opens the CODEC, but that's an in-game mechanic, not a pause screen. | Add a pause overlay on START with options: Resume, Controls Reference, Options, Quit to Title. |
-| **UX-3** | 🟡 **Medium** | **Stage Clear screen lacks summary.** Completing a non-boss stage shows "STAGE CLEAR" then immediately loads the next CODEC briefing. No stats (time, score, collectibles found, alerts) are shown until the final debriefing after Act 4-3. | Show a brief stage summary card: Time, Score, Yabbies Found, Alert Status, and an optional "CODEC: Save?" prompt. |
-| **UX-4** | 🟡 **Medium** | **Oxygen meter visibility.** The O2 bar only appears when in water. Players entering water for the first time (Act 1-1 canal) won't know they have limited air until they're already drowning. | Flash the O2 bar briefly with a "HOLD × TO DIVE — WATCH YOUR O₂!" text prompt when first entering water. |
-| **UX-5** | 🟡 **Medium** | **No map or objective marker.** In larger stages (Act 1-2, 3-2, 4-1) the exit burrow location is unknown to the player. The Soliton Radar shows enemies but not the objective. | Add a subtle pulsing chevron or blip on the radar pointing toward the exit burrow. |
-| **UX-6** | 🟢 **Low** | **Game Over retry is instant.** After dying, Cross/Start immediately reloads the stage with no loading screen or brief delay. While fast, it can feel disorienting. | Add a 0.5-second fade-to-black transition before the stage reload. |
-
-### Interface Polish
-
-| # | Priority | Issue | Recommendation |
-|---|----------|-------|----------------|
-| **UX-7** | 🟡 **Medium** | **Options are not accessible mid-game.** Costume, wireframe, language, and display settings can only be changed from the title screen Options menu. | Add an Options sub-menu inside the proposed pause menu, or at minimum allow costume swapping from the CODEC menu. |
-| **UX-8** | 🟡 **Medium** | **Attract Demo plays the actual game state.** The attract demo simulates button inputs on real stages, which means the player entity, enemies, and scoring are all running live. If attract demo runs after a completed campaign (with unlocks), it loads VR stages due to PD-1. | Use a dedicated demo recording/playback system, or at minimum snapshot and restore the full game state before/after attract mode. |
-| **UX-9** | 🟢 **Low** | **No volume control.** There is no option to adjust SFX or BGM volume independently. The synth sequencer and CD-DA have fixed volumes. | Add volume sliders (0-100%) for BGM and SFX in Options, controlling SPU voice master volume. |
-| **UX-10** | 🟢 **Low** | **Debriefing stats only shown once.** The final mission debriefing (codename, time, alerts, damage) displays after Act 4-3 but cannot be reviewed from the title screen. | Add a "MISSION LOG" option on the title screen (when save exists) showing best codename, time, yabbies, alerts. |
-
----
-
-## 📣 Marketing Team — Presentation, Polish & Sellability
-
-### First Impressions & Visual Polish
-
-| # | Priority | Issue | Recommendation |
-|---|----------|-------|----------------|
-| **MK-1** | 🔴 **High** | **No chapter title cards.** Transitioning from Chapter 1 to Chapter 2 (or any chapter) goes straight from CODEC briefing to gameplay. There's no dramatic chapter splash screen ("CHAPTER 2: THE YARRA RIVER WILDS") with artwork or a cinematic establishing shot. | Add a 3-second letterboxed chapter title card with the chapter name, location subtitle, and a brief environmental panorama before the first stage of each chapter. |
-| **MK-2** | 🔴 **High** | **Boss introductions lack drama.** The `BossIntroCutscene` does a 4-second camera orbit, but there's no boss name title card ("PERIMETER WALKER MK-I"), no dramatic freeze-frame, and no unique boss music intro sting. | Display a cinematic boss name banner with a subtitle (e.g., "SEARCHLIGHT MECH — PERIMETER WALKER MK-I") during the orbit, with a dramatic percussion sting or rising synth. |
-| **MK-3** | 🟡 **Medium** | **Ending scene may feel anticlimactic.** After the final boss, the outro video plays, then a debriefing stats card, then a static sunset ending. There's no credits sequence listing the developer. | Add a credits scroll over the sunset ending scene, or at minimum display "DEVELOPED BY [NAME]" and "THANK YOU FOR PLAYING" with the codename badge. |
-| **MK-4** | 🟡 **Medium** | **VR Training completion has no fanfare.** Clearing all 4 VR stages unlocks Tuxedo and Wireframe, but there's no celebration screen — it just plays a quick fanfare and returns to the VR menu. | Show a dedicated "VR TRAINING COMPLETE — TUXEDO UNLOCKED! WIREFRAME UNLOCKED!" splash with the Platty model in Tuxedo doing a pose. |
-| **MK-5** | 🟡 **Medium** | **Stealth Camo (Rank S reward) has no visual feedback.** The camo is unlocked but the player may not know what it does or how dramatic it looks until they equip it and replay. | Show a brief "STEALTH CAMOUFLAGE ACTIVATED" preview during the debriefing when Big Platypus rank is achieved, with Platty flickering semi-transparent. |
-
-### Replay Value & Content
-
-| # | Priority | Issue | Recommendation |
-|---|----------|-------|----------------|
-| **MK-6** | 🟡 **Medium** | **No stage select after completion.** Once the campaign is beaten, the only way to replay a specific stage is to start a new campaign and play through sequentially. | Unlock a "STAGE SELECT" menu option on the title screen after completing the campaign, allowing replay of any individual act. |
-| **MK-7** | 🟡 **Medium** | **Collectible tracking is aggregate only.** `total_yabbies` accumulates across all playthroughs but there's no per-stage breakdown showing which stages have uncollected items. | Add per-stage yabby/letter counts to the stage select screen (if added) or mission log. |
-| **MK-8** | 🟢 **Low** | **Only 5 codename ranks.** Games like MGS have 12+ codenames based on diverse playstyle combinations. Adding more ranks (e.g., "Pacifist Wombat" for 0 takedowns, "Ghost Platypus" for 0 alerts + 0 takedowns + 0 damage + no box used) would encourage varied replays. | Add 2-3 additional codename tiers for niche playstyles. |
-
----
-
-## 🧪 Testing Developer — QA, Edge Cases & Regression
-
-### Critical Test Gaps
-
-| # | Priority | Area | Test Needed |
-|---|----------|------|-------------|
-| **QA-1** | 🔴 **Critical** | Continue After Completion | Test: Complete Act 4-3, return to title, select "Continue". Expected: Should NOT load VR-01 as a campaign stage. Actual: Loads `Act::from_u8(12)` = `VrSneaking`. |
-| **QA-2** | 🔴 **Critical** | Boss Defeat + Retry Loop | Test: Die on a boss stage, retry, defeat the boss. Verify that boss HP, conduit states, and phase timers are fully reset. Specifically test Act 1-3 mech where 3 conduits + 4 core HP must all reset cleanly. |
-| **QA-3** | 🟡 **Medium** | Oxygen Edge Cases | Test: Enter water with 1 HP, drain oxygen to 0. Verify damage is applied correctly (1/frame) and Game Over triggers. Test: Surface at air=1, verify recovery rate. Test: Submerge → surface → submerge rapidly (air flickering). |
-| **QA-4** | 🟡 **Medium** | Cardboard Box + Boss | Test: Enter a boss fight while in the cardboard box. Verify: Can the box be toggled during boss encounters? Does the box provide any unintended protection from boss attacks? |
-| **QA-5** | 🟡 **Medium** | Score Overflow | Test: Accumulate maximum score across a full playthrough with all collectibles and takedowns. Verify `u32` score doesn't overflow. Maximum theoretical: ~50,000 (collectibles) + ~25,000 (bosses) + ~10,000 (takedowns) = ~85,000. Safe for `u32`, but verify display with 6-digit formatting. |
-| **QA-6** | 🟡 **Medium** | Memory Card Full | Test: Fill Memory Card Slot 1 with 14 other save blocks (leaving 1 block free). Save and verify. Then fill completely (15 blocks used). Attempt save and verify `SaveErrorFailed` displays. |
-| **QA-7** | 🟡 **Medium** | River Rapids Boundary | Test: In Act 2-1, move to the extreme left and right edges of the river. Verify player cannot clip outside the 5-lane boundaries. Test: Jump at the exact moment an obstacle reaches the player Z. |
-| **QA-8** | 🟡 **Medium** | Electro-Sonar + Bosses | Test: Fire electro-sonar pulse during each boss fight. Verify it doesn't stun bosses (it shouldn't — only stuns sentries and drones). Verify the visual overlay doesn't interfere with boss HUD elements. |
-| **QA-9** | 🟢 **Low** | Attract Demo State Leak | Test: Let attract demo run, press a button mid-demo, return to title. Verify that score, health, entity states, and BGM are fully reset. |
-| **QA-10** | 🟢 **Low** | PAL Timing | Test: Set video mode to PAL 50Hz. Verify that all gameplay timers (invulnerability, stun durations, oxygen depletion, boss attack cooldowns) are adjusted for 50fps, or document that the game runs 16.7% slower in PAL mode. |
-
-### Existing Test Suite Gaps
-
-| # | Missing Coverage | What to Add |
-|---|------------------|-------------|
-| **QA-11** | Boss state machine transitions | Verify `SearchlightMech` transitions through `Patrolling → Targeting → Stomping → Venting → Patrolling` correctly, and that destroying all 3 conduits triggers shield collapse. |
-| **QA-12** | Collectible pickup effects | Verify `YabbyRation` heals +1 (capped at 3), `BuriedYabby` heals to full, `ChaffBattery` resets sonar cooldown, `CardboardBox` sets `has_box = true`. |
-| **QA-13** | River obstacle wrapping | Verify obstacles correctly wrap from `z < 2*TILE_SZ` back to `z = 21*TILE_SZ` without gaps or overlap. |
-| **QA-14** | `fixed.rs` dead code | `Fixed` struct is defined but never imported. Either add a unit test confirming its arithmetic or remove it. |
-
----
-
-## Summary Priority Matrix
-
-```
-                        IMPACT
-                 Low         Medium        High
-           ┌──────────┬──────────────┬──────────────┐
-    High   │          │  UX-1, UX-2  │    PD-1      │
-           │          │  MK-1, MK-2  │              │
-EFFORT     ├──────────┼──────────────┼──────────────┤
-    Medium │  MK-8    │  PD-2, PD-3  │  MK-6, UX-5 │
-           │  QA-14   │  UX-3, UX-7  │              │
-           ├──────────┼──────────────┼──────────────┤
-    Low    │  UX-6    │  PD-5, SE-7  │  QA-1, QA-2  │
-           │  UX-9    │  MK-3, MK-5  │              │
-           └──────────┴──────────────┴──────────────┘
+```mermaid
+flowchart TD
+    subgraph Current Architecture ["Current Monolithic Structure"]
+        M1["main.rs"] --> G1["game.rs (886 lines)"]
+        G1 --> R1["renderer.rs (2,377 lines - GTE, 3D, HUD, Menus)"]
+        G1 --> E1["entities.rs (1,981 lines - 15 structs, AI, Bosses)"]
+        G1 --> P1["platypus.rs (988 lines - Player, CQC, Sonar)"]
+        G1 --> A1["audio.rs (511 lines - SPU, Sequencer, SFX)"]
+        G1 --> V1["video.rs (442 lines - MDEC, CD Streaming)"]
+    end
+    subgraph Proposed Architecture ["Proposed Modular Structure"]
+        M2["plattypus-core (no_std)"]
+        M2 --> S2["plattypus-engine (Physics, Levels, AI)"]
+        M2 --> R2["plattypus-render (GTE, Viewport, Materials)"]
+        M2 --> U2["plattypus-ui (HUD, Menus, Debriefing)"]
+        M2 --> H2["plattypus-hw (PS1 SIO, SPU, MDEC, GPU)"]
+    end
 ```
 
-> [!IMPORTANT]
-> **Top 5 items to address first:**
-> 1. **PD-1** — Continue after completion loads VR stage (bug)
-> 2. **QA-1** — Write test to verify continue flow
-> 3. **UX-2** — Add a pause menu (START button does nothing)
-> 4. **UX-1** — Add contextual button prompts for abilities
-> 5. **MK-1** — Add chapter title cards for dramatic pacing
+### Architectural Deficiencies & Bugs
+
+| # | Severity | File Reference | Finding | Technical Rationale & Fix |
+|---|----------|----------------|---------|---------------------------|
+| **PD-1** | 🔴 **Critical** | [game.rs:679](file:///home/tonym/Projects/plattypus-psoxide/game/src/game.rs#L679) | **Continue loads VR training stage after beating campaign.** | Beating Act 4-3 executes `unlocked_act = (11 + 1).max(...)` = 12. Index 12 maps to `Act::VrSneaking`. Selecting "CONTINUE" passes 12 to `get_act_dialogue()`, loading VR-01 inside story state. Clamp `unlocked_act` to `11` or set an explicit `campaign_completed: bool` flag. |
+| **PD-2** | 🔴 **Critical** | [audio.rs:18-19](file:///home/tonym/Projects/plattypus-psoxide/game/src/audio.rs#L18-L19), [video.rs:15](file:///home/tonym/Projects/plattypus-psoxide/game/src/video.rs#L15) | **654 KB of static binary assets compiled into executable.** | `video_mdec.bin` (256 KB), `intro_audio.vag` (124 KB), `outro_audio.vag` (124 KB), and `title_bg.bin` (150 KB) are included via `include_bytes!`. On a system with only 2,048 KB RAM, this wastes 32% of total physical memory. Since ISO 9660 streaming is already implemented in `video.rs`, load these on demand from disc. |
+| **PD-3** | 🟡 **Major** | [renderer.rs:2050-2377](file:///home/tonym/Projects/plattypus-psoxide/game/src/renderer.rs#L2050-L2377) | **Monolithic `renderer.rs` (2,377 lines).** | `renderer.rs` mixes low-level GTE projection with HUD bars, Soliton Radar rendering, options menus, debriefing calculations, ending credits, and boss title cards. Split into `renderer/scene.rs`, `renderer/hud.rs`, and `renderer/ui.rs`. |
+| **PD-4** | 🟡 **Major** | [entities.rs:1-1981](file:///home/tonym/Projects/plattypus-psoxide/game/src/entities.rs#L1-L1981) | **Entity manager monolith (1,981 lines).** | Contains 15 distinct entity and boss struct definitions, stage placement tables, physics updates, and particle systems in one file. Break into `entities/sentry.rs`, `entities/bosses.rs`, `entities/hazards.rs`, and `entities/mod.rs`. |
+| **PD-5** | 🟡 **Major** | [fixed.rs:1-88](file:///home/tonym/Projects/plattypus-psoxide/game/src/fixed.rs#L1-L88) | **Unused 16.16 fixed-point math library.** | `Fixed` is defined with saturated arithmetic and multiplication, but is never referenced anywhere in `game/src/`. Current physics uses raw `i32` with integer truncation (`/ 127`), causing velocity staircasing. Either integrate `Fixed` for smooth movement curves or remove `fixed.rs`. |
+| **PD-6** | 🟡 **Major** | [test_game_logic/src/main.rs:5-100](file:///home/tonym/Projects/plattypus-psoxide/tools/test_game_logic/src/main.rs#L5-L100) | **Duplicated struct definitions across crates.** | Host-side tests duplicate `SaveData`, `Codename`, and cell flags instead of referencing shared modules. Struct field reordering in `save.rs` will not break `make test`, creating false confidence. Create a shared `plattypus-core` crate. |
+| **PD-7** | 🟢 **Minor** | [platypus.rs:350-470](file:///home/tonym/Projects/plattypus-psoxide/game/src/platypus.rs#L350-L470) | **Widespread magic numbers in gameplay logic.** | Stun timers (300, 400, 900), collision radii (44, 48, 60), damage amounts, and score values are hardcoded inline. Extract to named constants (`CQC_SILENT_TAKEDOWN_STUN_FRAMES`, `MECH_CORE_HITBOX_RADIUS`). |
+
+---
+
+## ⚙️ 2. Senior Engineer — Hardware, Performance & Stability
+
+Focus: *PS1 hardware constraints (MIPS R3000, GPU, SPU, DMA, SIO), cycle budgets, fill rates, audio memory, and protocol edge cases.*
+
+### Hardware & Resource Allocation Table
+| Subsystem | Hardware Limit | Plattypus Current Usage | Status | Risk / Recommendation |
+|---|---|---|---|---|
+| **Main RAM** | 2,048 KB | ~1,012 KB executable + 90 KB BSS + Stack | ⚠️ Tight | Relocate embedded VAG and MDEC binaries to disc sectors. |
+| **SPU RAM** | 512 KB | 248 KB VAG audio + 40 KB SFX + 2 KB waves | ⚠️ Warning | Intro & Outro audio consume 48% of sound RAM permanently. |
+| **SPU Voices** | 24 Hardware Voices | 13 SFX + 3 Video/Title + 4 Synth = 20 used | 🟡 Caution | 4 voices remaining; voice stealing needed if adding ambience. |
+| **GPU VRAM** | 1,024 × 512 (16-bit) | FB0 (320x240), FB1 (320x240), Atlas (X=384) | 🟢 Safe | VRAM layout is clean; font, CLUTs, and atlas fit well. |
+| **Frame Rate** | 60 Hz NTSC / 50 Hz PAL | Double-buffered 30/60 fps with VBlank lock | 🟢 Stable | `wait_vblank()` prevents tearing. |
+
+### Technical Observations & Engineering Fixes
+
+| # | Subsystem | Issue | Engineering Recommendation |
+|---|-----------|-------|----------------------------|
+| **SE-1** | **SPU Sound RAM** | [audio.rs:145-160](file:///home/tonym/Projects/plattypus-psoxide/game/src/audio.rs#L145-L160): Intro and Outro VAG audio (248 KB combined) uploaded at boot and resident forever. | SPU RAM should only hold resident sound effects and synth waveforms (~60 KB total). Video audio should be loaded to SPU RAM immediately prior to video playback and flushed before loading the stage. |
+| **SE-2** | **Memory Card Driver** | [save.rs:279-286](file:///home/tonym/Projects/plattypus-psoxide/game/src/save.rs#L279-L286): Virgin cards are formatted automatically without user prompt. | `if !card.is_formatted() { card.format(); }` is dangerous. On real hardware, an unseated or worn card can temporarily report unformatted; formatting automatically will erase other games' saves. Add an explicit "FORMAT CARD? (CROSS/TRIANGLE)" confirmation dialogue. |
+| **SE-3** | **Memory Card Slot 2** | [save.rs:276](file:///home/tonym/Projects/plattypus-psoxide/game/src/save.rs#L276): Slot 2 is completely unsupported (`Slot::One` hardcoded). | Standard PS1 titles poll Slot 1 first, and if absent or full, fall back to Slot 2. Add `Slot::Two` query before displaying `SaveErrorNoCard`. |
+| **SE-4** | **SIO Controller Polling** | [dualshock.rs:76-105](file:///home/tonym/Projects/plattypus-psoxide/game/src/dualshock.rs#L76-L105): Port 1 hardcoded (`select(false)`). | If a player's physical Port 1 has oxidized pins or if using a multitap, the game halts on the disconnect screen. Support Port 2 failover or Port 2 hot-swap. |
+| **SE-5** | **GPU Polygon Warping** | [renderer.rs:784-789](file:///home/tonym/Projects/plattypus-psoxide/game/src/renderer.rs#L784-L789): Affine texture distortion on large wall surfaces. | The PS1 lacks perspective-correct texture mapping. Long 64x64 wall quads stretch severely at oblique camera pitches (`CAM_PITCH = 34`). Subdivide boundary wall quads into two triangles or smaller 32x32 tiles to reduce affine skewing. |
+| **SE-6** | **MDEC DMA Stall Limit** | [video.rs:230-260](file:///home/tonym/Projects/plattypus-psoxide/game/src/video.rs#L230-L260): Hard spin limit of 10,000 before fallback to PIO. | While safe, PIO fallback takes ~4x longer than DMA Channel 1, causing frame drops during CD seek spikes. Add double-buffering for slice uploads. |
+| **SE-7** | **Integer Overflow Guard** | [platypus.rs:604](file:///home/tonym/Projects/plattypus-psoxide/game/src/platypus.rs#L604): `isqrt_i32(sx*sx + sy*sy)`. | `sx` and `sy` are clamped to [-128..127], so `sx*sx + sy*sy <= 32768`, which fits in `i32`. Safe, but add compile-time checks for world grid multiplications (`GRID_W * TILE_SZ < i16::MAX`). |
+
+---
+
+## 🎨 3. Product Designer — UX, Ergonomics & Player Experience
+
+Focus: *Player onboarding, control mapping, camera perspective, HUD readability, feedback loops, and player psychology.*
+
+### Core UX & Game Feel Breakdowns
+
+| # | Priority | Screen / Area | Issue | Solution |
+|---|----------|---------------|-------|----------|
+| **UX-1** | 🔴 **Critical** | **In-Game Pause** | [game.rs:596-602](file:///home/tonym/Projects/plattypus-psoxide/game/src/game.rs#L596-L602): START button is dead during active gameplay. | Add a clean tactical pause overlay when START is pressed: Options: `RESUME`, `CONTROLS`, `RETRY STAGE`, `ABORT TO TITLE`. (SELECT remains dedicated to CODEC). |
+| **UX-2** | 🟡 **Major** | **Misleading CODEC Prompt** | [codec.rs:294](file:///home/tonym/Projects/plattypus-psoxide/game/src/codec.rs#L294): Dialogue says *"Hold SQUARE to sneak silently!"* | SQUARE performs a Spur Strike attack. Sneak is achieved by gently tilting the analog stick or crawling with CIRCLE. Change dialogue to: *"Tilt the stick gently to sneak, or press CIRCLE to crawl!"* |
+| **UX-3** | 🟡 **Major** | **Lethal Oxygen Curve** | [platypus.rs:225-230](file:///home/tonym/Projects/plattypus-psoxide/game/src/platypus.rs#L225-L230): Air drains in 3.3s; air=0 inflicts 1 damage/frame (death in 3 frames). | Instant death upon air depletion feels like a glitch. Drain air every 4 frames (~6.7s total). At air=0, inflict 1 damage every 30 frames (0.5s), flash the screen red, and trigger the heartbeat vibration motor. |
+| **UX-4** | 🟡 **Major** | **Radar Lacks Objective Marker** | [renderer.rs:2100-2180](file:///home/tonym/Projects/plattypus-psoxide/game/src/renderer.rs#L2100-L2180): Soliton Radar shows guards, but not the exit burrow. | In maze levels (Act 1-2, 2-2, 3-2), players cannot tell where to go. Add a blinking yellow square or directional chevron on the radar pointing toward `(exit_x, exit_z)`. |
+| **UX-5** | 🟡 **Major** | **Contextual Ability Prompts** | General Gameplay | Platty has 8 abilities (Jump, Crawl, Box, Sonar, CQC, Swim, Submerge, Radio). Show a subtle 1-second floating button icon on first encounter (e.g. `[○ CRAWL]` near low vents, `[L1 BOX]` when collecting crate). |
+| **UX-6** | 🟢 **Minor** | **Stage Clear Breakdown** | [renderer.rs:2250-2300](file:///home/tonym/Projects/plattypus-psoxide/game/src/renderer.rs#L2250-L2300): Stage clear only displays total score and yabbies. | Show a tactical breakdown card: `STAGE TIME: 01:24`, `ALERTS: 0`, `CQC TAKEDOWNS: 2`, `YABBIES: 4/4`. |
+| **UX-7** | 🟢 **Minor** | **CODEC Portrait Visuals** | [codec.rs:944-1000](file:///home/tonym/Projects/plattypus-psoxide/game/src/codec.rs#L944-L1000): Character portraits are drawn with raw colored rectangles. | Replace geometric rectangles with textured 64x64 pixel-art face sprites uploaded to VRAM for Platty, Mom, Dad, and Dr. Toad. |
+
+---
+
+## 📣 4. Marketing Team — Presentation, Commercial Appeal & Community
+
+Focus: *Public messaging, commercial retro-market appeal, physical publishing standards, community engagement, and speedrunning.*
+
+### The README.md Overhaul
+The repository's [README.md](file:///home/tonym/Projects/plattypus-psoxide/README.md) is currently the biggest external barrier to adoption. It actively misrepresents the project as a simple 2D side-scrolling platformer.
+
+```markdown
+<!-- Current Obsolete README Header -->
+# Plattypus 🦆 (PSX / PlayStation 1)
+A side-scrolling platformer for the original Sony PlayStation (PS1 / PSX)...
+Down + Cross: Belly Slide! Accelerates down slopes...
+
+<!-- Recommended Retail README Header -->
+# PLATTYPUS: TACTICAL ESPIONAGE ACTION 🦆
+### The Premier 3D Stealth Infiltration Thriller for Sony PlayStation (PS1)
+Built in bare-metal Rust with the PSoXide SDK.
+Featuring Soliton Radar, CODEC Wireless Radio, Analog DualShock Rumble,
+and Hardware MDEC Full-Motion Video.
+```
+
+### Commercial & Community Action Items
+
+| # | Priority | Initiative | Business & Community Value |
+|---|----------|------------|----------------------------|
+| **MK-1** | 🔴 **High** | **Cinematic Chapter Title Cards** | Opening a chapter directly into gameplay lacks dramatic weight. Add 3-second letterboxed title cards: *"ACT I: THE HEALESVILLE SANCTUARY / Operation Drainage Outflow"* with deep bass synth hit. |
+| **MK-2** | 🔴 **High** | **Dramatic Boss Intro Splash Cards** | The 4-second camera orbit around bosses ([game.rs:563-585](file:///home/tonym/Projects/plattypus-psoxide/game/src/game.rs#L563-L585)) needs a freeze-frame with boss designation banner: *"SEARCHLIGHT MECH MK-I — Automated Perimeter Fortress"* with alert sting. |
+| **MK-3** | 🟡 **Medium** | **PAL Double-Case Artwork Specs** | `packaging/` only provides NTSC-U jewel case templates. European PS1 collectors prize the thick double-jewel PAL format with multi-language spines. Add `jewel_case_pal_double.svg`. |
+| **MK-4** | 🟡 **Medium** | **Post-Campaign Stage Select** | After beating the game, players cannot replay individual stages or demonstrate boss fights to friends without starting over. Add an unlocked `STAGE SELECT` menu option on the Title Screen. |
+| **MK-5** | 🟡 **Medium** | **Expand Codename System (5 -> 12 Ranks)** | 5 codenames is too low for an MGS homage. Add niche codenames: *"Ghost Platypus"* (0 alerts, 0 kills, 0 rations), *"Speedy Wallaby"* (<5 min), *"Iron Bill"* (Max damage survived), *"Cardboard Hermit"* (>50% time in box). |
+| **MK-6** | 🟢 **Low** | **Ending Credits Sequence** | The current ending transitions from outro video to debriefing to static sunset. Add a scrolling credits sequence over the sunset thanking the open-source PS1 and Rust homebrew communities. |
+
+---
+
+## 🧪 5. Testing Developer — QA, Test Automation & Edge Cases
+
+Focus: *Automated test architecture, edge-case validation, collision clipping, physics determinism, and regression prevention.*
+
+### Architecture Gap: Decoupling `plattypus-core`
+Currently, `tools/test_game_logic` runs a standalone binary on the host machine that manually duplicates structs:
+
+```rust
+// In tools/test_game_logic/src/main.rs (Duplicated!)
+pub struct SaveData {
+    pub magic: [u8; 4],
+    pub version: u8,
+    // ...
+}
+```
+**Problem**: Changes to `game/src/save.rs` do not cause `make test` to fail if fields change, creating dangerous false positives.
+
+**Solution**: Extract pure game logic into a workspace library:
+```
+plattypus-psoxide/
+├── crates/
+│   └── plattypus-core/      <-- Pure Rust, no_std compatible, shared by game & tests
+│       ├── src/
+│       │   ├── save.rs       <-- Single source of truth for SaveData & Codename
+│       │   ├── level_def.rs  <-- Grid definitions, cell types, coordinate math
+│       │   └── scoring.rs    <-- Codename evaluation, ranking rules
+├── game/                     <-- PS1 bare-metal binary (depends on plattypus-core)
+└── tools/test_game_logic/    <-- Host unit tests (depends on plattypus-core)
+```
+
+### Critical QA Edge Cases & Test Gaps
+
+| # | Priority | Test Category | Specific Failure Scenario / Test Plan |
+|---|----------|---------------|---------------------------------------|
+| **QA-1** | 🔴 **Critical** | **Campaign Overflow** | Verify `SaveData::unlocked_act` after beating Act 4-3 does not allow Continue to select Act >= 12. |
+| **QA-2** | 🔴 **Critical** | **Boss Retry State Cleanliness** | In Act 1-3 (Mech), die after destroying 2 conduits. Verify upon restart that all 3 conduits are restored to full health and shield is fully active. |
+| **QA-3** | 🟡 **Major** | **Air Depletion & Invulnerability** | Submerge until air reaches 0. Ensure damage tick cannot be circumvented by pausing or rapidly toggling submerge/surface. Verify respawn invulnerability does not prevent drowning damage. |
+| **QA-4** | 🟡 **Major** | **Rapids Lane Boundary Clipping** | In Act 2-1, hold LEFT while being pushed downriver by current at `x = 8*TILE_SZ`. Verify Platty cannot clip through the riverbank into void cells. |
+| **QA-5** | 🟡 **Major** | **Cardboard Box Disguise Transitions** | Verify: Can player equip Cardboard Box while airborne? Can player enter box while in deep water? (Expected: Box should be disabled in water and air). |
+| **QA-6** | 🟡 **Major** | **Memory Card Full Handling** | Fill Memory Card Slot 1 with 15 save files. Attempt to save. Verify game displays clean error rather than hanging or corrupting the card directory block. |
+| **QA-7** | 🟢 **Minor** | **Score Display Wrap** | Accumulate > 999,990 points. Verify HUD 6-digit score formatting does not overflow or misalign screen coordinates. |
+| **QA-8** | 🟢 **Minor** | **PAL 50Hz Timer Scaling** | When running under PAL mode (50 fps), verify alert countdowns, stun timers, and play time seconds scale proportionally (50 ticks/sec vs 60 ticks/sec). |
+
+---
+
+## 📊 Summary Priority Matrix
+
+```
+                          IMPACT
+                   Low          Medium         High
+             ┌─────────────┬──────────────┬──────────────┐
+      High   │             │  UX-1, UX-3  │  PD-1, PD-2  │
+             │             │  MK-1, MK-2  │  QA-1        │
+EFFORT       ├─────────────┼──────────────┼──────────────┤
+      Medium │  MK-3, MK-5 │  PD-5, PD-6  │  MK-4, UX-4  │
+             │  SE-5, QA-8 │  SE-1, SE-2  │  QA-2, QA-4  │
+             ├─────────────┼──────────────┼──────────────┤
+      Low    │  PD-7, UX-6 │  UX-2, SE-3  │  README Fix  │
+             │  QA-7       │  SE-4, QA-3  │  QA-5        │
+             └─────────────┴──────────────┴──────────────┘
+```
+
+---
+
+## 🎯 Recommended Next Steps (Immediate Action Plan)
+
+1. **Fix Campaign Progression Bug (PD-1 / QA-1)**: Clamp `save_data.unlocked_act` to 11 upon campaign victory in [game.rs:679](file:///home/tonym/Projects/plattypus-psoxide/game/src/game.rs#L679).
+2. **Add START Pause Screen (UX-1)**: Implement a clean pause state with Resume, Controls, and Title options.
+3. **Synchronize README.md with Product Vision**: Replace the outdated side-scroller copy with the official "Plattypus: Tactical Espionage Action" branding.
+4. **Tone Down Water Drowning Lethality (UX-3)**: Double air survival time to ~6.7s and replace 1-hp/frame instant death with a manageable 0.5s damage tick and rumble warning.
+5. **Correct Act 3-2 CODEC Advice (UX-2)**: Change *"Hold SQUARE to sneak"* in [codec.rs:294](file:///home/tonym/Projects/plattypus-psoxide/game/src/codec.rs#L294) to match actual stealth controls.
