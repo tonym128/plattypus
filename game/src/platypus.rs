@@ -207,8 +207,8 @@ impl Platypus {
         let just_square = buttons.is_held(button::SQUARE) && !prev_buttons.is_held(button::SQUARE);
         let just_l1 = buttons.is_held(button::L1) && !prev_buttons.is_held(button::L1);
 
-        // Toggle Cardboard Box disguise on L1
-        if just_l1 && self.has_box {
+        // Toggle Cardboard Box disguise on L1 (only on ground and not in water)
+        if just_l1 && self.has_box && self.on_ground && !in_water {
             self.in_box = !self.in_box;
             if self.in_box {
                 self.crawl_mode = false;
@@ -218,15 +218,24 @@ impl Platypus {
 
         // Water submersion vs Land/Rapids Jump/Crawl
         if in_water && !is_rapids {
+            if self.in_box {
+                self.in_box = false; // Cardboard box cannot be worn in water!
+            }
             if buttons.is_held(button::CROSS) || buttons.is_held(button::SQUARE) {
                 self.state = PlayerState::Submerged;
                 self.y = 18; // Submerged depth
                 if self.air > 0 {
-                    if self.anim_frame % 2 == 0 {
+                    if self.anim_frame % 4 == 0 {
                         self.air -= 1;
                     }
-                } else {
+                    if self.air <= 25 && (self.anim_frame % 20 == 0) {
+                        self.trigger_rumble_small(4); // Heartbeat vibration warning
+                    }
+                } else if self.anim_frame % 30 == 0 {
                     self.take_damage(1);
+                    self.screen_shake = 4;
+                    self.trigger_rumble_small(12);
+                    self.trigger_rumble_large(8, 180);
                 }
                 if self.anim_frame % 8 == 0 {
                     entities.spawn_particle(self.x, self.y, self.z, 0, -2, 0, 15, (180, 240, 255), 2);
@@ -235,7 +244,7 @@ impl Platypus {
                 self.state = PlayerState::Swimming;
                 self.y = 4;
                 if self.air < 100 {
-                    self.air = (self.air + 2).min(100);
+                    self.air = (self.air + 3).min(100);
                 }
             }
         } else {

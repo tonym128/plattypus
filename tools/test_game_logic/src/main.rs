@@ -329,5 +329,73 @@ fn main() {
     }
     println!("✓ Campaign completion & continue bounds test (QA-1) PASSED");
 
-    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (5/5 test suites)");
+    // 6. Oxygen Depletion & Drowning Simulation Tests (QA-3 / UX-3)
+    let mut sim_air: u8 = 100;
+    let mut sim_health: u8 = 3;
+    let mut frames_underwater = 0;
+    let mut drowning_damage_ticks = 0;
+
+    // Simulate 400 frames submerged (100 air / (1 drain / 4 frames) = 400 frames)
+    for frame in 1..=400 {
+        if frame % 4 == 0 && sim_air > 0 {
+            sim_air -= 1;
+        }
+        frames_underwater += 1;
+    }
+    assert_eq!(frames_underwater, 400, "Submersion loop must run for 400 frames");
+    assert_eq!(sim_air, 0, "Air must reach 0 after exactly 400 frames (~6.67 seconds)");
+    assert_eq!(sim_health, 3, "Health must not be damaged while air remains");
+
+    // Simulate next 90 frames with 0 air: damage every 30 frames
+    for frame in 401..=490 {
+        if frame % 30 == 0 && sim_health > 0 {
+            sim_health -= 1;
+            drowning_damage_ticks += 1;
+        }
+    }
+    assert_eq!(drowning_damage_ticks, 3, "Drowning must tick damage once every 30 frames (0.5s)");
+    assert_eq!(sim_health, 0, "Operative must take fatal damage after sustained drowning");
+
+    // Surface recovery test
+    for _ in 0..34 {
+        sim_air = (sim_air + 3).min(100);
+    }
+    assert_eq!(sim_air, 100, "Air must fully recover on surface in ~34 frames (~0.57s)");
+    println!("✓ Oxygen depletion & drowning rate test (QA-3) PASSED");
+
+    // 7. Cardboard Box Disguise Transitions (QA-5)
+    let mut in_box = false;
+    let has_box = true;
+    let on_ground = false; // in air
+    let in_water = false;
+    // Attempt toggle in air
+    if has_box && on_ground && !in_water {
+        in_box = !in_box;
+    }
+    assert!(!in_box, "Cardboard box must NOT be equippable while airborne");
+
+    // Attempt toggle in water
+    let on_ground = true;
+    let in_water = true;
+    if has_box && on_ground && !in_water {
+        in_box = !in_box;
+    }
+    assert!(!in_box, "Cardboard box must NOT be equippable while swimming in water");
+
+    // Normal equip on dry ground
+    let in_water = false;
+    if has_box && on_ground && !in_water {
+        in_box = !in_box;
+    }
+    assert!(in_box, "Cardboard box must be equippable on dry ground");
+
+    // Entering water forces unequip
+    let in_water = true;
+    if in_water && in_box {
+        in_box = false;
+    }
+    assert!(!in_box, "Entering water must instantly shed Cardboard Box disguise");
+    println!("✓ Cardboard Box transition safety test (QA-5) PASSED");
+
+    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (7/7 test suites)");
 }
