@@ -1842,6 +1842,86 @@ impl Renderer {
                 self.draw_soliton_radar(platty, entities, level, frame);
             }
         }
+
+        // TACTICAL CONTEXTUAL ABILITY PROMPT
+        self.draw_context_prompt(platty, entities, level, frame);
+    }
+
+    fn draw_context_prompt(&self, platty: &Platypus, entities: &EntityManager, level: &Level, frame: u8) {
+        let mut prompt: Option<&'static str> = None;
+
+        let gx = (platty.x / TILE_SZ).clamp(0, (GRID_W - 1) as i32) as usize;
+        let gz = (platty.z / TILE_SZ).clamp(0, (GRID_D - 1) as i32) as usize;
+        let fwd_dx = (sin_1_3_12(platty.angle) as i32 * 48) >> 12;
+        let fwd_dz = (cos_1_3_12(platty.angle) as i32 * 48) >> 12;
+        let fgx = ((platty.x + fwd_dx) / TILE_SZ).clamp(0, (GRID_W - 1) as i32) as usize;
+        let fgz = ((platty.z + fwd_dz) / TILE_SZ).clamp(0, (GRID_D - 1) as i32) as usize;
+
+        let curr_cell = level.get_cell(gx, gz);
+        let fwd_cell = level.get_cell(fgx, fgz);
+
+        // 1. Air duct / crawl vent
+        if (curr_cell == CellType::AirDuct || fwd_cell == CellType::AirDuct) && platty.state != PlayerState::BellyCrawl {
+            prompt = Some("CIRCLE: CRAWL INTO VENT");
+        } else if fwd_cell == CellType::LaserTripwire && platty.state != PlayerState::BellyCrawl {
+            // 2. Laser tripwire crawl under
+            prompt = Some("CIRCLE: CRAWL UNDER LASER");
+        } else if platty.state == PlayerState::Swimming {
+            // 3. Water swimming -> submerge
+            prompt = Some("CROSS: SUBMERGE DIVE");
+        } else if platty.state == PlayerState::Submerged {
+            // 4. Submerged -> sonar pulse
+            if platty.electro_timer == 0 && platty.electro_charge == 0 {
+                prompt = Some("TRIANGLE: SONAR PULSE");
+            }
+        } else {
+            // 5. CQC Takedown behind unalerted sentry
+            for s in entities.sentries.iter() {
+                if !s.active || s.stun_timer > 0 {
+                    continue;
+                }
+                let dx = s.x - platty.x;
+                let dz = s.z - platty.z;
+                if dx * dx + dz * dz < 54 * 54 {
+                    prompt = Some("SQUARE: CQC TAKEDOWN");
+                    break;
+                }
+            }
+
+            // 6. Cardboard Box disguise near guards
+            if prompt.is_none() && platty.has_box && !platty.in_box && matches!(platty.state, PlayerState::Standing | PlayerState::Sneaking | PlayerState::Running) {
+                for s in entities.sentries.iter() {
+                    if !s.active || s.stun_timer > 0 {
+                        continue;
+                    }
+                    let dx = s.x - platty.x;
+                    let dz = s.z - platty.z;
+                    if dx * dx + dz * dz < 130 * 130 {
+                        prompt = Some("L1: CARDBOARD BOX");
+                        break;
+                    }
+                }
+            }
+        }
+
+        if let Some(msg) = prompt {
+            let msg_len = msg.len() as i16;
+            let bw = (msg_len * 8) + 16;
+            let bx = (SCREEN_W - bw) / 2;
+            let by: i16 = 216;
+
+            let border_col = (20, 60, 48);
+            let bg_col = (6, 18, 14);
+            gpu::draw_rect_flat(bx, by, bw as u16, 16, border_col.0, border_col.1, border_col.2);
+            gpu::draw_rect_flat(bx + 1, by + 1, (bw - 2) as u16, 14, bg_col.0, bg_col.1, bg_col.2);
+
+            let txt_col = if (frame / 8) % 2 == 0 {
+                (255, 235, 80)
+            } else {
+                (180, 255, 140)
+            };
+            self.font.draw_text(bx + 8, by + 4, msg, txt_col);
+        }
     }
 
     fn draw_soliton_radar(&self, platty: &Platypus, entities: &EntityManager, level: &Level, frame: u8) {
