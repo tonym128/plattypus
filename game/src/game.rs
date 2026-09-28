@@ -57,6 +57,9 @@ pub struct Game {
     pub vr_selection: usize,
     pub options_selection: usize,
     pub pause_selection: usize,
+    pub stage_time_frames: u32,
+    pub stage_alerts: u16,
+    pub stage_start_takedowns: u16,
 }
 
 impl Game {
@@ -107,6 +110,9 @@ impl Game {
             vr_selection: 0,
             options_selection: 0,
             pause_selection: 0,
+            stage_time_frames: 0,
+            stage_alerts: 0,
+            stage_start_takedowns: 0,
         }
     }
 
@@ -614,6 +620,7 @@ impl Game {
 
                     let prev_alert = self.entities.alert_state;
                     self.mission_stats.play_time_frames = self.mission_stats.play_time_frames.saturating_add(1);
+                    self.stage_time_frames = self.stage_time_frames.saturating_add(1);
 
                     self.platty.update(&pad, self.prev_buttons, &self.level, &mut self.entities);
                     self.entities.update(
@@ -634,6 +641,7 @@ impl Game {
                     let is_alert = matches!(self.entities.alert_state, crate::entities::AlertState::Alert(_));
                     if !was_alert && is_alert {
                         self.mission_stats.alerts_count = self.mission_stats.alerts_count.saturating_add(1);
+                        self.stage_alerts = self.stage_alerts.saturating_add(1);
                     }
 
                     if self.platty.screen_shake > 0 {
@@ -799,7 +807,16 @@ impl Game {
                 }
 
                 self.renderer.begin_frame();
-                self.renderer.draw_stage_clear(self.level.act, self.platty.score, self.platty.yabbies_collected);
+                let stage_time_s = self.stage_time_frames / 60;
+                let stage_takedowns = self.platty.takedowns.saturating_sub(self.stage_start_takedowns);
+                self.renderer.draw_stage_clear(
+                    self.level.act,
+                    self.platty.score,
+                    self.platty.yabbies_collected,
+                    stage_time_s,
+                    self.stage_alerts,
+                    stage_takedowns,
+                );
             }
             GameState::Ending { codename } => {
                 if just_start || just_cross {
@@ -890,6 +907,9 @@ impl Game {
         self.level = Level::new(act);
         self.platty.reset_position(self.level.player_start_x, self.level.player_start_z);
         self.entities.load_act(act);
+        self.stage_time_frames = 0;
+        self.stage_alerts = 0;
+        self.stage_start_takedowns = self.platty.takedowns;
 
         // Snap camera immediately to spawn target without slow drifting
         let target_x = self.platty.x;

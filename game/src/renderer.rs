@@ -2385,30 +2385,85 @@ impl Renderer {
         self.font.draw_text(45, 214, "PRESS CROSS TO PROCEED TO EPILOGUE", (255, 255, 255));
     }
 
-    pub fn draw_stage_clear(&self, act: Act, score: u32, yabbies: u16) {
-        gpu::draw_rect_flat(0, 0, 320, 240, 8, 24, 16);
+    pub fn draw_stage_clear(
+        &self,
+        act: Act,
+        score: u32,
+        yabbies: u16,
+        time_s: u32,
+        alerts: u16,
+        takedowns: u16,
+    ) {
+        gpu::draw_rect_flat(0, 0, 320, 240, 6, 16, 14);
 
-        self.font.draw_text(95, 45, "STAGE COMPLETED!", (120, 255, 160));
-        self.font.draw_text(55, 75, act.title(), (255, 230, 80));
+        self.font.draw_text(95, 20, "STAGE COMPLETED!", (120, 255, 160));
+        self.font.draw_text(40, 36, act.title(), (255, 230, 80));
 
-        let mut sc_buf = [b'S', b'C', b'O', b'R', b'E', b':', b' ', b'0', b'0', b'0', b'0', b'0', b'0', 0];
+        // Tactical Mission Performance Card
+        let card_x: i16 = 24;
+        let card_y: i16 = 54;
+        let card_w: u16 = 272;
+        let card_h: u16 = 136;
+        gpu::draw_rect_flat(card_x, card_y, card_w, card_h, 18, 54, 40);
+        gpu::draw_rect_flat(card_x + 2, card_y + 2, card_w - 4, card_h - 4, 8, 20, 16);
+
+        // Header bar in card
+        gpu::draw_rect_flat(card_x + 4, card_y + 4, card_w - 8, 16, 14, 40, 30);
+        self.font.draw_text(card_x + 24, card_y + 8, "TACTICAL INFILTRATION REPORT", (140, 240, 200));
+
+        // 1. Stage Time: MM:SS
+        let mins = (time_s / 60).min(99);
+        let secs = time_s % 60;
+        let mut time_buf = *b"STAGE TIME       : 00:00";
+        time_buf[19] = ((mins / 10) % 10) as u8 + b'0';
+        time_buf[20] = (mins % 10) as u8 + b'0';
+        time_buf[22] = ((secs / 10) % 10) as u8 + b'0';
+        time_buf[23] = (secs % 10) as u8 + b'0';
+        if let Ok(st) = core::str::from_utf8(&time_buf) {
+            self.font.draw_text(card_x + 16, card_y + 28, st, (240, 240, 240));
+        }
+
+        // 2. Alerts Triggered
+        let mut alert_buf = *b"ALERTS TRIGGERED : 000";
+        let a_clamped = alerts.min(999);
+        alert_buf[19] = ((a_clamped / 100) % 10) as u8 + b'0';
+        alert_buf[20] = ((a_clamped / 10) % 10) as u8 + b'0';
+        alert_buf[21] = (a_clamped % 10) as u8 + b'0';
+        let alert_col = if alerts == 0 { (100, 255, 140) } else { (255, 120, 100) };
+        if let Ok(st) = core::str::from_utf8(&alert_buf) {
+            self.font.draw_text(card_x + 16, card_y + 46, st, alert_col);
+        }
+
+        // 3. CQC Takedowns
+        let mut take_buf = *b"CQC TAKEDOWNS    : 000";
+        let t_clamped = takedowns.min(999);
+        take_buf[19] = ((t_clamped / 100) % 10) as u8 + b'0';
+        take_buf[20] = ((t_clamped / 10) % 10) as u8 + b'0';
+        take_buf[21] = (t_clamped % 10) as u8 + b'0';
+        if let Ok(st) = core::str::from_utf8(&take_buf) {
+            self.font.draw_text(card_x + 16, card_y + 64, st, (255, 230, 80));
+        }
+
+        // 4. Yabbies Recovered
+        let mut yab_buf = *b"YABBIES SECURED  : x00";
+        yab_buf[20] = ((yabbies / 10) % 10) as u8 + b'0';
+        yab_buf[21] = (yabbies % 10) as u8 + b'0';
+        if let Ok(st) = core::str::from_utf8(&yab_buf) {
+            self.font.draw_text(card_x + 16, card_y + 82, st, (120, 210, 255));
+        }
+
+        // 5. Total Score
+        let mut sc_buf = *b"OPERATION SCORE  : 000000";
         let mut s = score;
-        for i in (7..13).rev() {
+        for i in (19..25).rev() {
             sc_buf[i] = (s % 10) as u8 + b'0';
             s /= 10;
         }
-        if let Ok(st) = core::str::from_utf8(&sc_buf[..13]) {
-            self.font.draw_text(110, 115, st, (240, 240, 240));
+        if let Ok(st) = core::str::from_utf8(&sc_buf) {
+            self.font.draw_text(card_x + 16, card_y + 100, st, (255, 255, 255));
         }
 
-        let mut yab_buf = [b'Y', b'A', b'B', b'B', b'I', b'E', b'S', b':', b' ', b'x', b'0', b'0', 0];
-        yab_buf[10] = ((yabbies / 10) % 10) as u8 + b'0';
-        yab_buf[11] = (yabbies % 10) as u8 + b'0';
-        if let Ok(st) = core::str::from_utf8(&yab_buf[..12]) {
-            self.font.draw_text(110, 135, st, (120, 210, 255));
-        }
-
-        self.font.draw_text(75, 175, "PRESS CROSS FOR NEXT ACT BRIEFING", (255, 255, 255));
+        self.font.draw_text(45, 204, "PRESS CROSS FOR NEXT ACT BRIEFING", (255, 255, 255));
     }
 
     pub fn draw_ending(&self, frame: u8, codename: Option<crate::save::Codename>) {
