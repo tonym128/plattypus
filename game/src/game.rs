@@ -32,6 +32,7 @@ pub enum GameState {
     StageClear,
     Ending { codename: Option<crate::save::Codename> },
     GameOver,
+    Paused,
     AttractDemo { act: Act, timer: u16 },
     BossIntroCutscene { act: Act, timer: u16 },
 }
@@ -55,6 +56,7 @@ pub struct Game {
     pub title_selection: usize,
     pub vr_selection: usize,
     pub options_selection: usize,
+    pub pause_selection: usize,
 }
 
 impl Game {
@@ -104,6 +106,7 @@ impl Game {
             title_selection: 0,
             vr_selection: 0,
             options_selection: 0,
+            pause_selection: 0,
         }
     }
 
@@ -129,7 +132,7 @@ impl Game {
         self.was_connected = is_connected;
 
         // Controller Disconnection Pause Screen during active gameplay
-        let is_gameplay = matches!(self.state, GameState::Playing | GameState::InGameCodec);
+        let is_gameplay = matches!(self.state, GameState::Playing | GameState::InGameCodec | GameState::Paused);
         if !is_connected && is_gameplay {
             self.renderer.begin_frame();
             self.renderer.draw_3d_scene(&self.level, &self.platty, &self.entities, self.frame);
@@ -595,8 +598,12 @@ impl Game {
                 }
             }
             GameState::Playing => {
-                // Check if player presses SELECT to open in-game multi-frequency CODEC radio!
-                if just_select {
+                // Check if player presses START to pause or SELECT to open in-game CODEC radio!
+                if just_start {
+                    self.pause_selection = 0;
+                    self.state = GameState::Paused;
+                    AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
+                } else if just_select {
                     self.codec.open_tuner();
                     self.state = GameState::InGameCodec;
                 } else {
@@ -833,6 +840,47 @@ impl Game {
                     self.renderer.font.draw_text(42, 150, "CROSS: RETRY MISSION    TRIANGLE: TITLE", (255, 255, 255));
                 }
             }
+            GameState::Paused => {
+                if just_up {
+                    self.pause_selection = if self.pause_selection == 0 { 2 } else { self.pause_selection - 1 };
+                    AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
+                } else if just_down {
+                    self.pause_selection = if self.pause_selection >= 2 { 0 } else { self.pause_selection + 1 };
+                    AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
+                } else if just_circle {
+                    // Quick unpause on CIRCLE
+                    self.state = GameState::Playing;
+                    AudioManager::play_jump();
+                } else if just_cross || just_start {
+                    match self.pause_selection {
+                        0 => {
+                            // Resume mission
+                            self.state = GameState::Playing;
+                            AudioManager::play_jump();
+                        }
+                        1 => {
+                            // Retry current act
+                            let act = self.level.act;
+                            self.load_act(act);
+                            self.state = GameState::Playing;
+                        }
+                        _ => {
+                            // Abort mission to title screen
+                            self.load_act(Act::Act1_1Drainage);
+                            self.state = GameState::Title;
+                            self.idle_timer = 0;
+                        }
+                    }
+                    self.prev_buttons = buttons;
+                    return;
+                }
+
+                // Render background 3D Scene + HUD + Pause Tactical Overlay
+                self.renderer.begin_frame();
+                self.renderer.draw_3d_scene(&self.level, &self.platty, &self.entities, self.frame);
+                self.renderer.draw_hud(&self.platty, &self.entities, self.level.act);
+                self.draw_pause_overlay(self.pause_selection);
+            }
         }
 
         self.prev_buttons = buttons;
@@ -888,5 +936,46 @@ impl Game {
         self.renderer.font.draw_text(box_x + 18, box_y + 36, "PLEASE CONNECT A CONTROLLER", (220, 230, 240));
         self.renderer.font.draw_text(box_x + 52, box_y + 50, "TO CONTROLLER PORT 1", (220, 230, 240));
         self.renderer.font.draw_text(box_x + 28, box_y + 68, "[ DUALSHOCK / DIGITAL PAD ]", (120, 180, 220));
+    }
+
+    fn draw_pause_overlay(&self, selection: usize) {
+        let box_x: i16 = 40;
+        let box_y: i16 = 60;
+        let box_w: u16 = 240;
+        let box_h: u16 = 120;
+
+        // Dark tactical overlay box
+        gpu::draw_rect_flat(box_x, box_y, box_w, box_h, 10, 16, 24);
+        // Cyan tactical border
+        gpu::draw_rect_flat(box_x, box_y, box_w, 2, 40, 180, 200);
+        gpu::draw_rect_flat(box_x, box_y + box_h as i16 - 2, box_w, 2, 40, 180, 200);
+        gpu::draw_rect_flat(box_x, box_y, 2, box_h, 40, 180, 200);
+        gpu::draw_rect_flat(box_x + box_w as i16 - 2, box_y, 2, box_h, 40, 180, 200);
+
+        // Header tab
+        gpu::draw_rect_flat(box_x + 60, box_y - 6, 120, 14, 15, 45, 60);
+        self.renderer.font.draw_text(box_x + 78, box_y - 4, "MISSION PAUSED", (255, 230, 80));
+
+        let items = [
+            "RESUME OPERATION",
+            "RETRY MISSION",
+            "ABORT TO TITLE SCREEN",
+        ];
+
+        for (i, label) in items.iter().enumerate() {
+            let item_y = box_y + 24 + (i as i16 * 22);
+            let is_sel = i == selection;
+
+            if is_sel {
+                gpu::draw_rect_flat(box_x + 12, item_y - 2, box_w - 24, 18, 20, 60, 80);
+                self.renderer.font.draw_text(box_x + 18, item_y + 2, ">", (255, 240, 100));
+                self.renderer.font.draw_text(box_x + 32, item_y + 2, label, (255, 255, 255));
+            } else {
+                self.renderer.font.draw_text(box_x + 32, item_y + 2, label, (140, 170, 190));
+            }
+        }
+
+        // Footer helper
+        self.renderer.font.draw_text(box_x + 24, box_y + box_h as i16 - 18, "CROSS/START: SELECT   O: RESUME", (100, 140, 160));
     }
 }
