@@ -8,9 +8,16 @@ const SAVE_VERSION: u8 = 3;
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Codename {
     BigPlatypus,
+    GhostPlatypus,
+    SpeedyWallaby,
     TasmanianDevil,
     LurkingEchidna,
+    IronBill,
     SlyPossum,
+    BushKoala,
+    VenomousTaipan,
+    WombatTunnel,
+    CardboardHermit,
     DuckbillRookie,
 }
 
@@ -18,9 +25,16 @@ impl Codename {
     pub fn name(&self) -> &'static str {
         match self {
             Codename::BigPlatypus => "BIG PLATYPUS",
+            Codename::GhostPlatypus => "GHOST PLATYPUS",
+            Codename::SpeedyWallaby => "SPEEDY WALLABY",
             Codename::TasmanianDevil => "TASMANIAN DEVIL",
             Codename::LurkingEchidna => "LURKING ECHIDNA",
+            Codename::IronBill => "IRON BILL",
             Codename::SlyPossum => "SLY POSSUM",
+            Codename::BushKoala => "BUSH KOALA",
+            Codename::VenomousTaipan => "VENOMOUS TAIPAN",
+            Codename::WombatTunnel => "BURROWING WOMBAT",
+            Codename::CardboardHermit => "CARDBOARD HERMIT",
             Codename::DuckbillRookie => "DUCKBILL ROOKIE",
         }
     }
@@ -28,22 +42,43 @@ impl Codename {
     pub fn title(&self) -> &'static str {
         match self {
             Codename::BigPlatypus => "FOXHOUND LEGEND (RANK S)",
+            Codename::GhostPlatypus => "UNSEEN PHANTOM (RANK S)",
+            Codename::SpeedyWallaby => "HYPERSPEED SPRINT (RANK S)",
             Codename::TasmanianDevil => "AGGRESSIVE PREDATOR (RANK A)",
             Codename::LurkingEchidna => "BURROW SHADOW (RANK A)",
+            Codename::IronBill => "INDOMITABLE SURVIVOR (RANK A)",
             Codename::SlyPossum => "NIGHT RUNNER (RANK B)",
-            Codename::DuckbillRookie => "JUNIOR OPERATIVE (RANK C)",
+            Codename::BushKoala => "CANOPY INFILTRATOR (RANK B)",
+            Codename::VenomousTaipan => "DEADLY STRIKER (RANK B)",
+            Codename::WombatTunnel => "SUBTERRANEAN SNEAK (RANK C)",
+            Codename::CardboardHermit => "DISGUISE MASTER (RANK C)",
+            Codename::DuckbillRookie => "JUNIOR OPERATIVE (RANK D)",
         }
     }
 
     pub fn evaluate(alerts: u16, damage: u16, time_s: u32, takedowns: u16) -> Self {
-        if alerts == 0 && damage == 0 {
+        if alerts == 0 && damage == 0 && time_s <= 420 {
             Codename::BigPlatypus
-        } else if takedowns >= 6 {
+        } else if alerts == 0 && takedowns == 0 {
+            Codename::GhostPlatypus
+        } else if time_s <= 300 {
+            Codename::SpeedyWallaby
+        } else if takedowns >= 10 {
             Codename::TasmanianDevil
-        } else if alerts <= 2 {
+        } else if alerts <= 2 && damage <= 3 {
             Codename::LurkingEchidna
-        } else if time_s < 450 {
+        } else if damage >= 12 {
+            Codename::IronBill
+        } else if time_s <= 600 && alerts <= 5 {
             Codename::SlyPossum
+        } else if takedowns >= 5 && alerts <= 4 {
+            Codename::BushKoala
+        } else if takedowns >= 6 {
+            Codename::VenomousTaipan
+        } else if alerts <= 8 {
+            Codename::WombatTunnel
+        } else if takedowns <= 1 {
+            Codename::CardboardHermit
         } else {
             Codename::DuckbillRookie
         }
@@ -259,22 +294,20 @@ fn main() {
     assert!(!save.is_valid(), "Corrupted magic signature must be invalid");
     println!("✓ Save data checksum & validation test PASSED");
 
-    // 2. Codename Evaluation Tests
-    let s_rank = Codename::evaluate(0, 0, 300, 2);
-    assert_eq!(s_rank, Codename::BigPlatypus, "0 alerts + 0 damage must award Big Platypus (Rank S)");
-
-    let cqc_rank = Codename::evaluate(3, 10, 500, 8);
-    assert_eq!(cqc_rank, Codename::TasmanianDevil, ">= 6 takedowns must award Tasmanian Devil (Rank A)");
-
-    let stealth_rank = Codename::evaluate(1, 5, 500, 2);
-    assert_eq!(stealth_rank, Codename::LurkingEchidna, "<= 2 alerts must award Lurking Echidna (Rank A)");
-
-    let speed_rank = Codename::evaluate(4, 20, 400, 1);
-    assert_eq!(speed_rank, Codename::SlyPossum, "< 450s must award Sly Possum (Rank B)");
-
-    let rookie_rank = Codename::evaluate(5, 50, 600, 0);
-    assert_eq!(rookie_rank, Codename::DuckbillRookie, "Fallback must award Duckbill Rookie (Rank C)");
-    println!("✓ Codename evaluation & stealth rank test PASSED");
+    // 2. Codename Evaluation Tests (12 Ranks)
+    assert_eq!(Codename::evaluate(0, 0, 300, 2), Codename::BigPlatypus, "0 alerts + 0 damage + fast time awards Big Platypus");
+    assert_eq!(Codename::evaluate(0, 5, 500, 0), Codename::GhostPlatypus, "0 alerts + 0 kills awards Ghost Platypus");
+    assert_eq!(Codename::evaluate(3, 4, 250, 3), Codename::SpeedyWallaby, "<= 300s awards Speedy Wallaby");
+    assert_eq!(Codename::evaluate(3, 10, 500, 12), Codename::TasmanianDevil, ">= 10 takedowns awards Tasmanian Devil");
+    assert_eq!(Codename::evaluate(1, 2, 500, 2), Codename::LurkingEchidna, "<= 2 alerts + <= 3 damage awards Lurking Echidna");
+    assert_eq!(Codename::evaluate(4, 15, 500, 3), Codename::IronBill, ">= 12 damage awards Iron Bill");
+    assert_eq!(Codename::evaluate(4, 5, 550, 2), Codename::SlyPossum, "<= 600s + <= 5 alerts awards Sly Possum");
+    assert_eq!(Codename::evaluate(3, 5, 700, 5), Codename::BushKoala, ">= 5 takedowns + <= 4 alerts awards Bush Koala");
+    assert_eq!(Codename::evaluate(6, 5, 700, 7), Codename::VenomousTaipan, ">= 6 takedowns awards Venomous Taipan");
+    assert_eq!(Codename::evaluate(7, 5, 800, 3), Codename::WombatTunnel, "<= 8 alerts awards Wombat Tunnel");
+    assert_eq!(Codename::evaluate(10, 5, 800, 1), Codename::CardboardHermit, "<= 1 takedowns awards Cardboard Hermit");
+    assert_eq!(Codename::evaluate(12, 5, 900, 4), Codename::DuckbillRookie, "Fallback awards Duckbill Rookie");
+    println!("✓ Codename evaluation & stealth rank test (12/12 codenames) PASSED");
 
     // 3. Act Sequential Progression Tests
     let mut current_act = Act::Act1_1Drainage;

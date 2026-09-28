@@ -58,9 +58,16 @@ pub fn detect_console_region() -> (psx_gpu::VideoMode, &'static str) {
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Codename {
     BigPlatypus,
+    GhostPlatypus,
+    SpeedyWallaby,
     TasmanianDevil,
     LurkingEchidna,
+    IronBill,
     SlyPossum,
+    BushKoala,
+    VenomousTaipan,
+    WombatTunnel,
+    CardboardHermit,
     DuckbillRookie,
 }
 
@@ -68,9 +75,16 @@ impl Codename {
     pub fn name(&self) -> &'static str {
         match self {
             Codename::BigPlatypus => "BIG PLATYPUS",
+            Codename::GhostPlatypus => "GHOST PLATYPUS",
+            Codename::SpeedyWallaby => "SPEEDY WALLABY",
             Codename::TasmanianDevil => "TASMANIAN DEVIL",
             Codename::LurkingEchidna => "LURKING ECHIDNA",
+            Codename::IronBill => "IRON BILL",
             Codename::SlyPossum => "SLY POSSUM",
+            Codename::BushKoala => "BUSH KOALA",
+            Codename::VenomousTaipan => "VENOMOUS TAIPAN",
+            Codename::WombatTunnel => "BURROWING WOMBAT",
+            Codename::CardboardHermit => "CARDBOARD HERMIT",
             Codename::DuckbillRookie => "DUCKBILL ROOKIE",
         }
     }
@@ -78,22 +92,43 @@ impl Codename {
     pub fn title(&self) -> &'static str {
         match self {
             Codename::BigPlatypus => "FOXHOUND LEGEND (RANK S)",
+            Codename::GhostPlatypus => "UNSEEN PHANTOM (RANK S)",
+            Codename::SpeedyWallaby => "HYPERSPEED SPRINT (RANK S)",
             Codename::TasmanianDevil => "AGGRESSIVE PREDATOR (RANK A)",
             Codename::LurkingEchidna => "BURROW SHADOW (RANK A)",
+            Codename::IronBill => "INDOMITABLE SURVIVOR (RANK A)",
             Codename::SlyPossum => "NIGHT RUNNER (RANK B)",
-            Codename::DuckbillRookie => "JUNIOR OPERATIVE (RANK C)",
+            Codename::BushKoala => "CANOPY INFILTRATOR (RANK B)",
+            Codename::VenomousTaipan => "DEADLY STRIKER (RANK B)",
+            Codename::WombatTunnel => "SUBTERRANEAN SNEAK (RANK C)",
+            Codename::CardboardHermit => "DISGUISE MASTER (RANK C)",
+            Codename::DuckbillRookie => "JUNIOR OPERATIVE (RANK D)",
         }
     }
 
     pub fn evaluate(alerts: u16, damage: u16, time_s: u32, takedowns: u16) -> Self {
-        if alerts == 0 && damage == 0 {
+        if alerts == 0 && damage == 0 && time_s <= 420 {
             Codename::BigPlatypus
-        } else if takedowns >= 6 {
+        } else if alerts == 0 && takedowns == 0 {
+            Codename::GhostPlatypus
+        } else if time_s <= 300 {
+            Codename::SpeedyWallaby
+        } else if takedowns >= 10 {
             Codename::TasmanianDevil
-        } else if alerts <= 2 {
+        } else if alerts <= 2 && damage <= 3 {
             Codename::LurkingEchidna
-        } else if time_s < 450 {
+        } else if damage >= 12 {
+            Codename::IronBill
+        } else if time_s <= 600 && alerts <= 5 {
             Codename::SlyPossum
+        } else if takedowns >= 5 && alerts <= 4 {
+            Codename::BushKoala
+        } else if takedowns >= 6 {
+            Codename::VenomousTaipan
+        } else if alerts <= 8 {
+            Codename::WombatTunnel
+        } else if takedowns <= 1 {
+            Codename::CardboardHermit
         } else {
             Codename::DuckbillRookie
         }
