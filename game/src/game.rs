@@ -35,6 +35,7 @@ pub enum GameState {
     Paused,
     AttractDemo { act: Act, timer: u16 },
     BossIntroCutscene { act: Act, timer: u16 },
+    ChapterTitleCard { act: Act, timer: u16 },
 }
 
 pub struct Game {
@@ -560,6 +561,9 @@ impl Game {
                     if self.codec.on_action_button() {
                         if self.level.act.is_boss() {
                             self.state = GameState::BossIntroCutscene { act: self.level.act, timer: 0 };
+                        } else if matches!(self.level.act, Act::Act1_1Drainage | Act::Act2_1Rapids | Act::Act3_1Highway | Act::Act4_1Dunes) {
+                            self.state = GameState::ChapterTitleCard { act: self.level.act, timer: 0 };
+                            AudioManager::play_electro();
                         } else {
                             self.state = GameState::Playing;
                             AudioManager::play_jump();
@@ -570,8 +574,34 @@ impl Game {
                 self.renderer.begin_frame();
                 self.codec.draw(&self.renderer.font);
             }
+            GameState::ChapterTitleCard { act, ref mut timer } => {
+                *timer = timer.saturating_add(1);
+
+                let target_x = self.platty.x;
+                let target_y = self.platty.y - 280;
+                let target_z = self.platty.z - 240;
+                self.renderer.cam_x = target_x;
+                self.renderer.cam_y = target_y;
+                self.renderer.cam_z = target_z;
+                self.renderer.screen_shake = 0;
+                self.renderer.update_camera(self.platty.x, self.platty.y, self.platty.z);
+
+                let skip = *timer >= 180 || just_cross || just_start;
+                if skip {
+                    self.state = GameState::Playing;
+                    AudioManager::play_jump();
+                } else {
+                    self.renderer.begin_frame();
+                    self.renderer.draw_3d_scene(&self.level, &self.platty, &self.entities, self.frame);
+                    self.renderer.draw_chapter_title_card(act, *timer);
+                }
+            }
             GameState::BossIntroCutscene { act, ref mut timer } => {
                 *timer = timer.saturating_add(1);
+
+                if *timer == 1 {
+                    AudioManager::play_alert();
+                }
 
                 // Smooth cinematic camera orbit around boss
                 let (bx, bz) = match act {

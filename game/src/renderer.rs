@@ -2510,18 +2510,67 @@ impl Renderer {
         gpu::draw_rect_flat(0, 215, 320, 1, 30, 120, 60);
     }
 
+    pub fn draw_chapter_title_card(&self, act: Act, timer: u16) {
+        self.draw_cinematic_letterbox();
+
+        let (act_name, op_name, sub_name) = match act {
+            Act::Act1_1Drainage => (
+                "ACT I: THE HEALESVILLE SANCTUARY",
+                "OPERATION DRAINAGE OUTFLOW",
+                "INFILTRATE RESEARCH COMPOUND",
+            ),
+            Act::Act2_1Rapids => (
+                "ACT II: THE YARRA RIVER GORGE",
+                "OPERATION RAPIDS RUNNER",
+                "NAVIGATE UPPER RIVER CURRENTS",
+            ),
+            Act::Act3_1Highway => (
+                "ACT III: MELBOURNE METROPOLIS",
+                "OPERATION NEON HIGHWAY",
+                "CROSS INNER-CITY FREEWAY LANES",
+            ),
+            Act::Act4_1Dunes => (
+                "ACT IV: COASTAL BEACHHEAD",
+                "OPERATION SHORELINE ASSAULT",
+                "REACH PIP'S INCUBATION NURSERY",
+            ),
+            _ => (
+                "TACTICAL OPERATION",
+                "MISSION DEPLOYMENT",
+                "PROCEED TO OBJECTIVE",
+            ),
+        };
+
+        let card_x: i16 = 20;
+        let card_y: i16 = 84;
+        let card_w: u16 = 280;
+        let card_h: u16 = 72;
+
+        gpu::draw_rect_flat(card_x, card_y, card_w, card_h, 16, 48, 36);
+        gpu::draw_rect_flat(card_x + 2, card_y + 2, card_w - 4, card_h - 4, 6, 18, 14);
+        gpu::draw_rect_flat(card_x, card_y, 4, card_h, 60, 220, 140); // Emerald green accent strip
+
+        self.font.draw_text(card_x + 12, card_y + 10, act_name, (255, 230, 80));
+        self.font.draw_text(card_x + 12, card_y + 28, op_name, (255, 255, 255));
+        self.font.draw_text(card_x + 12, card_y + 46, sub_name, (120, 240, 180));
+
+        if timer > 45 && (timer / 15) % 2 == 0 {
+            self.font.draw_text(180, 222, "CROSS: SKIP", (160, 160, 160));
+        }
+    }
+
     pub fn draw_boss_title_card(&self, act: Act, timer: u16) {
         self.draw_cinematic_letterbox();
 
         let (name, codename, specs) = match act {
             Act::Act1_3MechBoss => (
-                "PERIMETER WALKER MK-I",
-                "SEARCHLIGHT MECH",
-                "DUAL MEGA-SEARCHLIGHTS & SHOCKWAVE",
+                "SEARCHLIGHT MECH MK-I",
+                "AUTOMATED PERIMETER FORTRESS",
+                "DUAL SEARCHLIGHTS & CONDUIT SHIELD",
             ),
             Act::Act2_3JetSkiBoss => (
                 "RANGER CHIEF DAVE",
-                "PATROL JET SKI",
+                "PATROL JET SKI COMMANDER",
                 "TWIN ROTARY ENGINES & RIVER MINES",
             ),
             Act::Act3_3SniperBoss => (
