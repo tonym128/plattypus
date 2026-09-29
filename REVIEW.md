@@ -199,10 +199,26 @@ EFFORT       ├─────────────┼───────�
 
 ---
 
-## 🎯 Recommended Next Steps (Immediate Action Plan)
+## ✅ Implementation Status & Resolution Log
 
-1. **Fix Campaign Progression Bug (PD-1 / QA-1)**: Clamp `save_data.unlocked_act` to 11 upon campaign victory in [game.rs:679](file:///home/tonym/Projects/plattypus-psoxide/game/src/game.rs#L679).
-2. **Add START Pause Screen (UX-1)**: Implement a clean pause state with Resume, Controls, and Title options.
-3. **Synchronize README.md with Product Vision**: Replace the outdated side-scroller copy with the official "Plattypus: Tactical Espionage Action" branding.
-4. **Tone Down Water Drowning Lethality (UX-3)**: Double air survival time to ~6.7s and replace 1-hp/frame instant death with a manageable 0.5s damage tick and rumble warning.
-5. **Correct Act 3-2 CODEC Advice (UX-2)**: Change *"Hold SQUARE to sneak"* in [codec.rs:294](file:///home/tonym/Projects/plattypus-psoxide/game/src/codec.rs#L294) to match actual stealth controls.
+All high, medium, and low priority feedback items have been systematically resolved, verified in isolated `git worktree` instances, tested with `make test` (host logic) and `make exe` (bare-metal MIPS), and merged to `master`:
+
+| Item | Discipline | Title / Scope | Status | Commit & Resolution Summary |
+|---|---|---|---|---|
+| **PD-1** / **QA-1** | Principal Dev / QA | Campaign Continue Bounds | ✅ Resolved | Commit `f4bc7b6`: Clamped `unlocked_act` to 11 on campaign victory; automated tests verify continue never loads VR-01. |
+| **UX-1** | Product Design | In-Game Pause Menu | ✅ Resolved | Commit `8488066`: Tactical START pause overlay with `RESUME OPERATION`, `RETRY MISSION`, `ABORT TO TITLE SCREEN`. |
+| **README** | Marketing / Brand | Commercial Repositioning | ✅ Resolved | Commit `0e6f719`: Overhauled README to "Plattypus: Tactical Espionage Action" reflecting 3D stealth gameplay. |
+| **UX-2** | Product Design | CODEC Dialogue Guidance | ✅ Resolved | Commit `07398b6`: Corrected false "Hold SQUARE" advice in Act 3-2 and Jack Ch3 to analog stick gentle tilt. |
+| **UX-3** / **QA-3** / **QA-5** | Product Design / QA | Water & Box Transitions | ✅ Resolved | Commit `7bdfa52`: Air drains 1/4 frames (~6.7s); air=0 deals 1 dmg/30 frames with heartbeat rumble; box prohibited in air/water. |
+| **UX-4** | Product Design | Soliton Radar Objective | ✅ Resolved | Commit `37f17cf`: Blinking yellow diamond beacon rendered at `(exit_x, exit_z)` with off-screen edge clamping. |
+| **UX-5** | Product Design | Contextual Ability Prompts | ✅ Resolved | Commit `b7646eb`: Dynamic tactical action prompts displayed on HUD (`[O] CRAWL`, `[X] SUBMERGE`, `[TRI] SONAR`, `[SQ] CQC`, `[L1] BOX`). |
+| **UX-6** | Product Design | Stage Clear Breakdown Card | ✅ Resolved | Commit `01f9995`: Tactical performance debrief card showing time, alerts, takedowns, yabbies, and score. |
+| **MK-1** & **MK-2** | Marketing / Presentation | Cinematic Title & Splash Cards | ✅ Resolved | Commit `3a52362`: 3-second letterboxed chapter title cards with bass synth hit; boss freeze-frame intro banners with alert sting. |
+| **MK-4** | Marketing / Features | Post-Campaign Stage Select | ✅ Resolved | Commit `5fde3fc`: Post-victory Stage Select menu with 12 selectable acts (including all 4 bosses) accessible from Title Screen. |
+| **MK-5** | Marketing / Gameplay | Codename System (5 -> 12 Ranks) | ✅ Resolved | Commit `4348bcc`: Added Ghost Platypus, Speedy Wallaby, Iron Bill, Bush Koala, Venomous Taipan, Burrowing Wombat, Cardboard Hermit. |
+| **SE-2** / **SE-3** / **SE-4** | Senior Engineer | Hardware Protocol Hardening | ✅ Resolved | Commit `b673018`: DualShock Port 2 failover/hot-swap; Memory Card Slot 1 -> Slot 2 fallback; unformatted card safety protection. |
+| **SE-7** / **PD-5** / **PD-7** | Engineering / Cleanup | Code Cleanup & Safety | ✅ Resolved | Commit `c25cea4`: Removed unused `fixed.rs`; compile-time grid overflow checks; extracted named constants; ending credits tribute. |
+| **MK-3** | Marketing / Packaging | PAL Double-Case Artwork | ✅ Resolved | Commit `0ec9c8a`: Created `packaging/jewel_case_pal_double.svg` with 5-language blurbs, PEGI 7+ badge, and SLES-00001 spines. |
+| **MK-6** | Marketing / Presentation | Ending Credits Sequence | ✅ Resolved | Commit `c25cea4`: Scrolling credits sequence over ending sunset thanking PS1 homebrew and Rust embedded communities. |
+| **QA-2** / **QA-4** / **QA-7** / **QA-8** | Testing Developer | QA Test Suite Expansion | ✅ Resolved | Commit `984cfc3`: Added host-side automated tests for boss retry state, rapids boundary collision, score formatting, and PAL timer scaling. |
+
