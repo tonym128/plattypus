@@ -6,6 +6,12 @@ pub const GRID_W: usize = 24;
 pub const GRID_D: usize = 24;
 pub const TILE_SZ: i32 = 64; // 64x64 world units per tile
 
+// SE-7: Compile-time overflow guard ensuring world coordinates fit in PS1 16-bit GTE/GPU limits
+const _: () = {
+    assert!((GRID_W as i32 * TILE_SZ) < (i16::MAX as i32));
+    assert!((GRID_D as i32 * TILE_SZ) < (i16::MAX as i32));
+};
+
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[repr(u8)]
 pub enum CellType {

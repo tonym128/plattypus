@@ -8,6 +8,27 @@ use crate::level::{Act, CellType, Level, TILE_SZ};
 use psx_gte_core::transform::{cos_1_3_12, sin_1_3_12};
 use psx_pad::{button, ButtonState, Deadzone, PadState};
 
+// PD-7: Named constants for combat, stun durations, hitboxes, and scores
+pub const STUN_SONAR_PULSE_FRAMES: u16 = 300;
+pub const STUN_FRONTAL_SPUR_FRAMES: u16 = 400;
+pub const STUN_SILENT_TAKEDOWN_FRAMES: u16 = 900;
+
+pub const HITBOX_CQC_RADIUS: i32 = 44;
+pub const HITBOX_CONDUIT_RADIUS: i32 = 48;
+pub const HITBOX_MECH_CORE_RADIUS: i32 = 44;
+pub const HITBOX_JETSKI_RADIUS: i32 = 48;
+pub const HITBOX_SNIPER_RADIUS: i32 = 56;
+pub const HITBOX_EXCAVATOR_RADIUS: i32 = 60;
+
+pub const SCORE_CQC_FRONTAL: u32 = 200;
+pub const SCORE_CQC_SILENT: u32 = 500;
+pub const SCORE_CONDUIT_HIT: u32 = 150;
+pub const SCORE_CONDUIT_DESTROYED: u32 = 500;
+pub const SCORE_BOSS_HIT: u32 = 1000;
+pub const SCORE_BOSS_DEFEATED: u32 = 5000;
+pub const SCORE_EXCAVATOR_HIT: u32 = 1500;
+pub const SCORE_FINAL_BOSS_DEFEATED: u32 = 10000;
+
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum PlayerState {
     Standing,
@@ -361,7 +382,7 @@ impl Platypus {
                         let dx = (self.x - s.x).abs();
                         let dz = (self.z - s.z).abs();
                         if dx < 150 && dz < 150 {
-                            s.stun_timer = 300;
+                            s.stun_timer = STUN_SONAR_PULSE_FRAMES;
                             s.state = SentryState::Stunned;
                         }
                     }
@@ -371,7 +392,7 @@ impl Platypus {
                         let dx = (self.x - d.x).abs();
                         let dz = (self.z - d.z).abs();
                         if dx < 160 && dz < 160 {
-                            d.stun_timer = 300;
+                            d.stun_timer = STUN_SONAR_PULSE_FRAMES;
                         }
                     }
                 }
@@ -402,7 +423,7 @@ impl Platypus {
                 if s.active && s.stun_timer == 0 {
                     let dx = (self.x - s.x).abs();
                     let dz = (self.z - s.z).abs();
-                    if dx < 44 && dz < 44 {
+                    if dx < HITBOX_CQC_RADIUS && dz < HITBOX_CQC_RADIUS {
                         // Check if Platty is behind the sentry for a silent takedown
                         let fwd_x = sin_1_3_12(s.angle) as i32;
                         let fwd_z = cos_1_3_12(s.angle) as i32;
@@ -413,9 +434,9 @@ impl Platypus {
 
                         if is_rear_attack && s.state != SentryState::AlertChase && !s.see_player {
                             // Silent Rear Takedown CQC! Long 15-second deep knockout, +500 points!
-                            s.stun_timer = 900;
+                            s.stun_timer = STUN_SILENT_TAKEDOWN_FRAMES;
                             s.state = SentryState::Stunned;
-                            self.score += 500;
+                            self.score += SCORE_CQC_SILENT;
                             self.takedowns = self.takedowns.saturating_add(1);
                             self.screen_shake = 6;
                             self.trigger_rumble_large(12, 245);
@@ -425,9 +446,9 @@ impl Platypus {
                             is_rear_takedown = true;
                         } else {
                             // Frontal or alerted spur strike: standard 8-second stun
-                            s.stun_timer = 400;
+                            s.stun_timer = STUN_FRONTAL_SPUR_FRAMES;
                             s.state = SentryState::Stunned;
-                            self.score += 200;
+                            self.score += SCORE_CQC_FRONTAL;
                             self.takedowns = self.takedowns.saturating_add(1);
                             self.screen_shake = 5;
                             self.trigger_rumble_large(8, 220);
@@ -457,18 +478,18 @@ impl Platypus {
                     if c.active && !c.destroyed {
                         let dx = (self.x - c.x).abs();
                         let dz = (self.z - c.z).abs();
-                        if dx < 48 && dz < 48 {
+                        if dx < HITBOX_CONDUIT_RADIUS && dz < HITBOX_CONDUIT_RADIUS {
                             if c.health > 1 {
                                 c.health -= 1;
                                 c.spark_timer = 20;
-                                self.score += 150;
+                                self.score += SCORE_CONDUIT_HIT;
                                 AudioManager::play_metal();
                                 self.trigger_rumble_small(8);
                                 spark_pos = Some((c.x, -20, c.z));
                             } else {
                                 c.health = 0;
                                 c.destroyed = true;
-                                self.score += 500;
+                                self.score += SCORE_CONDUIT_DESTROYED;
                                 self.screen_shake = 8;
                                 self.trigger_rumble_large(16, 255);
                                 AudioManager::play_hit();
@@ -484,11 +505,11 @@ impl Platypus {
                 if mech.active && !mech.shield_active && !mech.is_defeated() {
                     let dx = (self.x - mech.x).abs();
                     let is_behind = self.z <= mech.z + 16 && self.z >= mech.z - 44;
-                    if dx < 44 && is_behind && mech.hit_timer == 0 {
+                    if dx < HITBOX_MECH_CORE_RADIUS && is_behind && mech.hit_timer == 0 {
                         mech.hit_timer = 30;
                         if mech.health > 1 {
                             mech.health -= 1;
-                            self.score += 1000;
+                            self.score += SCORE_BOSS_HIT;
                             self.screen_shake = 10;
                             self.trigger_rumble_large(20, 255);
                             self.trigger_rumble_small(14);
@@ -497,7 +518,7 @@ impl Platypus {
                         } else {
                             mech.health = 0;
                             mech.state = MechState::Defeated(120);
-                            self.score += 5000;
+                            self.score += SCORE_BOSS_DEFEATED;
                             self.screen_shake = 16;
                             self.trigger_rumble_large(32, 255);
                             AudioManager::play_fanfare();
@@ -513,18 +534,18 @@ impl Platypus {
                 if jetski.active && jetski.is_stalled && !jetski.is_defeated() && jetski.hit_timer == 0 {
                     let dx = (self.x - jetski.x).abs();
                     let dz = (self.z - jetski.z).abs();
-                    if dx < 48 && dz < 48 {
+                    if dx < HITBOX_JETSKI_RADIUS && dz < HITBOX_JETSKI_RADIUS {
                         jetski.hit_timer = 30;
                         if jetski.health > 1 {
                             jetski.health -= 1;
-                            self.score += 1000;
+                            self.score += SCORE_BOSS_HIT;
                             self.screen_shake = 10;
                             self.trigger_rumble_large(20, 255);
                             AudioManager::play_hit();
                             spark_pos = Some((jetski.x, -20, jetski.z));
                         } else {
                             jetski.health = 0;
-                            self.score += 5000;
+                            self.score += SCORE_BOSS_DEFEATED;
                             self.screen_shake = 16;
                             self.trigger_rumble_large(32, 255);
                             AudioManager::play_fanfare();
@@ -540,11 +561,11 @@ impl Platypus {
                 if sniper.active && sniper.is_vulnerable && !sniper.is_defeated() && sniper.hit_timer == 0 {
                     let dx = (self.x - sniper.x).abs();
                     let dz = (self.z - sniper.z).abs();
-                    if dx < 56 && dz < 56 {
+                    if dx < HITBOX_SNIPER_RADIUS && dz < HITBOX_SNIPER_RADIUS {
                         sniper.hit_timer = 30;
                         if sniper.health > 1 {
                             sniper.health -= 1;
-                            self.score += 1000;
+                            self.score += SCORE_BOSS_HIT;
                             self.screen_shake = 10;
                             self.trigger_rumble_large(20, 255);
                             AudioManager::play_hit();
@@ -554,7 +575,7 @@ impl Platypus {
                             sniper.perch_index = (sniper.perch_index + 1) % 3;
                         } else {
                             sniper.health = 0;
-                            self.score += 5000;
+                            self.score += SCORE_BOSS_DEFEATED;
                             self.screen_shake = 16;
                             self.trigger_rumble_large(32, 255);
                             AudioManager::play_fanfare();
@@ -570,18 +591,18 @@ impl Platypus {
                 if exc.active && !exc.is_defeated() && exc.hit_timer == 0 {
                     let dx = (self.x - exc.x).abs();
                     let dz = (self.z - exc.z).abs();
-                    if dx < 60 && dz < 60 {
+                    if dx < HITBOX_EXCAVATOR_RADIUS && dz < HITBOX_EXCAVATOR_RADIUS {
                         exc.hit_timer = 30;
                         if exc.health > 1 {
                             exc.health -= 1;
-                            self.score += 1500;
+                            self.score += SCORE_EXCAVATOR_HIT;
                             self.screen_shake = 12;
                             self.trigger_rumble_large(24, 255);
                             AudioManager::play_metal();
                             spark_pos = Some((exc.x, -24, exc.z));
                         } else {
                             exc.health = 0;
-                            self.score += 10000;
+                            self.score += SCORE_FINAL_BOSS_DEFEATED;
                             self.screen_shake = 20;
                             self.trigger_rumble_large(40, 255);
                             AudioManager::play_fanfare();

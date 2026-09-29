@@ -2498,8 +2498,20 @@ impl Renderer {
         gpu::draw_rect_flat(165, 138, 10, 8, 255, 240, 180);
         gpu::draw_rect_flat(210, 138, 8, 8, 255, 240, 180);
 
-        self.font.draw_text(60, 182, "BURROW COMMAND: WE'RE SO PROUD!", (100, 255, 160));
-        self.font.draw_text(85, 208, "THANK YOU FOR PLAYING!", (255, 255, 255));
+        self.font.draw_text(60, 180, "BURROW COMMAND: WE'RE SO PROUD!", (100, 255, 160));
+
+        // MK-6: Cycling credits tribute to open-source PS1 & Rust homebrew communities
+        let credits = [
+            "DIRECTED & PROGRAMMED BY: TONYM",
+            "POWERED BY: PSOXIDE SDK & NO_STD RUST",
+            "TARGET HARDWARE: SONY PLAYSTATION 1 (MIPS R3000A)",
+            "THANKS TO: PS1 HOMEBREW & RUST EMBEDDED COMMUNITY",
+            "TACTICAL ESPIONAGE ACTION HOMAGE TO KOJIMA PRODUCTIONS",
+            "THANK YOU FOR PLAYING PLATTYPUS!",
+        ];
+        let credit_idx = ((frame as usize) / 75) % credits.len();
+        self.font.draw_text(24, 200, credits[credit_idx], (255, 240, 140));
+        self.font.draw_text(74, 220, "PRESS CROSS OR START TO FINISH", (200, 220, 240));
     }
 
     pub fn draw_cinematic_letterbox(&self) {
