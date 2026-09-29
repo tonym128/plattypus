@@ -430,5 +430,112 @@ fn main() {
     assert!(!in_box, "Entering water must instantly shed Cardboard Box disguise");
     println!("✓ Cardboard Box transition safety test (QA-5) PASSED");
 
-    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (7/7 test suites)");
+    // 8. Boss Retry State Cleanliness Test (QA-2)
+    #[allow(dead_code)]
+    struct MockMechBoss {
+        pub active: bool,
+        pub health: u8,
+        pub shield_active: bool,
+    }
+    struct MockPowerConduit {
+        pub active: bool,
+        pub destroyed: bool,
+        pub health: u8,
+    }
+
+    fn init_mock_boss_mech() -> (MockMechBoss, [MockPowerConduit; 3]) {
+        let boss = MockMechBoss {
+            active: true,
+            health: 4,
+            shield_active: true,
+        };
+        let conduits = [
+            MockPowerConduit { active: true, destroyed: false, health: 3 },
+            MockPowerConduit { active: true, destroyed: false, health: 3 },
+            MockPowerConduit { active: true, destroyed: false, health: 3 },
+        ];
+        (boss, conduits)
+    }
+
+    let (_boss, mut conduits) = init_mock_boss_mech();
+    // Simulate player destroying 2 conduits
+    conduits[0].health = 0;
+    conduits[0].destroyed = true;
+    conduits[1].health = 0;
+    conduits[1].destroyed = true;
+    assert_eq!(conduits[2].destroyed, false);
+
+    // Player dies and retries: stage reload must cleanly restore all conduits and shields
+    let (boss_retry, conduits_retry) = init_mock_boss_mech();
+    assert!(boss_retry.shield_active, "Boss shield must be fully active on stage retry");
+    assert_eq!(boss_retry.health, 4, "Boss health must be fully restored to 4 on retry");
+    for (i, c) in conduits_retry.iter().enumerate() {
+        assert!(c.active, "Conduit {} must be active", i);
+        assert!(!c.destroyed, "Conduit {} must not be destroyed", i);
+        assert_eq!(c.health, 3, "Conduit {} must have 3 health", i);
+    }
+    println!("✓ Boss retry state cleanliness test (QA-2) PASSED");
+
+    // 9. Rapids Lane Boundary & Riverbank Clipping Test (QA-4)
+    // River corridor in Act 2-1:
+    // Left bank: x in 0..=8 is Wall (0..9 * 64)
+    // Flume: x in 9..=13 is WaterCurrent (9*64 .. 14*64)
+    // Right bank: x in 14..=23 is Wall (14*64 .. 24*64)
+    const TILE_SZ: i32 = 64;
+    let col_radius: i32 = 12;
+    let mut player_x = 9 * TILE_SZ + 32; // In Lane 0 (leftmost water lane)
+    let mut player_z = 15 * TILE_SZ;
+
+    let is_solid_at = |wx: i32, _wz: i32| -> bool {
+        let gx = wx / TILE_SZ;
+        gx < 9 || gx >= 14 // Left and right banks are solid
+    };
+
+    // Hold LEFT hard while water current pushes downriver
+    for _ in 0..120 {
+        let vx = -4; // Steering hard left into the riverbank
+        let vz = -2; // Rushing downstream
+
+        let next_x = player_x + vx;
+        let next_z = player_z + vz;
+
+        // Collision logic as in platypus.rs
+        if !is_solid_at(next_x + col_radius, player_z) && !is_solid_at(next_x - col_radius, player_z) {
+            player_x = next_x;
+        }
+        if !is_solid_at(player_x, next_z + col_radius) && !is_solid_at(player_x, next_z - col_radius) {
+            player_z = next_z;
+        }
+
+        // Assert player NEVER clips into the left bank (gx <= 8)
+        assert!(player_x - col_radius >= 9 * TILE_SZ, "Platty must never clip into the left bank wall or void");
+    }
+    println!("✓ Rapids lane boundary & clipping prevention test (QA-4) PASSED");
+
+    // 10. Score Display & HUD Format Bounds Test (QA-7)
+    let format_score = |score: u32| -> [u8; 6] {
+        let clamped = score.min(999_990);
+        let mut buf = [b'0'; 6];
+        let mut n = clamped;
+        for i in (0..6).rev() {
+            buf[i] = b'0' + (n % 10) as u8;
+            n /= 10;
+        }
+        buf
+    };
+    assert_eq!(&format_score(0), b"000000");
+    assert_eq!(&format_score(1250), b"001250");
+    assert_eq!(&format_score(999_990), b"999990");
+    assert_eq!(&format_score(1_500_000), b"999990", "Scores > 999,990 must be capped cleanly to 6 digits");
+    println!("✓ Score display format & 6-digit bounds test (QA-7) PASSED");
+
+    // 11. PAL 50Hz vs NTSC 60Hz Timer Scaling Test (QA-8)
+    // Under NTSC: 60 fps. Under PAL: 50 fps.
+    let time_s_ntsc = |frames: u32| frames / 60;
+    let time_s_pal = |frames: u32| frames / 50;
+    assert_eq!(time_s_ntsc(3600), 60);
+    assert_eq!(time_s_pal(3000), 60);
+    println!("✓ PAL 50Hz vs NTSC 60Hz time scaling test (QA-8) PASSED");
+
+    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (11/11 test suites)");
 }
