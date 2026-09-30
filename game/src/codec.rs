@@ -3,6 +3,7 @@
 //! character portraits, and dialogue typewriter printing.
 
 use crate::audio::AudioManager;
+use crate::renderer::draw_text_fitted;
 use psx_font::FontAtlas;
 use psx_gpu as gpu;
 use psx_pad::{button, ButtonState};
@@ -308,7 +309,7 @@ pub static ACT3_3_DIALOGUE: &[CodecPage] = &[
     },
     CodecPage {
         speaker: Speaker::Dad,
-        line1: "It's Sniper Kooky—an elite",
+        line1: "It's Sniper Kooky - an elite",
         line2: "cyborg kookaburra perched high!",
     },
     CodecPage {
@@ -768,8 +769,8 @@ impl CodecManager {
         // Top Header Bar
         gpu::draw_rect_flat(0, 0, 320, 24, 8, 30, 20);
         gpu::draw_rect_flat(0, 24, 320, 2, 35, 140, 85);
-        font.draw_text(16, 8, "TACTICAL RADIO TUNER", (120, 255, 160));
-        font.draw_text(220, 8, "SELECT: EXIT", (200, 200, 200));
+        draw_text_fitted(font, 16, 8, "TACTICAL RADIO TUNER", (120, 255, 160));
+        draw_text_fitted(font, 220, 8, "SELECT: EXIT", (200, 200, 200));
 
         // Tuner Dial Frame in Center (x: 40, y: 36, w: 240, h: 64)
         gpu::draw_rect_flat(40, 36, 240, 64, 12, 45, 30);
@@ -785,7 +786,7 @@ impl CodecManager {
         f_str[9] = (frac / 10) as u8 + b'0';
         f_str[10] = (frac % 10) as u8 + b'0';
         if let Ok(s) = core::str::from_utf8(&f_str) {
-            font.draw_text(100, 48, s, (100, 255, 140));
+            draw_text_fitted(font, 100, 48, s, (100, 255, 140));
         }
 
         // Frequency Slider Bar
@@ -800,7 +801,7 @@ impl CodecManager {
         // Contact Directory / Presets Frame (x: 40, y: 110, w: 240, h: 86)
         gpu::draw_rect_flat(40, 110, 240, 86, 12, 45, 30);
         gpu::draw_rect_flat(42, 112, 236, 82, 4, 18, 12);
-        font.draw_text(48, 116, "RADIO DIRECTORY PRESETS:", (255, 230, 80));
+        draw_text_fitted(font, 48, 116, "RADIO DIRECTORY PRESETS:", (255, 230, 80));
 
         let is_burrow = self.tuned_freq == CODEC_FREQ_BURROW;
         let is_scribe = self.tuned_freq == CODEC_FREQ_SCRIBE;
@@ -812,16 +813,16 @@ impl CodecManager {
         let col_j = if is_jack { (100, 255, 160) } else { (140, 170, 150) };
         let col_w = if is_wombat { (100, 255, 160) } else { (140, 170, 150) };
 
-        font.draw_text(52, 130, if is_burrow { "> 140.85  BURROW COMMAND" } else { "  140.85  BURROW COMMAND" }, col_b);
-        font.draw_text(52, 144, if is_scribe { "> 140.96  SCRIBE ECHIDNA (SAVE)" } else { "  140.96  SCRIBE ECHIDNA (SAVE)" }, col_s);
-        font.draw_text(52, 158, if is_jack { "> 141.12  KOOKY JACK (INTEL)" } else { "  141.12  KOOKY JACK (INTEL)" }, col_j);
-        font.draw_text(52, 172, if is_wombat { "> 141.80  DR. WOMBAT (GEAR)" } else { "  141.80  DR. WOMBAT (GEAR)" }, col_w);
+        draw_text_fitted(font, 52, 130, if is_burrow { "> 140.85  BURROW COMMAND" } else { "  140.85  BURROW COMMAND" }, col_b);
+        draw_text_fitted(font, 52, 144, if is_scribe { "> 140.96  SCRIBE ECHIDNA (SAVE)" } else { "  140.96  SCRIBE ECHIDNA (SAVE)" }, col_s);
+        draw_text_fitted(font, 52, 158, if is_jack { "> 141.12  KOOKY JACK (INTEL)" } else { "  141.12  KOOKY JACK (INTEL)" }, col_j);
+        draw_text_fitted(font, 52, 172, if is_wombat { "> 141.80  DR. WOMBAT (GEAR)" } else { "  141.80  DR. WOMBAT (GEAR)" }, col_w);
 
         // Control instructions bar
         gpu::draw_rect_flat(0, 204, 320, 36, 8, 30, 20);
         gpu::draw_rect_flat(0, 204, 320, 2, 35, 140, 85);
-        font.draw_text(18, 210, "D-PAD L/R: TUNE   DOWN: CYCLE PRESET", (220, 240, 220));
-        font.draw_text(18, 222, "CROSS / UP: TRANSMIT   CIRCLE: EXIT", (255, 230, 80));
+        draw_text_fitted(font, 18, 210, "D-PAD L/R: TUNE   DOWN: CYCLE PRESET", (220, 240, 220));
+        draw_text_fitted(font, 18, 222, "CROSS / UP: TRANSMIT   CIRCLE: EXIT", (255, 230, 80));
     }
 
     fn draw_incall(&self, font: &FontAtlas) {
@@ -836,7 +837,7 @@ impl CodecManager {
         // Top Header Bar
         gpu::draw_rect_flat(0, 0, 320, 24, 8, 30, 20);
         gpu::draw_rect_flat(0, 24, 320, 2, 35, 140, 85);
-        font.draw_text(16, 8, "TACTICAL RADIO", (120, 255, 160));
+        draw_text_fitted(font, 16, 8, "TACTICAL RADIO", (120, 255, 160));
 
         let whole = self.tuned_freq / 100;
         let frac = self.tuned_freq % 100;
@@ -847,7 +848,7 @@ impl CodecManager {
         f_hdr[10] = (frac / 10) as u8 + b'0';
         f_hdr[11] = (frac % 10) as u8 + b'0';
         if let Ok(s) = core::str::from_utf8(&f_hdr) {
-            font.draw_text(205, 8, s, (220, 255, 180));
+            draw_text_fitted(font, 205, 8, s, (220, 255, 180));
         }
 
         // Oscillating green soundwave bars in center
@@ -859,7 +860,7 @@ impl CodecManager {
             let h = ((self.anim_timer as i16 * 4 + bar * 23) % 24).abs().max(4);
             gpu::draw_rect_flat(bx, wave_y - h / 2, 4, h as u16, 50, 240, 110);
         }
-        font.draw_text(130, 92, "MEMORY", (90, 190, 120));
+        draw_text_fitted(font, 130, 92, "MEMORY", (90, 190, 120));
 
         // LEFT PORTRAIT: PLATTY
         Self::draw_portrait_frame(20, 35, "PLATTY");
@@ -897,16 +898,19 @@ impl CodecManager {
         gpu::draw_rect_flat(box_x + 2, box_y + 2, box_w - 4, box_h - 4, 6, 22, 16);
         gpu::draw_rect_flat(box_x + 4, box_y + 4, box_w - 8, box_h - 8, 10, 35, 24);
 
-        // Speaker tag banner
-        gpu::draw_rect_flat(box_x + 8, box_y - 6, 120, 12, 15, 65, 45);
-        font.draw_text(box_x + 12, box_y - 4, page.speaker.name(), (255, 240, 120));
+        // Speaker tag banner. "BURROW COMMAND" alone is 15 glyphs = 120 px, so
+        // a fixed-width tag would spill the name past its own right edge: the
+        // tag is sized from the measured name instead.
+        let tag_w = font.text_width(page.speaker.name()) + 8;
+        gpu::draw_rect_flat(box_x + 8, box_y - 6, tag_w, 12, 15, 65, 45);
+        draw_text_fitted(font, box_x + 12, box_y - 4, page.speaker.name(), (255, 240, 120));
 
         // Render typewriter text for Line 1 and Line 2
         let l1_len = page.line1.len();
         let l1_chars = self.text_progress.min(l1_len);
         if l1_chars > 0 {
             if let Some(sub1) = page.line1.get(..l1_chars) {
-                font.draw_text(box_x + 12, box_y + 18, sub1, (240, 255, 240));
+                draw_text_fitted(font, box_x + 12, box_y + 18, sub1, (240, 255, 240));
             }
         }
 
@@ -914,7 +918,7 @@ impl CodecManager {
             let l2_chars = (self.text_progress - l1_len).min(page.line2.len());
             if l2_chars > 0 {
                 if let Some(sub2) = page.line2.get(..l2_chars) {
-                    font.draw_text(box_x + 12, box_y + 36, sub2, (240, 255, 240));
+                    draw_text_fitted(font, box_x + 12, box_y + 36, sub2, (240, 255, 240));
                 }
             }
         }
