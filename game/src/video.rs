@@ -7,7 +7,7 @@
 //! Playback is skippable at any time via CROSS or START.
 
 use psx_pad::{button, ButtonState, PadState};
-use psx_vram::{VramRect, upload_words};
+use psx_vram::{VramRect, dma_copy_to_vram, upload_words};
 use psx_pack::cd::{SectorReader, SECTOR_WORDS};
 use crate::audio::AudioManager;
 
@@ -18,9 +18,22 @@ pub const VIDEO_W: u16 = 320;
 pub const VIDEO_H: u16 = 240;
 pub const TOTAL_FRAMES: u16 = 150;
 pub const EMBEDDED_FRAME_COUNT: u16 = 16;
-pub const SECTORS_PER_FRAME: usize = 8;
-pub const WORDS_PER_FRAME: usize = 4096; // 16,384 bytes = 8 sectors
+/// CD sectors per compressed frame, and so the stride into the .VID file.
+///
+/// This is the bandwidth dial. The drive has to deliver this many sectors
+/// inside one 4-display-period frame window while the MDEC holds the DMA
+/// controller, so it decides whether 15 fps is reachable. Reduced from the
+/// original 8 sectors after measuring that the worst frame in the video
+/// needs only 7; see `docs/perf/why-6fps.md`.
+pub const SECTORS_PER_FRAME: usize = 7;
+pub const WORDS_PER_FRAME: usize = 3584; // 14,336 bytes = 7 sectors
 pub const WORDS_PER_SLICE: usize = 1920; // 16 * 240 / 2 = 1,920 u32 words
+/// Display periods each video frame is held for. Six gives 10 fps on a
+/// 60 Hz display. The pipeline's measured per-frame cost is ~91 ms, which
+/// does not fit the four periods a 15 fps frame gets but does fit six, so
+/// 10 fps is the rate this can actually sustain without a stutter. See
+/// `docs/perf/why-6fps.md`.
+pub const VBLANKS_PER_VIDEO_FRAME: u32 = 6;
 // Keep several compressed frames in RAM so CD reads can be done as one
 // sequential burst instead of seeking once for every frame.
 const PREFETCH_FRAMES: usize = 4;
@@ -48,9 +61,9 @@ const _: () = assert!(EMBEDDED_FRAME_COUNT <= TOTAL_FRAMES);
 
 /// BSS-resident storage for MDEC bitstream, slice buffer, and CD reading
 struct VideoStorage {
-    /// 4,096 u32 words (16 KiB) holding the active frame payload
+    /// One frame payload, sized for the largest frame in the video.
     frame_words: [u32; WORDS_PER_FRAME],
-    /// Read-ahead batch: 64 KiB of compressed video, four frames at a time.
+    /// Read-ahead batch: four frames at a time (56 sectors).
     frame_cache: [[u32; WORDS_PER_FRAME]; PREFETCH_FRAMES],
     /// 1,920 u32 words (7.68 KiB) holding one decoded 16x240 slice
     slice_words: [u32; WORDS_PER_SLICE],
@@ -89,6 +102,10 @@ pub struct VideoPlayer {
     pub using_cd: bool,
     pub cd_start_lba: u32,
     last_decoded_frame: u16,
+    /// Display-period count at the last `swap`.
+    pub last_swap_vblank: u32,
+    /// A decoded frame is complete in the back buffer, waiting to be shown.
+    frame_unpresented: bool,
     saved_irq_mask: u32,
     /// Whether `saved_irq_mask` holds a mask that still needs restoring.
     irq_mask_saved: bool,
@@ -97,6 +114,10 @@ pub struct VideoPlayer {
     cache_start_frame: u16,
     cached_frames: u8,
     cd_reader: SectorReader,
+    /// Whether VRAM uploads may still go over DMA channel 2.
+    vram_dma_ok: bool,
+    /// Times the channel wedged and the GP0 path took over.
+    pub vram_dma_fallbacks: u32,
 }
 
 impl VideoPlayer {
@@ -113,12 +134,16 @@ impl VideoPlayer {
             using_cd: false,
             cd_start_lba: 0,
             last_decoded_frame: 0xFFFF,
+            last_swap_vblank: psx_rt::interrupts::vblank_count(),
+            frame_unpresented: false,
             saved_irq_mask: 0,
             irq_mask_saved: false,
             cd_read_retries: 0,
             cache_start_frame: 0xFFFF,
             cached_frames: 0,
             cd_reader: SectorReader::new(),
+            vram_dma_ok: true,
+            vram_dma_fallbacks: 0,
         }
     }
 
@@ -212,8 +237,8 @@ impl VideoPlayer {
             for sector in 0..SECTORS_PER_FRAME {
                 let offset = sector * SECTOR_WORDS;
                 let sector_buf: &mut [u32; SECTOR_WORDS] = unsafe {
-                    &mut *(&mut storage.frame_cache[frame][offset..offset + SECTOR_WORDS]
-                        as *mut [u32] as *mut [u32; SECTOR_WORDS])
+                    &mut *(storage.frame_cache[frame][offset..offset + SECTOR_WORDS]
+                        .as_mut_ptr() as *mut [u32; SECTOR_WORDS])
                 };
                 if !unsafe { self.cd_reader.read_sector(sector_buf) } {
                     psx_rt::tty::print("[VIDEO] CD batch read failed at frame ");
@@ -227,9 +252,7 @@ impl VideoPlayer {
             }
         }
 
-        // Stop ReadN after the batch. This avoids missed sector IRQs during
-        // MDEC decoding; the next batch resumes sequentially after one seek.
-        unsafe { self.cd_reader.stop(); }
+        unsafe { self.cd_reader.stop() };
 
         if ok {
             self.cache_start_frame = batch_start;
@@ -265,11 +288,15 @@ impl VideoPlayer {
         self.tick = 0;
         self.finished = false;
         self.total_frames = TOTAL_FRAMES;
-        self.ticks_per_frame = 4; // 60 Hz / 4 = 15 fps
+        self.ticks_per_frame = VBLANKS_PER_VIDEO_FRAME as u8; // 60 Hz / 6 = 10 fps
         self.last_decoded_frame = 0xFFFF;
+        self.frame_unpresented = false;
+        self.last_swap_vblank = psx_rt::interrupts::vblank_count();
         self.using_cd = false;
         self.cache_start_frame = 0xFFFF;
         self.cached_frames = 0;
+        self.vram_dma_ok = true;
+        self.vram_dma_fallbacks = 0;
         self.saved_irq_mask = psx_io::irq::mask();
         self.irq_mask_saved = true;
         self.cd_read_retries = 0;
@@ -297,7 +324,9 @@ impl VideoPlayer {
                 self.cd_start_lba = lba;
                 // ReadN bursts fill the four-frame cache; the reader pauses
                 // between batches so MDEC work cannot overrun the CD FIFO.
-                psx_rt::tty::println("[VIDEO] Target video located; using four-frame read-ahead");
+                psx_rt::tty::print("[VIDEO] Target video located; 7-sector read-ahead, total ");
+                psx_rt::tty::print_hex_u32((TOTAL_FRAMES as u32) * SECTORS_PER_FRAME as u32);
+                psx_rt::tty::print(" sectors\n");
                 self.using_cd = true;
                 let _ = self.prefetch_cd_batch(0, storage);
             }
@@ -337,6 +366,13 @@ impl VideoPlayer {
         AudioManager::stop_outro_audio();
     }
 
+    /// Check for a skip request. Returns true when the video is over.
+    ///
+    /// Pacing lives in [`VideoPlayer::present`], not here. This used to
+    /// count loop iterations, but an iteration that also decoded was not
+    /// one display period long, so the count drifted against real time and
+    /// each frame cost `ticks_per_frame + decode_time` instead of
+    /// `ticks_per_frame`.
     pub fn update(&mut self, pad: &PadState, prev: &ButtonState) -> bool {
         if self.finished {
             return true;
@@ -350,25 +386,84 @@ impl VideoPlayer {
             return true;
         }
 
-        self.tick = self.tick.wrapping_add(1);
-        if self.tick >= self.ticks_per_frame {
-            self.tick = 0;
-            self.frame_idx += 1;
-            if self.frame_idx >= self.total_frames {
-                self.stop();
-                return true;
-            }
-        }
-
         false
     }
 
-    pub fn draw(&mut self, renderer: &crate::renderer::Renderer) {
-        let storage = unsafe { &mut *core::ptr::addr_of_mut!(STORAGE) };
-        let frame_to_show = self.frame_idx;
+    /// Run one display period of video playback: decode the next frame if
+    /// the back buffer is free, and present a frame once it is finished.
+    ///
+    /// The present is decoupled from the decode. `FrameBuffer::swap()`
+    /// shows the buffer that was being drawn into, so swapping *before* the
+    /// decode hands the decode only the window between one swap and the
+    /// next, and any overrun pushes the following swap out by a whole
+    /// display period. Presenting only a frame that is already complete
+    /// gives the decode the full `VBLANKS_PER_VIDEO_FRAME` window.
+    ///
+    /// The decode starts as soon as the back buffer is free, immediately
+    /// after the previous present, rather than when the next frame falls
+    /// due. Waiting for the due time would make each period
+    /// `target + decode_time` instead of `max(target, decode_time)`.
+    ///
+    /// The swap is also floored at the target dwell: without that gate the
+    /// cadence follows the decode rather than the target, so a fast decode
+    /// would be presented every couple of display periods and the slow
+    /// frames would lurch. Pacing has to be a floor the decode can be early
+    /// for, not just a deadline it can be late against.
+    pub fn present(&mut self, renderer: &mut crate::renderer::Renderer) {
+        if self.finished {
+            psx_rt::interrupts::wait_vblank();
+            return;
+        }
 
-        // Decode new frame when index changes
-        if frame_to_show != self.last_decoded_frame {
+        let storage = unsafe { &mut *core::ptr::addr_of_mut!(STORAGE) };
+
+        // Top up the read-ahead cache if the current batch is spent. This
+        // is the only place the CD is touched during playback.
+        let cache_end = self.cache_start_frame.saturating_add(self.cached_frames as u16);
+        if self.using_cd && (self.frame_idx < self.cache_start_frame || self.frame_idx >= cache_end)
+        {
+            if !self.prefetch_cd_batch(self.frame_idx, storage) {
+                self.using_cd = false;
+            }
+        }
+
+        psx_rt::interrupts::wait_vblank();
+        let now = psx_rt::interrupts::vblank_count();
+
+        // Present a frame decoded on an earlier call, but no sooner than
+        // its dwell time.
+        if self.frame_unpresented
+            && now != self.last_swap_vblank
+            && now.wrapping_sub(self.last_swap_vblank) >= VBLANKS_PER_VIDEO_FRAME
+        {
+            renderer.fb.swap();
+            self.last_swap_vblank = now;
+            self.frame_unpresented = false;
+        }
+
+        if self.frame_idx >= self.total_frames && !self.frame_unpresented {
+            self.stop();
+            return;
+        }
+
+        // The back buffer is free, so start the next frame immediately; it
+        // will be presented on a later call whenever it is ready.
+        if !self.frame_unpresented && self.frame_idx < self.total_frames {
+            if self.decode_and_upload(renderer, storage) {
+                self.frame_unpresented = true;
+            }
+        }
+    }
+
+    /// Decode the next video frame into the back buffer. Returns false when
+    /// there was nothing to decode.
+    fn decode_and_upload(
+        &mut self,
+        renderer: &crate::renderer::Renderer,
+        storage: &mut VideoStorage,
+    ) -> bool {
+        let frame_to_show = self.frame_idx;
+        {
             let mut read_ok = false;
 
             if self.using_cd {
@@ -411,7 +506,9 @@ impl VideoPlayer {
                 // blob actually matches the decode geometry.
                 if !Self::embedded_fallback_is_consistent() {
                     psx_rt::tty::println("[VIDEO] embedded fallback size mismatch; cannot decode");
-                    return;
+                    // Nothing was decoded, so report it: `present` must not
+                    // mark a frame ready that was never written to VRAM.
+                    return false;
                 }
                 let embed_idx = (frame_to_show % EMBEDDED_FRAME_COUNT) as usize;
                 let src_offset = embed_idx * WORDS_PER_FRAME * 4;
@@ -495,7 +592,7 @@ impl VideoPlayer {
 
                     // Upload slice to VRAM at destination rectangle
                     let rect = VramRect::new(col * 16, fb_y, 16, VIDEO_H);
-                    upload_words(rect, &storage.slice_words);
+                    self.upload_slice(rect, &storage.slice_words);
                 }
 
                 if frame_to_show < 3 {
@@ -503,9 +600,35 @@ impl VideoPlayer {
                 }
 
                 self.last_decoded_frame = frame_to_show;
+                self.frame_idx = frame_to_show + 1;
             }
+            read_ok
         }
+    }
 
+    /// Push one decoded 16x240 slice into VRAM.
+    ///
+    /// DMA channel 2 first: it moves the same bytes the GP0 command port
+    /// would, but without one CPU store per word, and measures 1.44 ms per
+    /// frame against 12.55 ms -- by some margin the largest win available.
+    ///
+    /// `psx-vram` documents that on real silicon channel 2 can latch its
+    /// start bit and stay busy forever; `dma_copy_to_vram` bounds that wait
+    /// and aborts, returning false with the GP0(A0) header already emitted.
+    /// So a failure is recovered: the slice is re-sent the safe way, which
+    /// rewrites the header and the whole payload, leaving VRAM correct. DMA
+    /// is then off for the rest of the session, so a wedging target pays
+    /// the bounded wait once rather than once per frame.
+    fn upload_slice(&mut self, rect: VramRect, words: &[u32; WORDS_PER_SLICE]) {
+        if self.vram_dma_ok && dma_copy_to_vram(rect, words.as_ptr()) {
+            return;
+        }
+        if self.vram_dma_ok {
+            self.vram_dma_ok = false;
+            self.vram_dma_fallbacks += 1;
+            psx_rt::tty::println("[VIDEO] VRAM DMA wedged; using GP0 path for the rest of this video");
+        }
+        upload_words(rect, words);
     }
 
     /// True when a newly decoded video frame is ready to be presented.

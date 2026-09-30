@@ -5,20 +5,43 @@ DIST     := $(ROOT)/dist
 GAME_EXE := $(GAME_DIR)/target/$(TARGET)/release/plattypus.exe
 MKISOPSX := $(ROOT)/psoxide/tools/mkisopsx
 
-.PHONY: all exe disc clean run test help check-media
+.PHONY: all exe disc clean run test help check-media video-bench video-bench-build
 
 all: disc
 
 help:
 	@echo "Plattypus (PSX / PSoXide) Build Targets:"
-	@echo "  make exe   - Compile PSX-EXE (MIPS R3000 bare-metal binary)"
-	@echo "  make disc  - Master bootable PS1 disc image (dist/plattypus.{bin,cue})"
-	@echo "  make test  - Run automated host-side game logic test suite"
-	@echo "  make run   - Run disc in DuckStation, RetroArch, or EMULATOR=... emulator"
-	@echo "  make clean - Clean build artifacts"
+	@echo "  make exe         - Compile PSX-EXE (MIPS R3000 bare-metal binary)"
+	@echo "  make disc        - Master bootable PS1 disc image (dist/plattypus.{bin,cue})"
+	@echo "  make test        - Run automated host-side game logic test suite"
+	@echo "  make run         - Run disc in DuckStation, RetroArch, or EMULATOR=... emulator"
+	@echo "  make check-media - Verify the disc image is well formed"
+	@echo "  make video-bench - Measure intro-video playback performance (needs an emulator)"
+	@echo "  make clean       - Clean build artifacts"
+	@echo ""
+	@echo "Video performance options:"
+	@echo "  RUNS=N     - repeat the measurement N times and report the median (default 1)"
+	@echo "  SECONDS=N  - wall-clock budget per run (default 150; a full run takes ~60s)"
 
 test:
 	cargo run --manifest-path $(ROOT)/tools/test_game_logic/Cargo.toml
+
+# ---------------------------------------------------------------------------
+# Intro-video performance measurement.
+#
+# Builds video_bench (a PSX-EXE that plays the intro through the game's own
+# video.rs with a stopwatch attached), masters a disc holding it plus
+# INTRO.VID, runs it headless, and writes dist/video_bench_report.json.
+# See tools/video_bench/README.md for the metric definitions.
+# ---------------------------------------------------------------------------
+RUNS    ?= 1
+SECONDS ?= 150
+
+video-bench:
+	python3 $(ROOT)/tools/video_bench/host_bench.py --runs $(RUNS) --seconds $(SECONDS)
+
+video-bench-build:
+	cd $(ROOT)/video_bench && cargo build --release
 
 exe:
 	@mkdir -p $(DIST)

@@ -187,20 +187,51 @@ def encode_frame(frame_bgr, luma_scale=16, chroma_scale=24,
 def encode_ycbcr_adaptive(data, max_payload_bytes,
                           width=DEFAULT_WIDTH, height=DEFAULT_HEIGHT):
     """
-    Encode preprocessed YCbCr data, increasing the quantisation scale until
-    the bitstream fits within max_payload_bytes (including 4-byte command word).
+    Encode preprocessed YCbCr data, raising the quantisation scale until the
+    bitstream fits within max_payload_bytes (including the 4-byte command
+    word), and return the *coarsest* encoding that still fits -- i.e. the
+    lowest scale, which is the best quality.
+
+    Payload size is monotonically non-increasing in scale: `encode_block`
+    divides AC coefficients by the scale, so a larger scale can only round
+    more of them to zero and shorten the run/level stream. That makes a
+    bisection valid, and turns up to 25 whole-frame encodes into at most 6.
+    Encoding a 150-frame video is dominated by this search, so the
+    difference is several minutes per video.
     """
-    for scale in range(16, 64, 2):
+    def payload_for(scale):
         chroma = min(63, int(scale * 1.25))
         rl_bytes, data_words = encode_ycbcr(data, luma_scale=scale,
                                             chroma_scale=chroma,
                                             width=width, height=height)
         dma_words = (data_words + 31) & ~31
-        if 4 + dma_words * 4 <= max_payload_bytes:
-            return rl_bytes, data_words, scale
-    rl_bytes, data_words = encode_ycbcr(data, luma_scale=63, chroma_scale=63,
-                                        width=width, height=height)
-    return rl_bytes, data_words, 63
+        return rl_bytes, data_words, scale, 4 + dma_words * 4
+
+    # Does this scale fit?
+    def fits(scale):
+        return payload_for(scale)[3] <= max_payload_bytes
+
+    LO, HI = 16, 63
+    # `fits` is monotonically non-increasing in scale, so the answer is a
+    # threshold. Handle both ends before bisecting, otherwise a scale that
+    # already fits at LO gets "improved" into a coarser one.
+    if fits(LO):
+        return payload_for(LO)[:3]
+    if not fits(HI):
+        return payload_for(HI)[:3]
+
+    best = payload_for(HI)
+    # Invariant: lo does not fit, hi does. Bisect for the boundary, which
+    # is the lowest scale that still fits.
+    lo, hi = LO, HI
+    while lo + 2 < hi:
+        mid = (lo + hi) // 2
+        if fits(mid):
+            hi = mid
+            best = payload_for(mid)
+        else:
+            lo = mid
+    return best[:3]
 
 
 def encode_frame_adaptive(frame_bgr, max_payload_bytes,
@@ -370,6 +401,22 @@ def build_parser():
                         help="Optional output path for embedded ROM fallback bitstream (first N frames)")
     parser.add_argument("--embedded-frames", type=int, default=16, metavar="N",
                         help="Number of initial frames to include in embedded fallback output (default: 16)")
+    parser.add_argument("--target-words", type=int, default=None,
+                        metavar="W",
+                        help="Per-frame adaptive budget in 32-bit words. Only "
+                             "meaningful with --variable-sectors: frames that "
+                             "exceed it are still written (rounded up to whole "
+                             "sectors) up to the --frame-words ceiling, so this "
+                             "sets the typical frame size rather than the worst "
+                             "case. Defaults to --frame-words, which reproduces "
+                             "the fixed-size behaviour.")
+    parser.add_argument("--variable-sectors", action="store_true",
+                        help="Emit a variable-length container: a 1-sector header "
+                             "holding each frame's sector count, then frames "
+                             "rounded up to whole sectors. Cuts total bitrate "
+                             "to the data the video actually needs instead of "
+                             "rounding every frame up to the worst one. The "
+                             "player must be built for the same format.")
     parser.add_argument("--verbose", action="store_true",
                         help="Print per-frame encoding statistics")
     parser.add_argument("--selftest", action="store_true",
@@ -439,17 +486,40 @@ def main():
     FRAME_WORDS = args.frame_words
     FRAME_BYTES = FRAME_WORDS * 4
 
-    print(
-        f"Encoding '{args.input}' → '{args.output}'\n"
-        f"  Source : {source_frame_count} frames @ {source_fps:.2f} fps\n"
-        f"  Output : {target_frames} frames @ {args.fps} fps, "
-        f"{args.width}×{args.height}, {FRAME_BYTES} bytes/frame"
-    )
+    # In variable mode the per-frame payload is rounded up to whole sectors
+    # and recorded in a header, so `--frame-words` is only a ceiling that
+    # bounds the table's largest entry -- not a per-frame constant.
+    VARIABLE = args.variable_sectors
+    SECTOR_BYTES = 2048
+    # In variable mode the adaptive search aims at a *typical* frame size and
+    # lets awkward frames overflow to their own sector count. Aiming at the
+    # ceiling instead would pad every easy frame out to the worst one, which
+    # is the opposite of what a bitrate reduction wants.
+    ADAPTIVE_BYTES = (args.target_words or FRAME_WORDS) * 4
+    # The embedded fallback keeps a fixed stride so the player's embedded
+    # path needs no table of its own; it simply costs a little ROM.
+    EMBED_STRIDE_BYTES = FRAME_BYTES
+    if VARIABLE:
+        print(
+            f"Encoding '{args.input}' → '{args.output}'\n"
+            f"  Source : {source_frame_count} frames @ {source_fps:.2f} fps\n"
+            f"  Output : {target_frames} frames @ {args.fps} fps, "
+            f"{args.width}×{args.height}, variable-sector container "
+            f"(target {ADAPTIVE_BYTES} B/frame, ceiling {FRAME_BYTES} B)"
+        )
+    else:
+        print(
+            f"Encoding '{args.input}' → '{args.output}'\n"
+            f"  Source : {source_frame_count} frames @ {source_fps:.2f} fps\n"
+            f"  Output : {target_frames} frames @ {args.fps} fps, "
+            f"{args.width}×{args.height}, {FRAME_BYTES} bytes/frame"
+        )
 
     full_data     = bytearray()
     embedded_data = bytearray()
     max_words_used = 0
     frames_written = 0
+    sector_counts = []
 
     for i in range(target_frames):
         # Map output frame index to source frame index
@@ -472,7 +542,7 @@ def main():
             used_scale = luma_scale
         else:
             rl_bytes, data_words, used_scale = encode_frame_adaptive(
-                frame, FRAME_BYTES, width=args.width, height=args.height)
+                frame, ADAPTIVE_BYTES, width=args.width, height=args.height)
 
         if data_words > max_words_used:
             max_words_used = data_words
@@ -485,20 +555,35 @@ def main():
         cmd_word     = 0x38000000 | (dma_words & 0xFFFF)
         frame_payload = struct.pack("<I", cmd_word) + padded_rl
 
-        if len(frame_payload) > FRAME_BYTES:
-            print(
-                f"Error: frame {i} payload {len(frame_payload)} bytes exceeds "
-                f"frame slot {FRAME_BYTES} bytes. Use a larger --frame-words value.",
-                file=sys.stderr,
-            )
-            cap.release()
-            sys.exit(1)
+        if VARIABLE:
+            slot_bytes = ((len(frame_payload) + SECTOR_BYTES - 1) // SECTOR_BYTES) * SECTOR_BYTES
+            if slot_bytes > FRAME_BYTES:
+                print(
+                    f"Error: frame {i} payload {len(frame_payload)} bytes needs "
+                    f"{slot_bytes} bytes, over the --frame-words ceiling of "
+                    f"{FRAME_BYTES}. Raise --frame-words.",
+                    file=sys.stderr,
+                )
+                cap.release()
+                sys.exit(1)
+            sector_counts.append(slot_bytes // SECTOR_BYTES)
+        else:
+            if len(frame_payload) > FRAME_BYTES:
+                print(
+                    f"Error: frame {i} payload {len(frame_payload)} bytes exceeds "
+                    f"frame slot {FRAME_BYTES} bytes. Use a larger --frame-words value.",
+                    file=sys.stderr,
+                )
+                cap.release()
+                sys.exit(1)
+            slot_bytes = FRAME_BYTES
 
         # Pad remainder of the frame slot with zeros
-        frame_payload += b"\x00" * (FRAME_BYTES - len(frame_payload))
+        frame_payload += b"\x00" * (slot_bytes - len(frame_payload))
         full_data.extend(frame_payload)
         if args.embedded and i < args.embedded_frames:
-            embedded_data.extend(frame_payload)
+            # Fixed stride, independent of this frame's own sector count.
+            embedded_data.extend(frame_payload + b"\x00" * (EMBED_STRIDE_BYTES - slot_bytes))
         frames_written += 1
 
         if args.verbose or (i + 1) % 15 == 0 or i == target_frames - 1:
@@ -512,8 +597,35 @@ def main():
 
     # ---- Write output -------------------------------------------------------
     try:
-        with open(args.output, "wb") as f:
-            f.write(full_data)
+        if VARIABLE:
+            # One sector of header: a u16 frame count, then one u8 sector
+            # count per frame. Sector-aligned so the player can read it with
+            # the same reader it uses for frames.
+            hdr = bytearray(struct.pack("<H", len(sector_counts)))
+            hdr += bytes(sector_counts)
+            if len(hdr) > SECTOR_BYTES:
+                print(
+                    f"Error: {len(sector_counts)} frames do not fit the "
+                    f"{SECTOR_BYTES}-byte sector table.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            hdr += b"\x00" * (SECTOR_BYTES - len(hdr))
+            # Count each frame as a whole sector so the total is sector
+            # aligned, which is what makes the file streamable at all.
+            body = bytes(full_data)
+            pad = (-len(body)) % SECTOR_BYTES
+            body += b"\x00" * pad
+            with open(args.output, "wb") as f:
+                f.write(bytes(hdr))
+                f.write(body)
+            total_sectors = 1 + len(body) // SECTOR_BYTES
+            print(f"  Container: 1 header sector + {len(body)//SECTOR_BYTES} data "
+                  f"sectors; mean {sum(sector_counts)/len(sector_counts):.2f} "
+                  f"sectors/frame, max {max(sector_counts)}")
+        else:
+            with open(args.output, "wb") as f:
+                f.write(full_data)
     except OSError as e:
         print(f"Error: could not write output file '{args.output}': {e}", file=sys.stderr)
         sys.exit(1)
