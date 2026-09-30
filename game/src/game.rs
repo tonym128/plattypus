@@ -590,7 +590,11 @@ impl Game {
                         is_sneaking,
                         is_submerged,
                         self.platty.in_box,
-                        self.platty.vx != 0 || self.platty.vz != 0,
+                        // Input intent, not post-collision velocity. A held
+                        // diagonal stick that truncated to a zero velocity
+                        // read as a motionless box, which is exactly what makes
+                        // the cardboard box harmless.
+                        self.platty.input_moving,
                         self.platty.noise_radius,
                         &self.level,
                     );
@@ -752,7 +756,11 @@ impl Game {
                         is_sneaking,
                         is_submerged,
                         self.platty.in_box,
-                        self.platty.vx != 0 || self.platty.vz != 0,
+                        // Input intent, not post-collision velocity. A held
+                        // diagonal stick that truncated to a zero velocity
+                        // read as a motionless box, which is exactly what makes
+                        // the cardboard box harmless.
+                        self.platty.input_moving,
                         self.platty.noise_radius,
                         &self.level,
                     );
