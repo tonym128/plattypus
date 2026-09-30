@@ -9,6 +9,17 @@ use crate::level::{Act, CellType, Level, TILE_SZ};
 use psx_gte_core::transform::{cos_1_3_12, sin_1_3_12};
 
 pub const MAX_SENTRIES: usize = 6;
+
+// Alert lifecycle, in frames.
+pub const ALERT_DURATION: u16 = 600;
+pub const CAUTION_DURATION: u16 = 300;
+/// How often an ongoing alert may be topped back up to full. Detection runs
+/// every frame, so refreshing unconditionally made the alert immortal.
+pub const ALERT_REFRESH_COOLDOWN: u8 = 60;
+
+/// Radius of a drone's patrol circle, in world units. The previous value of 2
+/// kept a drone inside a two-unit jitter around its spawn point.
+pub const DRONE_ORBIT_RADIUS: i32 = 140;
 pub const MAX_DRONES: usize = 3;
 pub const MAX_SEARCHLIGHTS: usize = 3;
 pub const MAX_COLLECTIBLES: usize = 16;
@@ -80,6 +91,12 @@ pub struct Drone {
     pub y: i32,
     pub angle: u16,
     pub stun_timer: u16,
+    /// Centre of the drone's patrol circle. The drone used to be offset from
+    /// its own spawn point by a hardcoded 2 units, so it jittered in place
+    /// instead of patrolling.
+    pub orbit_x: i32,
+    pub orbit_z: i32,
+    pub orbit_radius: i32,
 }
 
 impl Drone {
@@ -91,6 +108,9 @@ impl Drone {
             y: -40,
             angle: 0,
             stun_timer: 0,
+            orbit_x: 0,
+            orbit_z: 0,
+            orbit_radius: 0,
         }
     }
 }
@@ -457,6 +477,33 @@ impl BeachPlatform {
     }
 }
 
+impl BeachCrab {
+    /// Advance a crab one frame, reversing it at the ends of its patrol.
+    ///
+    /// Two copies of this existed: one used `.abs()`, which cannot restore a
+    /// direction once `vx` reaches zero, and one negated unconditionally, which
+    /// flipped a stationary crab back and forth every frame. A crab that
+    /// spawned past a bound also reversed on every single frame. Reversing
+    /// only on a real sign change fixes all three.
+    pub fn patrol_step(&mut self) {
+        self.x += self.vx;
+        // Reversal needs a real direction to flip. A crab spawned past a bound
+        // is simply outside its range, so clamp it back in first and send it the
+        // other way, otherwise it walks away from the patrol forever.
+        if self.x > self.max_x {
+            self.x = self.max_x;
+            self.vx = -self.vx.abs().max(1);
+        } else if self.x < self.min_x {
+            self.x = self.min_x;
+            self.vx = self.vx.abs().max(1);
+        } else if self.vx > 0 && self.x >= self.max_x {
+            self.vx = -self.vx;
+        } else if self.vx < 0 && self.x <= self.min_x {
+            self.vx = -self.vx;
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct BeachCrab {
     pub active: bool,
@@ -515,6 +562,13 @@ impl Particle3D {
 
 pub struct EntityManager {
     pub alert_state: AlertState,
+    /// The act currently loaded, so an expiring alert can restore that act's
+    /// own music instead of a hardcoded Act 1 track.
+    pub act: Act,
+    /// Frames until the alert countdown may be refreshed again. Detection runs
+    /// every frame, and refreshing every frame meant the alert could never
+    /// expire while the player stayed in a beam.
+    alert_refresh_cooldown: u8,
     pub sentries: [Sentry; MAX_SENTRIES],
     pub drones: [Drone; MAX_DRONES],
     pub searchlights: [Searchlight; MAX_SEARCHLIGHTS],
@@ -537,6 +591,8 @@ impl EntityManager {
     pub fn new() -> Self {
         Self {
             alert_state: AlertState::Sneaking,
+            act: Act::Act1_1Drainage,
+            alert_refresh_cooldown: 0,
             sentries: [Sentry::empty(); MAX_SENTRIES],
             drones: [Drone::empty(); MAX_DRONES],
             searchlights: [Searchlight::empty(); MAX_SEARCHLIGHTS],
@@ -576,18 +632,42 @@ impl EntityManager {
         }
     }
 
+    /// Raise or extend the red alert.
+    ///
+    /// Detection calls this on every frame the player is spotted, so an
+    /// unconditional reset pinned the countdown at full and guards chased
+    /// forever. The countdown is now only topped up at most once per
+    /// [`ALERT_REFRESH_COOLDOWN`], which keeps a guard on you for a while
+    /// after you break line of sight without making the alert immortal.
     pub fn trigger_alert(&mut self) {
         if !matches!(self.alert_state, AlertState::Alert(_)) {
-            self.alert_state = AlertState::Alert(600); // 10 seconds of RED ALERT
+            self.alert_state = AlertState::Alert(ALERT_DURATION);
+            self.alert_refresh_cooldown = ALERT_REFRESH_COOLDOWN;
             AudioManager::play_alert();
             AudioManager::set_bgm(BgmTrack::Alert);
-        } else if let AlertState::Alert(ref mut timer) = self.alert_state {
-            *timer = 600;
+        } else if self.alert_refresh_cooldown == 0 {
+            if let AlertState::Alert(ref mut timer) = self.alert_state {
+                *timer = ALERT_DURATION;
+            }
+            self.alert_refresh_cooldown = ALERT_REFRESH_COOLDOWN;
+        }
+    }
+
+    /// The music an act plays when nothing is happening. Alert decay used to
+    /// restore a fixed Act 1 track, so expiring an alert in Act 2-2 or 4-2
+    /// left the wrong music playing for the rest of the stage.
+    fn ambient_bgm(&self) -> BgmTrack {
+        match self.act {
+            Act::Act2_1Rapids | Act::Act2_2Mangroves | Act::Act2_3JetSkiBoss => BgmTrack::River,
+            Act::Act4_1Dunes | Act::Act4_2PierTrench | Act::Act4_3ExcavatorBoss => BgmTrack::Beach,
+            _ => BgmTrack::Stealth,
         }
     }
 
     pub fn load_act(&mut self, act: Act) {
         self.alert_state = AlertState::Sneaking;
+        self.act = act;
+        self.alert_refresh_cooldown = 0;
         self.sentries = [Sentry::empty(); MAX_SENTRIES];
         self.drones = [Drone::empty(); MAX_DRONES];
         self.searchlights = [Searchlight::empty(); MAX_SEARCHLIGHTS];
@@ -691,6 +771,9 @@ impl EntityManager {
             z: 10 * TILE_SZ,
             angle: 0,
             stun_timer: 0,
+            orbit_x: 7 * TILE_SZ,
+            orbit_z: 10 * TILE_SZ,
+            orbit_radius: DRONE_ORBIT_RADIUS,
         };
         self.drones[1] = Drone {
             active: true,
@@ -699,6 +782,9 @@ impl EntityManager {
             z: 10 * TILE_SZ,
             angle: 128,
             stun_timer: 0,
+            orbit_x: 15 * TILE_SZ,
+            orbit_z: 10 * TILE_SZ,
+            orbit_radius: DRONE_ORBIT_RADIUS,
         };
 
         self.spawn_item(0, CollectibleType::CardboardBox, 3 * TILE_SZ, 19 * TILE_SZ, true);
@@ -993,6 +1079,9 @@ impl EntityManager {
             z: 10 * TILE_SZ,
             angle: 0,
             stun_timer: 0,
+            orbit_x: 18 * TILE_SZ,
+            orbit_z: 10 * TILE_SZ,
+            orbit_radius: DRONE_ORBIT_RADIUS,
         };
 
         self.spawn_item(0, CollectibleType::CardboardBox, 4 * TILE_SZ, 19 * TILE_SZ, true);
@@ -1267,12 +1356,7 @@ impl EntityManager {
                         if !crab.active {
                             continue;
                         }
-                        crab.x += crab.vx;
-                        if crab.x >= crab.max_x {
-                            crab.vx = -crab.vx.abs();
-                        } else if crab.x <= crab.min_x {
-                            crab.vx = crab.vx.abs();
-                        }
+                        crab.patrol_step();
                     }
                 }
             }
@@ -1341,10 +1425,13 @@ impl EntityManager {
                 if *t > 0 {
                     *t -= 1;
                 } else {
-                    self.alert_state = AlertState::Caution(300);
-                    AudioManager::set_bgm(BgmTrack::Stealth);
+                    self.alert_state = AlertState::Caution(CAUTION_DURATION);
+                    AudioManager::set_bgm(self.ambient_bgm());
                 }
             }
+        }
+        if self.alert_refresh_cooldown > 0 {
+            self.alert_refresh_cooldown -= 1;
         }
 
         let is_in_alert = matches!(self.alert_state, AlertState::Alert(_));
@@ -1405,9 +1492,11 @@ impl EntityManager {
                 d.stun_timer -= 1;
                 continue;
             }
+            // 256 units of angle per revolution; one step is roughly 1.4
+            // degrees, so a full circuit takes about four seconds.
             d.angle = d.angle.wrapping_add(1);
-            d.x += (cos_1_3_12(d.angle) as i32 * 2) >> 12;
-            d.z += (sin_1_3_12(d.angle) as i32 * 2) >> 12;
+            d.x = d.orbit_x + ((cos_1_3_12(d.angle) as i32 * d.orbit_radius) >> 12);
+            d.z = d.orbit_z + ((sin_1_3_12(d.angle) as i32 * d.orbit_radius) >> 12);
 
             if !player_submerged && !player_crawling {
                 let dx = (player_x - d.x).abs();
@@ -1444,9 +1533,7 @@ impl EntityManager {
 
                 // Vision distance range: 240 units
                 if dist_sq < (240 * 240) {
-                    let mid_x = (s.x + player_x) / 2;
-                    let mid_z = (s.z + player_z) / 2;
-                    let obstructed = level.is_solid_at(mid_x, mid_z, false);
+                    let obstructed = !level.has_line_of_sight(s.x, s.z, player_x, player_z);
 
                     if !obstructed {
                         // Close proximity hearing if player is running (and not inside a motionless box)
@@ -1500,7 +1587,12 @@ impl EntityManager {
                         s.angle = if dz > 0 { 0 } else { 128 };
                     }
 
-                    if !is_in_alert {
+                    // `is_in_alert` was sampled before the sentry loop, but
+                    // the global alert is only raised after it, so a sentry
+                    // that acquired the player this frame was demoted straight
+                    // back to patrolling and the chase never started. The
+                    // per-frame flag covers the frame the contact is made.
+                    if !is_in_alert && !alert_triggered {
                         s.state = SentryState::Patrolling;
                     }
                 }
@@ -1583,7 +1675,10 @@ impl EntityManager {
                     c.spark_timer -= 1;
                 }
                 // Electrical arcing particles
-                if (self.frame.wrapping_add(i as u16 * 17) % 8) == 0 {
+                // `panic = "abort"` makes an out-of-bounds index an
+                // unrecoverable lockup, so the write is bounded rather than
+                // relying on the array happening to be the same length.
+                if (self.frame.wrapping_add(i as u16 * 17) % 8) == 0 && spark_count < spark_pos.len() {
                     spark_pos[spark_count] = (c.x, c.z);
                     spark_count += 1;
                 }
@@ -1598,8 +1693,17 @@ impl EntityManager {
         let shields_were_active = self.boss_mech.shield_active;
         self.boss_mech.shield_active = active_conduits > 0;
 
-        // Shield collapse event
-        if shields_were_active && !self.boss_mech.shield_active {
+        // Shield collapse event. Gated on the mech still being alive and not
+        // already recovering: the transition used to overwrite `state`
+        // unconditionally, so dropping the last conduit mid-stomp teleported the
+        // mech to Venting, and a conduit destroyed after death still played the
+        // hit and let the player farm the destroy score during the death
+        // animation.
+        if shields_were_active
+            && !self.boss_mech.shield_active
+            && self.boss_mech.active
+            && !matches!(self.boss_mech.state, MechState::Venting(_) | MechState::Defeated(_))
+        {
             AudioManager::play_hit();
             AudioManager::play_alert();
             self.boss_mech.state = MechState::Venting(120);
@@ -1772,15 +1876,16 @@ impl EntityManager {
             if !crab.active {
                 continue;
             }
-            crab.x += crab.vx;
-            if crab.x <= crab.min_x || crab.x >= crab.max_x {
-                crab.vx = -crab.vx;
-            }
+            crab.patrol_step();
         }
     }
 
     fn update_act2_3_boss(&mut self) {
+        // The river keeps running after the jetski dies. Returning early here
+        // skipped `update_act2` below, freezing every log and mine for the rest
+        // of the stage while the player was usually still running for the exit.
         if !self.boss_jetski.active || self.boss_jetski.is_defeated() {
+            self.update_act2();
             return;
         }
         if self.boss_jetski.hit_timer > 0 {
