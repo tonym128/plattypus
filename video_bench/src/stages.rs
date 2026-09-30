@@ -102,6 +102,37 @@ pub struct Burst {
     pub located: bool,
 }
 
+/// Distinct compressed frames, pre-loaded so a probe can vary the decoded
+/// data while controlling the drive separately. 8 frames is 112 KiB of the
+/// 844 KiB free.
+pub const FRAME_BANK_SLOTS: usize = 8;
+static mut FRAME_BANK: [[u32; WORDS_PER_FRAME]; FRAME_BANK_SLOTS] =
+    [[0; WORDS_PER_FRAME]; FRAME_BANK_SLOTS];
+
+/// Read `n` distinct frames into the bank. Leaves the drive stopped.
+fn load_frame_bank(reader: &mut SectorReader, video_lba: u32, n: usize) -> bool {
+    if !unsafe { reader.start_read(video_lba) } {
+        return false;
+    }
+    let mut ok = true;
+    'outer: for f in 0..n {
+        for sector in 0..SECTORS_PER_FRAME {
+            let offset = sector * SECTOR_WORDS;
+            let bank = unsafe { &mut *(&raw mut FRAME_BANK) };
+            let buf: &mut [u32; SECTOR_WORDS] = unsafe {
+                &mut *(bank[f][offset..offset + SECTOR_WORDS].as_mut_ptr()
+                    as *mut [u32; SECTOR_WORDS])
+            };
+            if !unsafe { reader.read_sector(buf) } {
+                ok = false;
+                break 'outer;
+            }
+        }
+    }
+    unsafe { reader.stop() };
+    ok
+}
+
 /// BSS storage mirroring the shipped `VideoStorage`.
 struct BenchStorage {
     frame_words: [u32; WORDS_PER_FRAME],
@@ -762,6 +793,216 @@ pub fn probe_mdec_repeat(iterations: u32) {
 /// This separates "the MDEC cannot decode back-to-back frames" from "the
 /// CD causes it". If this wedges too, the CD is irrelevant to the
 /// accumulation and the old code only survived because its long read
+/// Sweep how much CD activity can precede a decode before the MDEC wedges.
+///
+/// `probe_mdec_repeat` gave a binary answer: seven sectors of live CD reads
+/// before each decode, and iteration 1 never came back. That is enough to
+/// know overlap is currently unsafe, but not enough to design around it --
+/// chunked overlap only needs to know where the threshold sits. If a small
+/// number of sectors survives repeated iterations then a read/decode
+/// interleave can go that deep and no further.
+///
+/// Each step k runs its own continuous stream: prime one frame, then per
+/// iteration read k sectors into scratch and decode the primed frame. Only
+/// the CD traffic varies; the decode is identical every time, and the frame
+/// is deliberately held constant so that a failure means "the drive was
+/// busy", never "the data was wrong".
+pub fn probe_mdec_sweep(iterations: u32) {
+    const SWEEP_K: [u32; 6] = [0, 1, 2, 4, 7, 14];
+
+    let s = storage();
+    let mut reader = SectorReader::new();
+    let Some(video_lba) = open_video(b"INTRO.VID", &mut reader) else {
+        tty::println("@@VB1 SWEEP skipped (no video)");
+        return;
+    };
+    if !unsafe { reader.prepare() } {
+        tty::println("@@VB1 SWEEP skipped (no CD)");
+        return;
+    }
+    let n = core::cmp::min(iterations as usize, FRAME_BANK_SLOTS);
+    if n == 0 {
+        return;
+    }
+    // Distinct frames, pre-loaded, so every iteration decodes different data.
+    // This is the part the first version of this probe got wrong: holding
+    // the frame constant also held the decode duration constant, which is
+    // what decides whether the drive's FIFO has time to overflow. With the
+    // frame fixed, every k "passed" for the uninteresting reason that the
+    // failing condition was never produced.
+    if !load_frame_bank(&mut reader, video_lba, n) {
+        tty::println("@@VB1 SWEEP readfail");
+        return;
+    }
+
+    tty::print("@@VB1 SWEEP begin iters=");
+    tty::print_hex_u32(n as u32);
+    tty::print("\n");
+
+    for &k in SWEEP_K.iter() {
+        // Fresh stream per step so each run starts from the same place.
+        if !unsafe { reader.start_read(video_lba) } {
+            tty::println("@@VB1 SWEEP k=? readfail");
+            continue;
+        }
+        let mut ok_iters = 0u32;
+        let mut first_bad = 0xFFFF_FFFFu32;
+        let mut last_stat = 0u32;
+        let mut worst_settle = 0u32;
+
+        for iter in 0..n {
+            let iter = iter as u32;
+            // This much extra CD traffic while the decode will have to run.
+            let mut read_ok = true;
+            for _ in 0..k {
+                let buf: &mut [u32; SECTOR_WORDS] = unsafe {
+                    &mut *(s.frame_cache[2][0..SECTOR_WORDS].as_mut_ptr() as *mut [u32; SECTOR_WORDS])
+                };
+                if !unsafe { reader.read_sector(buf) } {
+                    read_ok = false;
+                    break;
+                }
+            }
+            if !read_ok {
+                first_bad = iter;
+                break;
+            }
+            unsafe {
+                let bank = &*(&raw const FRAME_BANK);
+                s.frame_words.copy_from_slice(&bank[iter as usize]);
+            }
+
+            mdec::start_decode_frame(&s.frame_words);
+            let mut slices = 0u32;
+            for _ in 0..SLICE_COLUMNS {
+                if mdec::drain_slice_dma(&mut s.slice_words) {
+                    slices += 1;
+                } else {
+                    break;
+                }
+            }
+            let mut extra = 0u32;
+            while mdec::read_stat() & mdec_status::DATA_OUT_REQ != 0 && extra < 8 {
+                if !mdec::drain_slice_dma(&mut s.slice_words) {
+                    break;
+                }
+                extra += 1;
+            }
+            let mut settle = 0u32;
+            while mdec::is_busy() && settle < 2_000_000 {
+                settle += 1;
+            }
+            let busy_after = mdec::is_busy();
+            last_stat = mdec::read_stat();
+            if settle > worst_settle {
+                worst_settle = settle;
+            }
+            if slices != SLICE_COLUMNS as u32 || busy_after {
+                first_bad = iter;
+                break;
+            }
+            ok_iters += 1;
+        }
+        unsafe { reader.stop() };
+
+        tty::print("@@VB1 SWEEP k=");
+        tty::print_hex_u32(k);
+        tty::print(" ok=");
+        tty::print_hex_u32(ok_iters);
+        tty::print(" firstbad=");
+        tty::print_hex_u32(first_bad);
+        tty::print(" settlespc=");
+        tty::print_hex_u32(worst_settle);
+        tty::print(" stat=");
+        tty::print_hex_u32(last_stat);
+        tty::print("\n");
+    }
+
+    tty::println("@@VB1 SWEEP end");
+}
+
+/// Decode several *different* frames with the drive stopped.
+///
+/// This is the control the earlier probes left open. `probe_mdec_nocd`
+/// decodes one frame repeatedly and `probe_mdec_repeat` decodes varying
+/// frames against a live drive; neither varies the data *and* isolates the
+/// drive. Until this runs, "sustained CD activity wedges the MDEC" and "some
+/// frames wedge the MDEC" are equally consistent with everything measured so
+/// far -- and the sweep says live CD traffic up to 14 sectors before a decode
+/// is harmless, which points hard at the data.
+///
+/// Frames are read up front and the drive is stopped before the first decode,
+/// so nothing about the drive changes between iterations.
+pub fn probe_mdec_frames_no_cd(frames: u32) {
+    let s = storage();
+    let mut reader = SectorReader::new();
+    let Some(video_lba) = open_video(b"INTRO.VID", &mut reader) else {
+        tty::println("@@VB1 FRAMENOCD skipped (no video)");
+        return;
+    };
+    if !unsafe { reader.prepare() } {
+        tty::println("@@VB1 FRAMENOCD skipped (no CD)");
+        return;
+    }
+    let n = core::cmp::min(frames as usize, FRAME_BANK_SLOTS);
+    if n == 0 {
+        return;
+    }
+
+    if !load_frame_bank(&mut reader, video_lba, n) {
+        tty::println("@@VB1 FRAMENOCD readfail");
+        return;
+    }
+
+    tty::print("@@VB1 FRAMENOCD begin frames=");
+    tty::print_hex_u32(n as u32);
+    tty::print("\n");
+
+    for f in 0..n {
+        unsafe {
+            let bank = &*(&raw const FRAME_BANK);
+            s.frame_words.copy_from_slice(&bank[f]);
+        }
+        mdec::start_decode_frame(&s.frame_words);
+        let mut slices = 0u32;
+        for _ in 0..SLICE_COLUMNS {
+            if mdec::drain_slice_dma(&mut s.slice_words) {
+                slices += 1;
+            } else {
+                break;
+            }
+        }
+        let mut extra = 0u32;
+        while mdec::read_stat() & mdec_status::DATA_OUT_REQ != 0 && extra < 8 {
+            if !mdec::drain_slice_dma(&mut s.slice_words) {
+                break;
+            }
+            extra += 1;
+        }
+        let mut settle = 0u32;
+        while mdec::is_busy() && settle < 2_000_000 {
+            settle += 1;
+        }
+        let busy_after = mdec::is_busy();
+        tty::print("@@VB1 FRAMENOCD frame=");
+        tty::print_hex_u32(f as u32);
+        tty::print(" slices=");
+        tty::print_hex_u32(slices);
+        tty::print("/");
+        tty::print_hex_u32(SLICE_COLUMNS as u32);
+        tty::print(" extra=");
+        tty::print_hex_u32(extra);
+        tty::print(" settle=");
+        tty::print_hex_u32(settle);
+        tty::print(" busyafter=");
+        tty::print_hex_u32(busy_after as u32);
+        tty::print(" stat=");
+        tty::print_hex_u32(mdec::read_stat());
+        tty::print("\n");
+    }
+    tty::println("@@VB1 FRAMENOCD done");
+}
+
 /// burst left the MDEC time to settle between frames.
 pub fn probe_mdec_nocd(iterations: u32) {
     let s = storage();

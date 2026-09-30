@@ -119,6 +119,8 @@ fn main() -> ! {
     stages::probe_mdec_contention();
     stages::probe_mdec_repeat(40);
     stages::probe_mdec_nocd(40);
+    stages::probe_mdec_sweep(6);
+    stages::probe_mdec_frames_no_cd(8);
 
     // P1: paced run -- the numbers that matter.
     let (presents, using_cd, dma_fallbacks) = run_paced(&mut renderer);

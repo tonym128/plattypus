@@ -471,3 +471,44 @@ Removing the seek (phase 3 working) would take the read from 3.29 vb of
 atomic burst to a trickle inside the dwell, and 150/150 on time at 10 fps
 follows directly. That is the same MDEC/CD contention, now with the
 scheduler drawn around it.
+
+## Correction: the CD traffic threshold is not where `probe_mdec_repeat` implied
+
+A sweep probe (`stages::probe_mdec_sweep`) was added to find how much CD
+traffic can precede a decode. It steps the number of sectors read before each
+decode -- 0, 1, 2, 4, 7, 14 -- and decodes a *different* frame every
+iteration.
+
+Result, six distinct frames per step, drive live throughout:
+
+```
+k=0  ok=6/6  settle=0  stat=9604FFFF
+k=1  ok=6/6  settle=0  stat=9604FFFF
+k=2  ok=6/6  settle=0  stat=9604FFFF
+k=4  ok=6/6  settle=0  stat=9604FFFF
+k=7  ok=6/6  settle=0  stat=9604FFFF
+k=14 ok=6/6  settle=0  stat=9604FFFF
+```
+
+Fourteen sectors of live CD traffic immediately before a decode does not wedge
+the MDEC. Combined with `probe_mdec_frames_no_cd` (eight distinct frames,
+drive stopped, 8/8 clean), neither varying frame data nor sustained CD
+activity is sufficient on its own to produce the stall, which contradicts the
+reading of `probe_mdec_repeat` recorded above.
+
+The first version of the sweep was wrong in a way worth recording: it held
+the decoded frame constant, and with the frame constant the decode duration
+is constant. Every `k` passed, but for the uninteresting reason that the
+failing condition was never generated. Varying the frame as well is what
+makes the result mean something.
+
+`probe_mdec_repeat` still wedges at iteration 1 in the same build and still
+passes when moved last in the probe order, so it is not ordering. Its loop
+differs from the passing sweep only in that it reads the seven sectors it is
+about to decode rather than discarding them into scratch. That difference is
+unexplained. It does not affect shipped playback, which decodes all 150
+frames without wedging.
+
+What this does change: chunked overlap of read and decode is not blocked by
+the drive. Whether the shipped player can exploit it is now a question about
+the scheduler, not about the MDEC.
