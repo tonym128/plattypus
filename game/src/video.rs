@@ -25,6 +25,27 @@ pub const WORDS_PER_SLICE: usize = 1920; // 16 * 240 / 2 = 1,920 u32 words
 // sequential burst instead of seeking once for every frame.
 const PREFETCH_FRAMES: usize = 4;
 
+/// How many times a failed CD prefetch is re-attempted from a fresh seek before
+/// the player gives up on streaming. A single transient read error is common on
+/// real hardware, and giving up on the first one truncated a 150-frame cutscene
+/// to a 16-frame loop for the rest of the session.
+const CD_READ_RETRIES: u8 = 3;
+
+/// Spin budget for the whole PIO decode fallback of one slice. The old
+/// per-word budget of 10,000 across 1,920 words was several seconds of frozen
+/// screen inside a single frame, so the budget is per slice rather than per
+/// word.
+const PIO_SPIN_BUDGET: u32 = 200_000;
+
+// The frame geometry is only correct for assets encoded at this GOP size.
+// `SECTORS_PER_FRAME` doubles as the LBA stride into the .VID file, so
+// re-encoding at a different size silently desynced sector addressing. The
+// pure-arithmetic invariants are checked at compile time; the embedded
+// fallback's size is checked at boot instead, because `include_bytes!` yields
+// a reference whose length is not const-evaluable here.
+const _: () = assert!(SECTORS_PER_FRAME * 2048 == WORDS_PER_FRAME * 4);
+const _: () = assert!(EMBEDDED_FRAME_COUNT <= TOTAL_FRAMES);
+
 /// BSS-resident storage for MDEC bitstream, slice buffer, and CD reading
 struct VideoStorage {
     /// 4,096 u32 words (16 KiB) holding the active frame payload
@@ -69,6 +90,10 @@ pub struct VideoPlayer {
     pub cd_start_lba: u32,
     last_decoded_frame: u16,
     saved_irq_mask: u32,
+    /// Whether `saved_irq_mask` holds a mask that still needs restoring.
+    irq_mask_saved: bool,
+    /// Failed prefetches since the last successful one.
+    cd_read_retries: u8,
     cache_start_frame: u16,
     cached_frames: u8,
     cd_reader: SectorReader,
@@ -89,6 +114,8 @@ impl VideoPlayer {
             cd_start_lba: 0,
             last_decoded_frame: 0xFFFF,
             saved_irq_mask: 0,
+            irq_mask_saved: false,
+            cd_read_retries: 0,
             cache_start_frame: 0xFFFF,
             cached_frames: 0,
             cd_reader: SectorReader::new(),
@@ -123,7 +150,11 @@ impl VideoPlayer {
             if record_len == 0 {
                 break;
             }
-            if off + record_len > bytes.len() {
+            // A directory record must be at least 33 bytes to carry the LBA at
+            // offset 2..6 and the name length at offset 32. A short record
+            // used to pass the `off + record_len` check and then read the LBA
+            // past the end of the sector.
+            if record_len < 33 || off + record_len > bytes.len() {
                 break;
             }
 
@@ -136,7 +167,13 @@ impl VideoPlayer {
             let name_len = bytes[off + 32] as usize;
             if off + 33 + name_len <= bytes.len() {
                 let name = &bytes[off + 33..off + 33 + name_len];
-                if name.starts_with(filename) {
+                // ISO 9660 identifiers carry a `;1` version suffix, so
+                // `INTRO.VID` is stored as `INTRO.VID;1`. A bare prefix match
+                // also matched a hypothetical `INTRO.VIDX`; require the
+                // version separator or the end of the identifier.
+                if name.starts_with(filename)
+                    && (name.len() == filename.len() || name[filename.len()] == b';')
+                {
                     psx_rt::tty::print("[VIDEO] Found video file at LBA: ");
                     psx_rt::tty::print_hex_u32(lba);
                     psx_rt::tty::print("\n");
@@ -215,6 +252,12 @@ impl VideoPlayer {
         self.start_video(VideoKind::Outro);
     }
 
+    /// One-time check that the embedded fallback matches the frame geometry it
+    /// is decoded with. A mismatch would index past the blob.
+    pub fn embedded_fallback_is_consistent() -> bool {
+        EMBEDDED_VIDEO.len() == EMBEDDED_FRAME_COUNT as usize * WORDS_PER_FRAME * 4
+    }
+
     pub fn start_video(&mut self, kind: VideoKind) {
         psx_rt::tty::println("[VIDEO] start_video() called");
         self.kind = kind;
@@ -228,6 +271,8 @@ impl VideoPlayer {
         self.cache_start_frame = 0xFFFF;
         self.cached_frames = 0;
         self.saved_irq_mask = psx_io::irq::mask();
+        self.irq_mask_saved = true;
+        self.cd_read_retries = 0;
 
         // Reset and initialize hardware MDEC coprocessor with standard tables
         psx_rt::tty::println("[VIDEO] Initializing MDEC...");
@@ -274,14 +319,19 @@ impl VideoPlayer {
         }
         self.finished = true;
 
-        if self.using_cd {
+        // Restore the IRQ mask unconditionally. `SectorReader::prepare` masks
+        // CD and timer interrupts for the duration of a stream, and this guard
+        // used to be `if self.using_cd` -- so a stream that gave up early left
+        // the SPU and CD handlers masked off for the rest of the process, which
+        // the VBlank-driven frame loop depends on.
+        if self.irq_mask_saved {
             unsafe {
                 self.cd_reader.stop();
-                // Restore previous IRQ mask
                 psx_io::irq::set_mask(self.saved_irq_mask);
             }
-            self.using_cd = false;
+            self.irq_mask_saved = false;
         }
+        self.using_cd = false;
 
         AudioManager::stop_intro_audio();
         AudioManager::stop_outro_audio();
@@ -325,7 +375,24 @@ impl VideoPlayer {
                 let cache_end = self.cache_start_frame.saturating_add(self.cached_frames as u16);
                 if frame_to_show < self.cache_start_frame || frame_to_show >= cache_end {
                     if !self.prefetch_cd_batch(frame_to_show, storage) {
-                        self.using_cd = false;
+                        // One dropped sector used to latch streaming off for
+                        // the whole cutscene, collapsing a 150-frame intro into
+                        // a 16-frame embedded loop with the 10-second voiceover
+                        // still playing against it. Re-seek once from the top
+                        // before giving up: a transient read error is the
+                        // common case, not a broken file.
+                        self.cd_read_retries = self.cd_read_retries.saturating_add(1);
+                        if self.cd_read_retries <= CD_READ_RETRIES {
+                            self.cache_start_frame = 0xFFFF;
+                            self.cached_frames = 0;
+                            if !self.prefetch_cd_batch(frame_to_show, storage) {
+                                self.using_cd = false;
+                            }
+                        } else {
+                            self.using_cd = false;
+                        }
+                    } else {
+                        self.cd_read_retries = 0;
                     }
                 }
 
@@ -340,7 +407,12 @@ impl VideoPlayer {
             }
 
             if !read_ok {
-                // Load from embedded fallback frames
+                // Load from embedded fallback frames. Only meaningful if the
+                // blob actually matches the decode geometry.
+                if !Self::embedded_fallback_is_consistent() {
+                    psx_rt::tty::println("[VIDEO] embedded fallback size mismatch; cannot decode");
+                    return;
+                }
                 let embed_idx = (frame_to_show % EMBEDDED_FRAME_COUNT) as usize;
                 let src_offset = embed_idx * WORDS_PER_FRAME * 4;
                 if src_offset + WORDS_PER_FRAME * 4 <= EMBEDDED_VIDEO.len() {
@@ -389,15 +461,23 @@ impl VideoPlayer {
                         // MDEC has finished processing and has no more output.
                         // DATA_OUT_EMPTY can be transient between macroblocks.
                         let mut output_words = 0usize;
+                        // One budget for the whole slice. A per-word budget let
+                        // a partially drained slice walk 1,920 * 10,000 spins,
+                        // which is several seconds of frozen screen inside a
+                        // single frame.
+                        let mut slice_spins = 0u32;
                         for out in storage.slice_words.iter_mut() {
-                            let mut spins = 0u32;
                             while psx_io::mdec::read_stat() & psx_hw::mdec::status::DATA_OUT_EMPTY != 0
                                 && (psx_io::mdec::is_busy()
                                     || psx_io::dma::is_busy(psx_io::dma::Channel::MdecIn))
-                                && spins < 10_000
+                                && slice_spins < PIO_SPIN_BUDGET
                             {
-                                spins += 1;
+                                slice_spins += 1;
                                 core::hint::spin_loop();
+                            }
+                            if slice_spins >= PIO_SPIN_BUDGET {
+                                psx_rt::tty::println("[VIDEO] MDEC PIO fallback budget exhausted; ending slice");
+                                break;
                             }
                             if psx_io::mdec::read_stat() & psx_hw::mdec::status::DATA_OUT_EMPTY != 0 {
                                 break;

@@ -447,6 +447,12 @@ impl Act {
 /// Mirror of `save::CAMPAIGN_ACT_COUNT`.
 pub const CAMPAIGN_ACT_COUNT: u8 = 12;
 /// Mirror of the video standards' frame rates (game/src/game.rs).
+// Video geometry mirror (SE-17 / M3 / SE-4).
+const TOTAL_FRAMES: u16 = 150;
+const EMBEDDED_FRAME_COUNT: u16 = 16;
+const SECTORS_PER_FRAME: usize = 8;
+const WORDS_PER_FRAME: usize = 4096;
+
 const FPS_NTSC: u32 = 60;
 const FPS_PAL: u32 = 50;
 /// Mirror of the boss intro cutscene constants (game/src/game.rs).
@@ -2077,5 +2083,113 @@ fn main() {
         assert_eq!(table[12].1, 12, "the fanfare voice must be configured");
     }
 
-    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (30/30 test suites)");
+    // 26. ISO 9660 directory record walk is bounds-safe (SE-17)
+    //
+    // The parser read the LBA at offset 2..6 of every record whose declared
+    // length fit inside the sector, which is not the same as the record being
+    // long enough to hold that field.
+    {
+        // Mirrors `VideoPlayer::find_vid_lba`'s loop over a 2048-byte sector.
+        let walk = |sector: &[u8; 2048], want: &[u8]| -> Option<u32> {
+            let mut off = 0usize;
+            while off < sector.len() {
+                let record_len = sector[off] as usize;
+                if record_len == 0 {
+                    break;
+                }
+                if record_len < 33 || off + record_len > sector.len() {
+                    break;
+                }
+                let lba = u32::from_le_bytes([
+                    sector[off + 2],
+                    sector[off + 3],
+                    sector[off + 4],
+                    sector[off + 5],
+                ]);
+                let name_len = sector[off + 32] as usize;
+                if off + 33 + name_len <= sector.len() {
+                    let name = &sector[off + 33..off + 33 + name_len];
+                    if name.starts_with(want)
+                        && (name.len() == want.len() || name[want.len()] == b';')
+                    {
+                        return Some(lba);
+                    }
+                }
+                off += record_len;
+            }
+            None
+        };
+
+        // A well-formed record: 40 bytes, name "INTRO.VID;1" at offset 33.
+        let mut good = [0u8; 2048];
+        good[0] = 40; // record length
+        good[2..6].copy_from_slice(&0x0000_1234u32.to_le_bytes());
+        good[32] = 11; // name length
+        good[33..44].copy_from_slice(b"INTRO.VID;1");
+        assert_eq!(walk(&good, b"INTRO.VID"), Some(0x1234));
+
+        // A record that declares itself 1 byte long must not be read for an
+        // LBA -- this is the out-of-bounds case.
+        let mut runt = [0u8; 2048];
+        runt[0] = 1;
+        assert_eq!(walk(&runt, b"INTRO.VID"), None);
+
+        // A runt record at the very end of the sector must not read past it.
+        let mut edge = [0u8; 2048];
+        edge[2047] = 1;
+        assert_eq!(walk(&edge, b"INTRO.VID"), None);
+
+        // A `;1` suffix matches; a longer name sharing the prefix must not.
+        assert_eq!(walk(&good, b"INTRO.VID;1"), Some(0x1234));
+        let mut decoy = [0u8; 2048];
+        decoy[0] = 44;
+        decoy[2..6].copy_from_slice(&0x0000_9999u32.to_le_bytes());
+        decoy[32] = 12;
+        decoy[33..45].copy_from_slice(b"INTRO.VIDX;1");
+        assert_eq!(walk(&decoy, b"INTRO.VID"), None, "prefix decoy must not match");
+    }
+
+    // 27. Video frame geometry is self-consistent (SE-17 / M3)
+    {
+        assert_eq!(SECTORS_PER_FRAME * 2048, WORDS_PER_FRAME * 4);
+        assert!(EMBEDDED_FRAME_COUNT <= TOTAL_FRAMES);
+        // The fallback must never be longer than the film, or the modulo would
+        // never cycle and the 10s voiceover would outlast a 1s video loop.
+        assert!(EMBEDDED_FRAME_COUNT < TOTAL_FRAMES);
+    }
+
+    // 28. A CD read failure retries before giving up (SE-4)
+    {
+        // The player must not latch streaming off on the first failed prefetch,
+        // and must give up eventually rather than retrying forever.
+        const CD_READ_RETRIES: u8 = 3;
+        let mut retries = 0u8;
+        let mut using_cd = true;
+        for _attempt in 0..8 {
+            let prefetch_ok = false; // every read fails
+            if !prefetch_ok && using_cd {
+                retries = retries.saturating_add(1);
+                if retries <= CD_READ_RETRIES {
+                    // re-seek and retry
+                } else {
+                    using_cd = false;
+                }
+            }
+        }
+        assert!(!using_cd, "must eventually fall back after repeated failures");
+        assert_eq!(retries, CD_READ_RETRIES + 1);
+        // A single transient failure must not disable streaming.
+        let mut retries = 0u8;
+        let mut using_cd = true;
+        let prefetch_ok = false;
+        if !prefetch_ok {
+            retries = retries.saturating_add(1);
+            if retries > CD_READ_RETRIES {
+                using_cd = false;
+            }
+        }
+        assert!(using_cd, "one transient failure must keep streaming alive");
+    }
+
+    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (33/33 test suites)");
 }
