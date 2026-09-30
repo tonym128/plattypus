@@ -233,7 +233,33 @@ pub struct Renderer {
     /// in the framebuffer, so it is re-uploaded whenever this is not the
     /// previous frame's counter -- see `draw_title_screen`.
     title_bg_frame: Cell<u8>,
+    /// Quads still allowed to be submitted this frame.
+    ///
+    /// The traversal walks every visible Z row and, inside each row, every
+    /// entity array. With all arrays populated that reaches tens of thousands
+    /// of quads, each costing four GTE round-trips and six GP0 words -- far past
+    /// what the hardware sustains. A budget makes the cost bounded no matter
+    /// what the level contains, and `begin_frame` refills it.
+    quad_budget: Cell<i32>,
 }
+
+/// Quads the renderer may submit in one frame.
+///
+/// A PS1 sustains roughly 2,000-5,000 textured Gouraud triangles at 30 fps,
+/// so 1,100 quads leaves headroom for the two-sided cases and the HUD while
+/// staying inside the budget for the heaviest real act.
+const QUAD_BUDGET: i32 = 1_100;
+
+/// Beyond this distance an actor is drawn as a single billboard box instead of
+/// its full model. A sentry is five boxes and Platty is twenty, so distant
+/// actors dominate the budget without being individually readable.
+const ACTOR_LOD_DISTANCE: i32 = 320;
+
+/// Distance past which environmental tile detail is skipped beyond the floor.
+const TILE_LOD_DISTANCE: i32 = 480;
+
+/// Quads a single box costs: six faces.
+const BOX_FACE_QUADS: i32 = 6;
 
 impl Renderer {
     pub fn new() -> Self {
@@ -268,6 +294,7 @@ impl Renderer {
             // title frame happens to match this, skipping the re-upload is
             // still correct.
             title_bg_frame: Cell::new(u8::MAX),
+            quad_budget: Cell::new(QUAD_BUDGET),
         }
     }
 
@@ -283,6 +310,31 @@ impl Renderer {
     pub fn begin_frame(&mut self) {
         psx_rt::interrupts::wait_vblank();
         self.fb.swap();
+        self.quad_budget.set(QUAD_BUDGET);
+    }
+
+    /// True while the frame still has quads left to spend. Every geometry
+    /// submitter checks this, so a level that would previously emit tens of
+    /// thousands of quads now degrades by dropping the furthest detail first
+    /// rather than dropping frames.
+    #[inline]
+    fn budget_available(&self) -> bool {
+        self.quad_budget.get() > 0
+    }
+
+    /// Charge `n` quads against the frame budget.
+    #[inline]
+    fn spend_quads(&self, n: i32) {
+        let left = self.quad_budget.get() - n;
+        self.quad_budget.set(if left < 0 { 0 } else { left });
+    }
+
+    /// Horizontal distance from the camera, the metric the LOD uses.
+    #[inline]
+    fn dist_to(&self, x: i32, z: i32) -> i32 {
+        let dx = (x - self.cam_x).abs();
+        let dz = (z - self.cam_z).abs();
+        if dx > dz { dx } else { dz }
     }
 
     /// Draw `s` at `x`, keeping the run inside the screen. See [`fit_text`]
@@ -358,15 +410,27 @@ impl Renderer {
         let max_gz = ((self.cam_z + 680) / TILE_SZ + 1).clamp(0, GRID_D as i32) as usize;
 
         for gz in min_gz..max_gz {
+            // Once the frame's quads are spent, stop walking rows. Tiles are
+            // drawn front-to-back within the visible window, so the budget runs
+            // out at the near edge and the remaining geometry is the furthest
+            // detail -- exactly the geometry that is cheapest to lose.
+            if !self.budget_available() {
+                break;
+            }
             let row_z_min = (gz as i32) * TILE_SZ;
             let row_z_max = ((gz + 1) as i32) * TILE_SZ;
+            // Rows past the LOD distance draw the bare floor and nothing else.
+            let detail = self.dist_to(self.cam_x, row_z_min) <= TILE_LOD_DISTANCE;
 
             // 1. Draw environmental tiles in this row
             for gx in min_gx..max_gx {
+                if !self.budget_available() {
+                    break;
+                }
                 let wx = (gx as i32) * TILE_SZ;
                 let wz = row_z_min;
                 let cell = level.get_cell(gx, gz);
-                self.draw_cell(cell, wx, wz, level.act, frame);
+                self.draw_cell(cell, wx, wz, level.act, frame, detail);
             }
 
             // 2. Draw entities situated in this row (with horizontal frustum culling)
@@ -589,7 +653,10 @@ impl Renderer {
         self.draw_model_box(wx + 28, 0, wz + 28, -14, -56, -14, 28, 8, 28, &rot, (70, 200, 80));
     }
 
-    fn draw_cell(&self, cell: CellType, wx: i32, wz: i32, act: Act, frame: u8) {
+    /// `detail` is false for rows past [`TILE_LOD_DISTANCE`], where only the
+    /// bare floor is drawn. Props and surface shading cost several quads a tile
+    /// and are unreadable at that range.
+    fn draw_cell(&self, cell: CellType, wx: i32, wz: i32, act: Act, frame: u8, detail: bool) {
         let (floor_r, floor_g, floor_b) = match act.chapter() {
             1 => (30, 38, 44),   // Dark tarmac / concrete
             2 => (25, 75, 40),   // Lush Yarra riverbank moss & grass
@@ -603,6 +670,9 @@ impl Renderer {
         match cell {
             CellType::Floor => {
                 self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b, act);
+                if !detail {
+                    return;
+                }
                 match act.chapter() {
                     3 => {
                         // Road dividing dashed white lines
@@ -625,8 +695,10 @@ impl Renderer {
             }
             CellType::TallGrass => {
                 self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b, act);
-                self.draw_grass_clump(wx + 16, wz + 16);
-                self.draw_grass_clump(wx + 44, wz + 36);
+                if detail {
+                    self.draw_grass_clump(wx + 16, wz + 16);
+                    self.draw_grass_clump(wx + 44, wz + 36);
+                }
             }
             CellType::Water => {
                 self.draw_water_tile(wx, wz, act, frame, false);
@@ -667,7 +739,7 @@ impl Renderer {
                 self.draw_box_3d_textured(wx + 2, wz + 2, 60, h, 60, c_tex, c_col);
 
                 // Add glowing windows and beacons on city skyscrapers
-                if act.chapter() == 3 {
+                if act.chapter() == 3 && detail {
                     let win_col = if (wx / 64) % 2 == 0 { (255, 230, 110) } else { (100, 210, 255) };
                     self.draw_box_3d(wx + 10, wz + 4, 12, 16, 2, win_col);
                     self.draw_box_3d(wx + 38, wz + 4, 12, 16, 2, win_col);
@@ -682,7 +754,9 @@ impl Renderer {
                     2 => {
                         // Bushland riverbank: mossy bank + gum tree
                         self.draw_box_3d_textured(wx, wz, 64, 32, 64, TextureId::GumLeaves, (140, 140, 140));
-                        if (gx + gz) % 2 == 0 {
+                        // A gum tree is roughly 18 quads, the most expensive
+                        // tile prop in the game, and unreadable at range.
+                        if detail && (gx + gz) % 2 == 0 {
                             self.draw_gum_tree(wx, wz);
                         }
                     }
@@ -712,7 +786,9 @@ impl Renderer {
             }
             CellType::LaserTripwire => {
                 self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b, act);
-                self.draw_laser_tripwire(wx, wz, frame);
+                if detail {
+                    self.draw_laser_tripwire(wx, wz, frame);
+                }
             }
             CellType::ExitBurrow => {
                 self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b, act);
@@ -720,9 +796,11 @@ impl Renderer {
             }
             CellType::MetalGrate => {
                 self.draw_floor_tile(wx, wz, 90, 95, 105, act);
-                // Heavy steel bevel framing on catwalk boundaries
-                self.draw_box_3d(wx, wz, 64, 2, 4, (120, 130, 140));
-                self.draw_box_3d(wx, wz + 60, 64, 2, 4, (120, 130, 140));
+                if detail {
+                    // Heavy steel bevel framing on catwalk boundaries
+                    self.draw_box_3d(wx, wz, 64, 2, 4, (120, 130, 140));
+                    self.draw_box_3d(wx, wz + 60, 64, 2, 4, (120, 130, 140));
+                }
             }
         }
     }
@@ -810,6 +888,10 @@ impl Renderer {
 
     /// Draw a full 6-sided 3D box with directional Gouraud lighting and texture mapping.
     pub fn draw_box_3d(&self, wx: i32, wz: i32, w: i32, h: i32, d: i32, col: (u8, u8, u8)) {
+        if !self.budget_available() {
+            return;
+        }
+        self.spend_quads(BOX_FACE_QUADS);
         self.draw_box_3d_textured(wx, wz, w, h, d, TextureId::Crate, col);
     }
 
@@ -913,6 +995,10 @@ impl Renderer {
         rot: &Mat3I16,
         col: (u8, u8, u8),
     ) {
+        if !self.budget_available() {
+            return;
+        }
+        self.spend_quads(BOX_FACE_QUADS);
         self.draw_model_box_textured(wx, wy, wz, lx, ly, lz, w, h, d, rot, None, col);
     }
 
@@ -1695,6 +1781,15 @@ impl Renderer {
         let sy = s.y;
         let sz = s.z;
         let rot = Mat3I16::rotate_y(s.angle);
+
+        // Distant sentry: one silhouette box instead of the five-box model. The
+        // status markers and vision cone still draw, so the guard remains
+        // readable as a threat.
+        if self.dist_to(sx, sz) > ACTOR_LOD_DISTANCE {
+            let col = if s.stun_timer > 0 { (50, 65, 80) } else { (90, 120, 140) };
+            self.draw_model_box(sx, sy, sz, -10, 0, -10, 20, 34, 20, &rot, col);
+            return;
+        }
 
         if s.stun_timer > 0 {
             // Knocked out sentry lying flat

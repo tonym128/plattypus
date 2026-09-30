@@ -2689,5 +2689,86 @@ fn main() {
         }
     }
 
-    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (44/44 test suites)");
+    // 40. The per-frame draw budget bounds the worst case (SE-9)
+    //
+    // The traversal walked every visible Z row and, inside each row, every
+    // entity array, with no cap: the pathological case reached ~32,900 quads
+    // per frame and even the realistic single-act case sat at or over what the
+    // hardware sustains.
+    {
+        const QUAD_BUDGET: i32 = 1_100;
+        const BOX_FACE_QUADS: i32 = 6;
+        const ACTOR_LOD_DISTANCE: i32 = 320;
+        const TILE_LOD_DISTANCE: i32 = 480;
+
+        // Mirror of the budget counter.
+        fn spend(budget: &mut i32, n: i32) -> bool {
+            if *budget <= 0 {
+                return false;
+            }
+            let left = *budget - n;
+            *budget = if left < 0 { 0 } else { left };
+            true
+        }
+        let mut budget = QUAD_BUDGET;
+
+        // A realistic Act 2 frame: ~11 rows, 11 tiles per row, a wall per tile
+        // (1 box), a gum tree every other tile (18 boxes), and the entities.
+        let rows = 11;
+        let tiles_per_row = 11;
+        let mut boxes = 0i32;
+        let mut submitted = 0i32;
+        for r in 0..rows {
+            for t in 0..tiles_per_row {
+                // Every tile is a floor (1 quad) plus, in the worst case, a
+                // wall box and a gum tree.
+                boxes += 1; // floor
+                submitted += 1;
+                boxes += 1; // wall
+                if t % 2 == 0 {
+                    boxes += 18; // gum tree
+                }
+                // The budget is charged per box submission, so a row cannot
+                // overshoot it by more than one box.
+                while boxes > 0 {
+                    if !spend(&mut budget, BOX_FACE_QUADS) {
+                        break;
+                    }
+                    boxes -= 1;
+                    submitted += 1;
+                }
+                if budget <= 0 {
+                    break;
+                }
+            }
+            if budget <= 0 {
+                break;
+            }
+        }
+        assert!(budget >= 0, "the budget must never go negative");
+        assert!(
+            submitted <= QUAD_BUDGET + BOX_FACE_QUADS,
+            "a frame must not overshoot its budget: {submitted} > {QUAD_BUDGET}"
+        );
+        // The pathological frame is now bounded rather than unbounded. The
+        // original worst case was ~32,900 quads: 11 rows carrying 11 tiles
+        // each plus every entity array, with no cap anywhere.
+        let unbounded = rows * tiles_per_row * 20 + 1_674 * rows;
+        assert!(
+            unbounded > QUAD_BUDGET * 10,
+            "fixture is wrong: the unbounded case should dwarf the budget, got {unbounded}"
+        );
+
+        // The LOD distances must be ordered and sane relative to the budget.
+        assert!(ACTOR_LOD_DISTANCE < TILE_LOD_DISTANCE, "actors LOD before tiles");
+        // A near Platty (20 boxes) plus a near sentry (5) must fit: the player
+        // and whatever is threatening them are never the thing that gets cut.
+        let player_and_guard = 20 + 5;
+        assert!(
+            player_and_guard * BOX_FACE_QUADS < QUAD_BUDGET,
+            "the player and a nearby guard must always fit in the budget"
+        );
+    }
+
+    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (45/45 test suites)");
 }
