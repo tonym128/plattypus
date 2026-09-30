@@ -2505,6 +2505,14 @@ impl Renderer {
         self.draw_text_clamped(80, 172, region_name, (255, 230, 80));
         self.draw_text_clamped(180, 172, card_state.label(), card_color);
 
+        // A sample that failed to decode leaves its voice pointing at
+        // whatever the SPU latched at reset, which is an inaudible dead sound
+        // with no other symptom. Report it where a hardware fault would be.
+        let audio_failures = crate::audio::audio_decode_failures();
+        if audio_failures > 0 {
+            self.draw_text_clamped(24, 184, "AUDIO: SAMPLE FAULT", (255, 140, 140));
+        }
+
         // Description box
         gpu::draw_rect_flat(20, 188, 280, 48, 8, 12, 16);
         match selected_opt {
