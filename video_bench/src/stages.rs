@@ -379,8 +379,8 @@ pub struct CdRate {
     pub contiguous_sectors: u32,
     /// Display periods that took.
     pub contiguous_vblanks: u32,
-    /// Sectors streamed as `4` batches of `8` sectors, re-seeking each
-    /// batch and pausing the drive after it, exactly as the game does.
+    /// Sectors streamed as 4 single-frame batches, re-seeking each batch
+    /// and stopping the drive after it, the pattern the serial reader used.
     pub batched_sectors: u32,
     pub batched_vblanks: u32,
 }
@@ -415,9 +415,15 @@ pub fn measure_cd_rate(clock: &mut Clock) -> CdRate {
     unsafe { reader.stop() };
     let contiguous_vblanks = clock.lap().vblanks;
 
-    // 2. The shipped pattern: four batches of eight sectors, each
-    //    re-seeking and pausing the drive afterwards.
-    let batched = 32u32;
+    // 2. The seek-and-pause pattern: four batches of one frame's sectors,
+    //    each re-seeking and stopping the drive afterwards.
+    //
+    //    The sector count has to come from the loop below, not a literal.
+    //    It was hardcoded at 32 while the loop reads
+    //    4 * SECTORS_PER_FRAME, so after the bitrate cut to 7 sectors the
+    //    reported ratio came out 1.97x when the true penalty is 2.25x --
+    //    and chunk sizing is computed from exactly this number.
+    let batched = (4 * SECTORS_PER_FRAME) as u32;
     clock.start();
     for b in 0..4u16 {
         let lba = video_lba.wrapping_add(b as u32 * SECTORS_PER_FRAME as u32);

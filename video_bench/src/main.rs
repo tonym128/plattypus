@@ -123,10 +123,17 @@ fn main() -> ! {
     stages::probe_mdec_frames_no_cd(8);
 
     // P1: paced run -- the numbers that matter.
-    let (presents, using_cd, dma_fallbacks) = run_paced(&mut renderer);
+    let (presents, using_cd, dma_fallbacks, chunk_starts, overlapped_sectors) =
+        run_paced(&mut renderer);
     // Emit the headline numbers now, before the diagnostic phases, so a
     // wedge in one of those cannot cost us the deliverable.
-    report::emit_paced_only(&presents, using_cd, dma_fallbacks);
+    report::emit_paced_only(
+        &presents,
+        using_cd,
+        dma_fallbacks,
+        chunk_starts,
+        overlapped_sectors,
+    );
 
     // P2: burst stage attribution.
     let burst = stages::run_burst(&mut clock);
@@ -159,7 +166,7 @@ fn main() -> ! {
 ///
 /// Presents come from the `PresentStep` the shipped `present()` returns
 /// rather than being inferred from the VBlank counter.
-fn run_paced(r: &mut renderer::Renderer) -> (stages::Presents, bool, u32) {
+fn run_paced(r: &mut renderer::Renderer) -> (stages::Presents, bool, u32, u32, u32) {
     let mut player = VideoPlayer::new();
     player.start_video(VideoKind::Intro);
 
@@ -202,7 +209,13 @@ fn run_paced(r: &mut renderer::Renderer) -> (stages::Presents, bool, u32) {
         }
     }
 
-    (presents, using_cd, player.vram_dma_fallbacks)
+    (
+        presents,
+        using_cd,
+        player.vram_dma_fallbacks,
+        player.chunk_starts,
+        player.overlapped_sectors,
+    )
 }
 
 /// Times the shipped decode path with no display pacing, as a closure

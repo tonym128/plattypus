@@ -2,8 +2,9 @@
 //!
 //! Decodes 320x240 video at 15 fps using the PS1 hardware MDEC coprocessor
 //! (MDEC0 / DMA channel 0 & channel 1) with synchronized SPU ADPCM audio.
-//! Reads four adjacent 8-sector frames at a time from CD-ROM via SectorReader,
-//! with seamless fallback to embedded ROM frames.
+//! Streams the disc copy through a 32-frame read-ahead ring in 16-frame
+//! chunks, draining sectors into the ring between MDEC slices so the CD
+//! read overlaps the decode, with seamless fallback to embedded ROM frames.
 //! Playback is skippable at any time via CROSS or START.
 
 use psx_pad::{button, ButtonState, PadState};
@@ -28,15 +29,44 @@ pub const EMBEDDED_FRAME_COUNT: u16 = 16;
 pub const SECTORS_PER_FRAME: usize = 7;
 pub const WORDS_PER_FRAME: usize = 3584; // 14,336 bytes = 7 sectors
 pub const WORDS_PER_SLICE: usize = 1920; // 16 * 240 / 2 = 1,920 u32 words
-/// Display periods each video frame is held for. Six gives 10 fps on a
-/// 60 Hz display. The pipeline's measured per-frame cost is ~91 ms, which
-/// does not fit the four periods a 15 fps frame gets but does fit six, so
-/// 10 fps is the rate this can actually sustain without a stutter. See
-/// `docs/perf/why-6fps.md`.
-pub const VBLANKS_PER_VIDEO_FRAME: u32 = 6;
-// Keep several compressed frames in RAM so CD reads can be done as one
-// sequential burst instead of seeking once for every frame.
-const PREFETCH_FRAMES: usize = 4;
+/// Display periods each video frame is held for. Four gives 15 fps on a
+/// 60 Hz display, which is the rate the assets are encoded at and the
+/// target. The pipeline only fits it because the CD read now overlaps the
+/// MDEC decode; see the chunk sizing in `docs/perf/why-6fps.md`.
+pub const VBLANKS_PER_VIDEO_FRAME: u32 = 4;
+
+/// Frames read per `ReadN` before the drive is stopped and re-seeked.
+///
+/// A stop plus re-seek costs a measured 4.02 display periods, against a
+/// 3.23-period contiguous fetch of one 7-sector frame. Fifteen fps gives
+/// four display periods per frame, so the seek has to be amortised twice
+/// over: it is a *contiguous* 4.02-period block of blocked CPU, and the
+/// per-frame slack is only `4 - 1.69 (decode) = 2.31` periods, so a seek
+/// that straddles a present costs that present a whole extra period. Every
+/// seek is therefore a chance to drop a frame, and the only lever is to
+/// seek less often. The totals leave plenty of room -- 16-frame chunks put
+/// the whole cut at 503 of its 600 available display periods -- so the
+/// chunk is sized by the RAM the ring costs, not by the drive budget.
+const CHUNK_FRAMES: usize = 16;
+
+/// Read-ahead ring depth, in compressed frames.
+///
+/// Two chunks, so a chunk can be streamed in while the previous one is
+/// being decoded: the stream fills the back half as the decode drains the
+/// front. This is also what sets how long the drive can run between seeks.
+/// A new chunk starts when the ring has room for one whole, i.e. once the
+/// decode has drained `CHUNK_FRAMES` frames, so the seek interval is the
+/// chunk size and the ring only has to be deep enough to hold the chunk
+/// being filled plus the one being decoded.
+const RING_FRAMES: usize = 32;
+
+/// Frames to read before the first present.
+///
+/// Deliberately less than a chunk: filling the whole ring up front would be
+/// ~1.7 s of black screen before the intro's first frame, and the scheduler
+/// refills the rest during playback out of the 116 display periods of slack
+/// the video has. One chunk's worth costs ~0.6 s.
+const PRIME_FRAMES: usize = 8;
 
 /// How many times a failed CD prefetch is re-attempted from a fresh seek before
 /// the player gives up on streaming. A single transient read error is common on
@@ -58,13 +88,22 @@ const PIO_SPIN_BUDGET: u32 = 200_000;
 // a reference whose length is not const-evaluable here.
 const _: () = assert!(SECTORS_PER_FRAME * 2048 == WORDS_PER_FRAME * 4);
 const _: () = assert!(EMBEDDED_FRAME_COUNT <= TOTAL_FRAMES);
+// The ring is a FIFO addressed by `frame % RING_FRAMES`, so a chunk has to
+// fit in it whole or a stream would overwrite frames still waiting to be
+// decoded, and it has to be deeper than one chunk for the read to overlap
+// the decode at all. Keeping the ring a whole number of chunks is what makes
+// the ping-pong between them land back on a chunk boundary.
+const _: () = assert!(RING_FRAMES >= 2 * CHUNK_FRAMES);
+const _: () = assert!(RING_FRAMES % CHUNK_FRAMES == 0);
 
 /// BSS-resident storage for MDEC bitstream, slice buffer, and CD reading
 struct VideoStorage {
     /// One frame payload, sized for the largest frame in the video.
     frame_words: [u32; WORDS_PER_FRAME],
-    /// Read-ahead batch: four frames at a time (56 sectors).
-    frame_cache: [[u32; WORDS_PER_FRAME]; PREFETCH_FRAMES],
+    /// Read-ahead ring. Slot `i` holds frame `i % RING_FRAMES`, so the ring
+    /// is a FIFO and the decode drains it from the front while the drive
+    /// fills it from the back.
+    frame_cache: [[u32; WORDS_PER_FRAME]; RING_FRAMES],
     /// 1,920 u32 words (7.68 KiB) holding one decoded 16x240 slice
     slice_words: [u32; WORDS_PER_SLICE],
     /// Bounce buffer for single-sector reads (e.g. root directory scan)
@@ -75,7 +114,7 @@ impl VideoStorage {
     const fn new() -> Self {
         Self {
             frame_words: [0; WORDS_PER_FRAME],
-            frame_cache: [[0; WORDS_PER_FRAME]; PREFETCH_FRAMES],
+            frame_cache: [[0; WORDS_PER_FRAME]; RING_FRAMES],
             slice_words: [0; WORDS_PER_SLICE],
             sector_buf: [0; SECTOR_WORDS],
         }
@@ -109,15 +148,34 @@ pub struct VideoPlayer {
     saved_irq_mask: u32,
     /// Whether `saved_irq_mask` holds a mask that still needs restoring.
     irq_mask_saved: bool,
-    /// Failed prefetches since the last successful one.
+    /// Failed chunk reads since the last successful one.
     cd_read_retries: u8,
-    cache_start_frame: u16,
-    cached_frames: u8,
+    /// Oldest frame held in the ring. The ring is the contiguous frame run
+    /// `[ring_start_frame, ring_start_frame + ring_frames)`.
+    ring_start_frame: u16,
+    ring_frames: u16,
+    /// Next frame the running `ReadN` will deliver. Equal to the ring's tail
+    /// (`ring_start_frame + ring_frames`) whenever no stream is running.
+    stream_frame: u16,
+    /// A `ReadN` is live and `stream_frame` is walking towards the end of
+    /// its chunk.
+    stream_active: bool,
+    /// Sector within `stream_frame` that the stream will deliver next.
+    stream_sector: u8,
+    /// Frame at which the running stream stops, one past its last frame.
+    chunk_end_frame: u16,
     cd_reader: SectorReader,
     /// Whether VRAM uploads may still go over DMA channel 2.
     vram_dma_ok: bool,
     /// Times the channel wedged and the GP0 path took over.
     pub vram_dma_fallbacks: u32,
+    /// Chunks started, i.e. stop-and-re-seek cycles. Each one is a
+    /// contiguous ~4-display-period block of blocked CPU, so this is the
+    /// count of chances to push a present a period late.
+    pub chunk_starts: u32,
+    /// Sectors moved into the ring by `pump_ready_sectors`, i.e. read work
+    /// that happened *underneath* a decode rather than in front of one.
+    pub overlapped_sectors: u32,
 }
 
 impl VideoPlayer {
@@ -139,11 +197,17 @@ impl VideoPlayer {
             saved_irq_mask: 0,
             irq_mask_saved: false,
             cd_read_retries: 0,
-            cache_start_frame: 0xFFFF,
-            cached_frames: 0,
+            ring_start_frame: 0,
+            ring_frames: 0,
+            stream_frame: 0,
+            stream_active: false,
+            stream_sector: 0,
+            chunk_end_frame: 0,
             cd_reader: SectorReader::new(),
             vram_dma_ok: true,
             vram_dma_fallbacks: 0,
+            chunk_starts: 0,
+            overlapped_sectors: 0,
         }
     }
 
@@ -211,56 +275,187 @@ impl VideoPlayer {
         None
     }
 
-    /// Read a small run of adjacent frames in one CD command. The drive is
-    /// paused at the end of the burst, so decoding cannot let its sector FIFO
-    /// overflow while the next cached frames are waiting in RAM.
-    fn prefetch_cd_batch(&mut self, first_frame: u16, storage: &mut VideoStorage) -> bool {
-        if !self.using_cd || first_frame >= self.total_frames {
+    /// Ring slot holding `frame`. Valid only while the ring holds it.
+    #[inline]
+    fn ring_slot(frame: u16) -> usize {
+        (frame as usize) % RING_FRAMES
+    }
+
+    /// True when `frame` is already sitting in the read-ahead ring.
+    #[inline]
+    fn ring_has(&self, frame: u16) -> bool {
+        self.using_cd
+            && frame >= self.ring_start_frame
+            && frame < self.ring_start_frame + self.ring_frames
+    }
+
+    /// Frames the ring can still accept before a slot would be overwritten.
+    #[inline]
+    fn ring_free(&self) -> u16 {
+        RING_FRAMES as u16 - self.ring_frames
+    }
+
+    /// Drop the whole ring and make sure no `ReadN` is left running.
+    ///
+    /// The partially-read frame at the stream's cursor is discarded rather
+    /// than kept: its sectors are gone from the drive, so the only way back
+    /// is a fresh seek to the frame's first sector.
+    fn reset_stream(&mut self) {
+        if self.stream_active {
+            unsafe { self.cd_reader.stop() };
+            self.stream_active = false;
+        }
+        self.ring_frames = 0;
+    }
+
+    /// Start a `ReadN` for the next chunk, if the ring has room for it whole.
+    ///
+    /// The chunk is deliberately *not* aligned to a multiple of
+    /// `CHUNK_FRAMES`: it starts wherever the ring's tail currently is. A
+    /// fixed grid would force a seek wherever playback and the grid drift
+    /// apart, which is the per-frame seek this design exists to avoid.
+    fn start_next_chunk(&mut self) -> bool {
+        if !self.using_cd || self.stream_active {
+            return false;
+        }
+        let tail = self.ring_start_frame + self.ring_frames;
+        if tail >= self.total_frames {
+            return false;
+        }
+        // A partial tail chunk is fine; a partial *ring* is not, because the
+        // stream would overwrite frames the decode has not reached.
+        let chunk = core::cmp::min(CHUNK_FRAMES as u16, self.total_frames - tail);
+        if chunk > self.ring_free() {
             return false;
         }
 
-        let batch_start = (first_frame / PREFETCH_FRAMES as u16) * PREFETCH_FRAMES as u16;
-        let frame_count = core::cmp::min(
-            PREFETCH_FRAMES,
-            (self.total_frames - batch_start) as usize,
-        );
         let lba = self.cd_start_lba
-            .wrapping_add(batch_start as u32 * SECTORS_PER_FRAME as u32);
+            .wrapping_add(tail as u32 * SECTORS_PER_FRAME as u32);
         if !unsafe { self.cd_reader.start_read(lba) } {
-            psx_rt::tty::println("[VIDEO] CD batch ReadN start failed");
-            self.cached_frames = 0;
+            psx_rt::tty::println("[VIDEO] CD chunk ReadN start failed");
+            return false;
+        }
+        self.stream_frame = tail;
+        self.stream_sector = 0;
+        self.chunk_end_frame = tail + chunk;
+        self.stream_active = true;
+        self.chunk_starts += 1;
+        true
+    }
+
+    /// Pop every sector the drive has ready, without ever waiting for one.
+    ///
+    /// This is the half of the read that runs *during* a decode. The MDEC is
+    /// driven by DMA, so the CPU is otherwise idle inside the 20-slice loop
+    /// and the time it spends here is time the decode would have spent
+    /// spinning. Checking after every slice keeps the drive's data FIFO
+    /// drained -- a sector arrives every ~7.7 ms and a slice completes every
+    /// ~1.3 ms, so the FIFO never holds more than the one sector in flight.
+    ///
+    /// Returns the number of sectors moved into the ring.
+    fn pump_ready_sectors(&mut self, storage: &mut VideoStorage) -> u16 {
+        let mut moved = 0u16;
+        while self.stream_active && self.stream_frame < self.chunk_end_frame {
+            if !unsafe { self.cd_reader.sector_pending() } {
+                break;
+            }
+            if !self.pop_one_sector(storage) {
+                break;
+            }
+            moved += 1;
+        }
+        moved
+    }
+
+    /// Move the stream's next sector into its ring slot and advance the
+    /// cursor. Stops the stream when its chunk is fully delivered.
+    fn pop_one_sector(&mut self, storage: &mut VideoStorage) -> bool {
+        let slot = Self::ring_slot(self.stream_frame);
+        let offset = self.stream_sector as usize * SECTOR_WORDS;
+        let sector_buf: &mut [u32; SECTOR_WORDS] = unsafe {
+            &mut *(storage.frame_cache[slot][offset..offset + SECTOR_WORDS]
+                .as_mut_ptr() as *mut [u32; SECTOR_WORDS])
+        };
+        if !unsafe { self.cd_reader.read_sector(sector_buf) } {
+            psx_rt::tty::print("[VIDEO] CD chunk read failed at frame ");
+            psx_rt::tty::print_hex_u32(self.stream_frame as u32);
+            psx_rt::tty::print(" sector ");
+            psx_rt::tty::print_hex_u32(self.stream_sector as u32);
+            psx_rt::tty::print("\n");
+            self.abandon_stream();
             return false;
         }
 
-        let mut ok = true;
-        'frames: for frame in 0..frame_count {
-            for sector in 0..SECTORS_PER_FRAME {
-                let offset = sector * SECTOR_WORDS;
-                let sector_buf: &mut [u32; SECTOR_WORDS] = unsafe {
-                    &mut *(storage.frame_cache[frame][offset..offset + SECTOR_WORDS]
-                        .as_mut_ptr() as *mut [u32; SECTOR_WORDS])
-                };
-                if !unsafe { self.cd_reader.read_sector(sector_buf) } {
-                    psx_rt::tty::print("[VIDEO] CD batch read failed at frame ");
-                    psx_rt::tty::print_hex_u32(frame as u32);
-                    psx_rt::tty::print(" sector ");
-                    psx_rt::tty::print_hex_u32(sector as u32);
-                    psx_rt::tty::print("\n");
-                    ok = false;
-                    break 'frames;
-                }
+        self.stream_sector += 1;
+        if self.stream_sector as usize == SECTORS_PER_FRAME {
+            self.stream_sector = 0;
+            self.stream_frame += 1;
+            // A frame joins the ring only once all of its sectors have
+            // landed. The guard is not paranoia about the normal path --
+            // exactly one frame completes per call there -- it covers a
+            // stream resumed onto a ring whose tail already covers it.
+            if self.stream_frame > self.ring_start_frame + self.ring_frames {
+                self.ring_frames += 1;
             }
         }
-
-        unsafe { self.cd_reader.stop() };
-
-        if ok {
-            self.cache_start_frame = batch_start;
-            self.cached_frames = frame_count as u8;
-        } else {
-            self.cached_frames = 0;
+        if self.stream_frame >= self.chunk_end_frame {
+            unsafe { self.cd_reader.stop() };
+            self.stream_active = false;
         }
-        ok
+        true
+    }
+
+    /// Tear down a stream that failed mid-chunk, discarding the ring.
+    fn abandon_stream(&mut self) {
+        unsafe { self.cd_reader.stop() };
+        self.stream_active = false;
+        self.ring_frames = 0;
+    }
+
+    /// Fill the ring with at least `want` frames of read-ahead, blocking on
+    /// the drive. Used for the initial prime and for the rare case where the
+    /// decode has caught up with the stream.
+    ///
+    /// Blocking is safe here precisely because the ring was empty: there is
+    /// no decoded frame waiting to be shown, so a wait costs nothing that
+    /// was not already lost.
+    fn read_ahead_blocking(&mut self, want: u16, storage: &mut VideoStorage) -> bool {
+        while (self.ring_start_frame + self.ring_frames) < want {
+            if !self.stream_active && !self.start_next_chunk() {
+                return false;
+            }
+            if !self.pop_one_sector(storage) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Wait out the rest of the current display period, keeping a live CD
+    /// stream drained, and return the VBlank count once it lands.
+    ///
+    /// This replaces a bare `wait_vblank` and is not an optimisation. The
+    /// drive delivers a sector every ~7.7 ms while a display period is
+    /// 16.7 ms, and its data FIFO is only a sector or two deep, so servicing
+    /// the stream once per period overruns it: the drive reports "interrupt
+    /// not processed in time, missed N sectors", the stream desynchronises,
+    /// and the next frame to decode is corrupt -- which is what wedges the
+    /// MDEC. Draining on the way to the VBlank is what lets a `ReadN` stay
+    /// live across frames at all, and that liveness is the whole overlap.
+    fn wait_vblank_serving(&mut self, storage: &mut VideoStorage) -> u32 {
+        if !self.using_cd || !self.stream_active {
+            psx_rt::interrupts::wait_vblank();
+            return psx_rt::interrupts::vblank_count();
+        }
+        let before = psx_rt::interrupts::vblank_count();
+        loop {
+            self.overlapped_sectors += self.pump_ready_sectors(storage) as u32;
+            let now = psx_rt::interrupts::vblank_count();
+            if now != before {
+                return now;
+            }
+            core::hint::spin_loop();
+        }
     }
 
     pub fn start(&mut self) {
@@ -288,15 +483,21 @@ impl VideoPlayer {
         self.tick = 0;
         self.finished = false;
         self.total_frames = TOTAL_FRAMES;
-        self.ticks_per_frame = VBLANKS_PER_VIDEO_FRAME as u8; // 60 Hz / 6 = 10 fps
+        self.ticks_per_frame = VBLANKS_PER_VIDEO_FRAME as u8; // 60 Hz / 4 = 15 fps
         self.last_decoded_frame = 0xFFFF;
         self.frame_unpresented = false;
         self.last_swap_vblank = psx_rt::interrupts::vblank_count();
         self.using_cd = false;
-        self.cache_start_frame = 0xFFFF;
-        self.cached_frames = 0;
+        self.ring_start_frame = 0;
+        self.ring_frames = 0;
+        self.stream_frame = 0;
+        self.stream_active = false;
+        self.stream_sector = 0;
+        self.chunk_end_frame = 0;
         self.vram_dma_ok = true;
         self.vram_dma_fallbacks = 0;
+        self.chunk_starts = 0;
+        self.overlapped_sectors = 0;
         self.saved_irq_mask = psx_io::irq::mask();
         self.irq_mask_saved = true;
         self.cd_read_retries = 0;
@@ -315,27 +516,34 @@ impl VideoPlayer {
 
         // Initialize CD streaming if possible
         let storage = unsafe { &mut *core::ptr::addr_of_mut!(STORAGE) };
-        // Read several adjacent frames per CD command to amortize seek and
-        // command overhead, while keeping the drive paused during MDEC work.
         let prepared = unsafe { self.cd_reader.prepare() };
         if prepared {
             psx_rt::tty::println("[VIDEO] CD reader prepare OK");
             if let Some(lba) = unsafe { Self::find_vid_lba(filename, &mut self.cd_reader, storage) } {
                 self.cd_start_lba = lba;
-                // ReadN bursts fill the four-frame cache; the reader pauses
-                // between batches so MDEC work cannot overrun the CD FIFO.
-                psx_rt::tty::print("[VIDEO] Target video located; 7-sector read-ahead, total ");
+                psx_rt::tty::print("[VIDEO] Target video located; 7-sector frames, ");
+                psx_rt::tty::print_hex_u32(CHUNK_FRAMES as u32);
+                psx_rt::tty::print("-frame chunks, ");
+                psx_rt::tty::print_hex_u32(RING_FRAMES as u32);
+                psx_rt::tty::print("-frame ring, total ");
                 psx_rt::tty::print_hex_u32((TOTAL_FRAMES as u32) * SECTORS_PER_FRAME as u32);
                 psx_rt::tty::print(" sectors\n");
                 self.using_cd = true;
-                let _ = self.prefetch_cd_batch(0, storage);
+                // Prime one chunk. Filling the whole ring would be ~1.7 s of
+                // black screen before the first frame, and the scheduler
+                // refills the rest during playback anyway -- the video has
+                // 116 display periods of slack to spend on it.
+                if !self.read_ahead_blocking(PRIME_FRAMES as u16, storage) {
+                    psx_rt::tty::println("[VIDEO] initial chunk read failed");
+                    self.using_cd = false;
+                }
             }
         } else {
             psx_rt::tty::println("[VIDEO] CD reader prepare FAILED");
         }
 
-        // Start audio after the initial read-ahead burst so its first frame
-        // remains synchronized with the first displayed video frame.
+        // Start audio after the initial prime so its first frame remains
+        // synchronized with the first displayed video frame.
         match kind {
             VideoKind::Intro => AudioManager::play_intro_audio(),
             VideoKind::Outro => AudioManager::play_outro_audio(),
@@ -409,6 +617,14 @@ impl VideoPlayer {
     /// would be presented every couple of display periods and the slow
     /// frames would lurch. Pacing has to be a floor the decode can be early
     /// for, not just a deadline it can be late against.
+    ///
+    /// The read and the decode overlap. `decode_and_upload` drains whatever
+    /// sectors the drive has ready between MDEC slices, so a chunk is
+    /// streamed in while the previous chunk is being decoded instead of
+    /// landing as an atomic burst between presents. That is what makes 15 fps
+    /// fit: serialised, the frame costs 54.89 ms of drive plus 28 ms of
+    /// decode against a 66.67 ms budget, and the drive is the binding term
+    /// either way -- overlapping hides the decode inside it.
     pub fn present(&mut self, renderer: &mut crate::renderer::Renderer) {
         if self.finished {
             psx_rt::interrupts::wait_vblank();
@@ -417,8 +633,7 @@ impl VideoPlayer {
 
         let storage = unsafe { &mut *core::ptr::addr_of_mut!(STORAGE) };
 
-        psx_rt::interrupts::wait_vblank();
-        let now = psx_rt::interrupts::vblank_count();
+        let now = self.wait_vblank_serving(storage);
 
         // 1. Show a frame that is already decoded and has served its dwell
         //    time. This costs one register write and must not be delayed by
@@ -437,25 +652,31 @@ impl VideoPlayer {
             return;
         }
 
-        // 2. The back buffer is free and the next frame is in RAM, so
-        //    decode it. The cache is checked first and the read, if one is
-        //    needed, completes *before* the decode rather than overlapping
-        //    it.
-        //
-        //    Not overlapping is deliberate. The MDEC's input DMA does not
-        //    deliver a frame when the drive is kept busy underneath it: it
-        //    stops mid-frame, leaves the MDEC BUSY and waiting for input
-        //    that never arrives, and the *next* frame then dies partway
-        //    through. The old batched reader never saw this because its
-        //    long read burst left the MDEC time to go idle between frames.
-        //    Doing the read first costs nothing extra -- both are on the
-        //    same thread either way -- and it keeps the decode on a quiet
-        //    bus. The stagger that matters is the one in phase 1: a frame
-        //    that is already decoded is always shown before any read.
+        // 2. The back buffer is free, so decode the next frame. The read it
+        //    needs is already in the ring unless the decode has caught up
+        //    with the drive, which is the only case that blocks.
         if !self.frame_unpresented && self.frame_idx < self.total_frames {
-            if !self.cache_has(self.frame_idx) && !self.prefetch_cd_batch(self.frame_idx, storage)
-            {
-                self.using_cd = false;
+            if self.using_cd && !self.ring_has(self.frame_idx) {
+                if !self.read_ahead_blocking(self.frame_idx + 1, storage) {
+                    // One dropped sector used to latch streaming off for the
+                    // whole cutscene, collapsing a 150-frame intro into a
+                    // 16-frame embedded loop with the voiceover still playing
+                    // against it. Re-seek from a clean state before giving up:
+                    // a transient read error is the common case, not a broken
+                    // file.
+                    self.cd_read_retries = self.cd_read_retries.saturating_add(1);
+                    if self.cd_read_retries <= CD_READ_RETRIES {
+                        self.reset_stream();
+                        if !self.read_ahead_blocking(self.frame_idx + 1, storage) {
+                            self.using_cd = false;
+                        }
+                    } else {
+                        psx_rt::tty::println("[VIDEO] CD read retries exhausted; using embedded frames");
+                        self.using_cd = false;
+                    }
+                } else {
+                    self.cd_read_retries = 0;
+                }
             }
             if self.decode_and_upload(renderer, storage) {
                 self.frame_unpresented = true;
@@ -464,23 +685,20 @@ impl VideoPlayer {
         }
 
         // 3. A decoded frame is sitting in the back buffer waiting out its
-        //    dwell time, and there is nothing to decode this period, so
-        //    the wait is idle CPU time. Spend it reading the frames that
-        //    come after. Nothing is being decoded concurrently with this,
-        //    so the MDEC is not disturbed.
-        if self.frame_unpresented && !self.cache_has(self.frame_idx) {
-            if !self.prefetch_cd_batch(self.frame_idx, storage) {
-                self.using_cd = false;
+        //    dwell time and there is nothing to decode this period, so the
+        //    wait is idle CPU time. Spend it pulling the next chunk in.
+        if self.frame_unpresented && self.using_cd {
+            self.overlapped_sectors += self.pump_ready_sectors(storage) as u32;
+            // Starting a chunk blocks for the seek, so only do it with enough
+            // dwell left to hide it: the seek costs ~4 display periods and a
+            // decoded frame in hand covers exactly that.
+            if !self.stream_active
+                && self.ring_free() >= CHUNK_FRAMES as u16
+                && self.ring_start_frame + self.ring_frames < self.total_frames
+            {
+                let _ = self.start_next_chunk();
             }
         }
-    }
-
-    /// True when frame `frame` is already sitting in the read-ahead cache.
-    #[inline]
-    fn cache_has(&self, frame: u16) -> bool {
-        self.using_cd
-            && frame >= self.cache_start_frame
-            && frame < self.cache_start_frame.saturating_add(self.cached_frames as u16)
     }
 
     /// Decode the next video frame into the back buffer. Returns false when
@@ -494,39 +712,14 @@ impl VideoPlayer {
         {
             let mut read_ok = false;
 
-            if self.using_cd {
-                let cache_end = self.cache_start_frame.saturating_add(self.cached_frames as u16);
-                if frame_to_show < self.cache_start_frame || frame_to_show >= cache_end {
-                    if !self.prefetch_cd_batch(frame_to_show, storage) {
-                        // One dropped sector used to latch streaming off for
-                        // the whole cutscene, collapsing a 150-frame intro into
-                        // a 16-frame embedded loop with the 10-second voiceover
-                        // still playing against it. Re-seek once from the top
-                        // before giving up: a transient read error is the
-                        // common case, not a broken file.
-                        self.cd_read_retries = self.cd_read_retries.saturating_add(1);
-                        if self.cd_read_retries <= CD_READ_RETRIES {
-                            self.cache_start_frame = 0xFFFF;
-                            self.cached_frames = 0;
-                            if !self.prefetch_cd_batch(frame_to_show, storage) {
-                                self.using_cd = false;
-                            }
-                        } else {
-                            self.using_cd = false;
-                        }
-                    } else {
-                        self.cd_read_retries = 0;
-                    }
-                }
-
-                if self.using_cd
-                    && frame_to_show >= self.cache_start_frame
-                    && frame_to_show < self.cache_start_frame.saturating_add(self.cached_frames as u16)
-                {
-                    let cache_slot = (frame_to_show - self.cache_start_frame) as usize;
-                    storage.frame_words.copy_from_slice(&storage.frame_cache[cache_slot]);
-                    read_ok = true;
-                }
+            if self.using_cd && self.ring_has(frame_to_show) {
+                // Copy out of the ring before the decode starts. The slot is
+                // addressed by `frame % RING_FRAMES`, so once the decode
+                // begins and the pump starts refilling the ring, the source
+                // slot is allowed to be overwritten.
+                let slot = Self::ring_slot(frame_to_show);
+                storage.frame_words.copy_from_slice(&storage.frame_cache[slot]);
+                read_ok = true;
             }
 
             if !read_ok {
@@ -621,7 +814,21 @@ impl VideoPlayer {
                     // Upload slice to VRAM at destination rectangle
                     let rect = VramRect::new(col * 16, fb_y, 16, VIDEO_H);
                     self.upload_slice(rect, &storage.slice_words);
+
+                    // Overlap: the MDEC runs off DMA, so the CPU has been
+                    // spinning on this slice and the drive has been filling
+                    // its data FIFO for the ~1.3 ms it took. Take whatever is
+                    // ready. This is the whole point of the chunked reader --
+                    // it converts the read from an atomic burst between
+                    // presents into work done inside the decode.
+                    //
+                    // A slice that falls into the PIO fallback above `break`s
+                    // out of this loop, so the post-loop pump covers it.
+                    self.overlapped_sectors += self.pump_ready_sectors(storage) as u32;
                 }
+
+                // Whatever the drive finished while the last slice went out.
+                self.overlapped_sectors += self.pump_ready_sectors(storage) as u32;
 
                 if frame_to_show < 3 {
                     psx_rt::tty::println("[VIDEO] Frame upload complete.");
@@ -629,6 +836,14 @@ impl VideoPlayer {
 
                 self.last_decoded_frame = frame_to_show;
                 self.frame_idx = frame_to_show + 1;
+                // Release the frame we just consumed so the stream can refill
+                // its slot. The stream only ever writes at the ring's tail,
+                // which is `RING_FRAMES` past this once the ring is full.
+                if self.using_cd && self.ring_start_frame == frame_to_show && self.ring_frames > 0
+                {
+                    self.ring_start_frame += 1;
+                    self.ring_frames -= 1;
+                }
             }
             read_ok
         }

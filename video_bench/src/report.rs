@@ -446,7 +446,13 @@ pub fn draw_on_screen(
 /// several emulator-timing-sensitive spots), this still gets the frame
 /// rate, interval distribution, stutter count and average frame time to
 /// the host rather than losing the whole run.
-pub fn emit_paced_only(presents: &Presents, using_cd: bool, vram_dma_fallbacks: u32) {
+pub fn emit_paced_only(
+    presents: &Presents,
+    using_cd: bool,
+    vram_dma_fallbacks: u32,
+    chunk_starts: u32,
+    overlapped_sectors: u32,
+) {
     let items = presents.as_slice();
     let presented = items.len() as u32;
     let mut iv_sum = 0u64;
@@ -474,6 +480,8 @@ pub fn emit_paced_only(presents: &Presents, using_cd: bool, vram_dma_fallbacks: 
     tty::println("@@VB1 PACED_ONLY 1");
     kv("paced_only", "using_cd", using_cd as u32);
     kv("paced_only", "vram_dma_fallbacks", vram_dma_fallbacks);
+    kv("paced_only", "chunk_starts", chunk_starts);
+    kv("paced_only", "overlapped_sectors", overlapped_sectors);
     kv("paced_only", "presented", presented);
     kv("paced_only", "fps_x1000", fps_x1000);
     kv("paced_only", "interval_min", iv_min);

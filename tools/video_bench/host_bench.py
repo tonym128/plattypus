@@ -209,6 +209,8 @@ def summarise(r: Run) -> dict:
         "cd_contiguous_vblanks": f.get("cdrate.contiguous_vblanks", 0),
         "cd_batched_sectors": f.get("cdrate.batched_sectors", 0),
         "cd_batched_vblanks": f.get("cdrate.batched_vblanks", 0),
+        "chunk_starts": f.get("paced_only.chunk_starts", 0),
+        "overlapped_sectors": f.get("paced_only.overlapped_sectors", 0),
         "interval_histogram_vb": dist,
         "per_present": r.presents,
     }
@@ -237,6 +239,9 @@ def print_report(s: dict):
     line("avg frame time", f"{s['avg_frame_time_us']/1000:.2f} ms", "(target 66.67)")
     line("stuttering presents", s["stutters"], f"of {s['presented']}")
     line("draw() overruns", s["work_overruns"], f"(worst {s['work_vb_max']} vb)")
+    if "chunk_starts" in s:
+        line("chunk starts (seeks)", s["chunk_starts"], "stop+re-seek cycles")
+        line("sectors read under a decode", s["overlapped_sectors"], "of 1050 total")
     print("  " + "-" * 62)
     print("  STAGE COST (burst, per frame)")
     line("CD read", f"{s['read_us_per_frame']/1000:.2f} ms", f"{s['read_pct']}% of budget")

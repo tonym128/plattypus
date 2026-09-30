@@ -1,9 +1,15 @@
-# Why intro-video playback is stuck at 6 fps, and what would actually fix it
+# Intro-video playback: how it got to 15 fps, and what still costs frames
 
 Investigation note. The measurement harness in `tools/video_bench/` is the
-evidence; this file is the argument. Nothing here is implemented: the tree
-is at the measurement commit, and the optimisation attempt that produced
-these numbers was reverted because it did not improve the measured result.
+evidence; this file is the argument.
+
+The file keeps its original name because the history below is the record of
+getting *here*: the 6 fps diagnosis, the two corrections to it, and the
+overlapped scheduler that closed the gap. Read the last section for the
+current state. The short version: **15.00 fps, 140 of 150 presents on
+exactly the 4-display-period target, and 9 presents one period late** --
+those 9 are the seek, one for one, and the seek is a blocking call in the
+SDK's reader.
 
 ## The budget, stated once
 
@@ -512,3 +518,163 @@ frames without wedging.
 What this does change: chunked overlap of read and decode is not blocked by
 the drive. Whether the shipped player can exploit it is now a question about
 the scheduler, not about the MDEC.
+
+## The seek penalty, measured properly
+
+The 1.97x figure quoted above is wrong, and the chunk sizing depends on it,
+so it is worth getting right. `measure_cd_rate` streams 128 sectors in one
+`ReadN` and then re-seeks per batch, and it hardcoded the batched sector
+count at 32 -- left over from when a frame was 8 sectors. The loop actually
+reads `4 * SECTORS_PER_FRAME` = 28, so the reported ratio was low by the
+ratio of the two counts. The count is now derived from the loop. Both rates
+and the per-seek cost that follows:
+
+```
+contiguous   128 sectors / 59 vb = 2.1695 sect/vb = 130.2 sect/s
+batched       28 sectors / 29 vb = 0.9655 sect/vb =  57.9 sect/s
+ratio                                     2.25x   (was reported as 1.97x)
+
+4 seeks + 4 x 7-sector fetches = 29 vb
+  fetch alone  28 / 2.1695    = 12.91 vb
+  seek+stop    (29 - 12.91)/4 =  4.02 vb  = 67 ms
+```
+
+**A stop-and-re-seek costs 4.02 display periods, and a 15 fps frame is 4.00.**
+That single number decides the whole design. The drive is 130 sect/s and the
+video needs 105, so the read fits on totals with 116 periods of slack across
+the cut -- but a seek is a *contiguous* 4.02-period block of blocked CPU and
+the per-frame slack is only `4 - 1.69 (decode) = 2.31` periods, so a seek
+does not fit in the gap it has to fit in. It has to be amortised.
+
+```
+150-frame budget        600 vb
+contiguous fetch        484 vb   (150 x 7 / 2.1695)
+spare                   116 vb
+seeks affordable         28.8    (116 / 4.02)
+minimum chunk            5.2 frames
+```
+
+Four frames per chunk does not fit (635 vb total); six does (585); sixteen
+is comfortable at 503.
+
+## The first attempt failed, and not for the reason expected
+
+The first overlapped scheduler kept a `ReadN` live and drained it with
+`sector_pending()` after each MDEC slice. It wedged on frame 2, and the
+drive log says why:
+
+```
+W(ProcessDataSector): Interrupt not processed in time, missed 6 sectors
+[VIDEO] MDEC produced no more pixels; ending frame decode
+[VIDEO] MDEC PIO fallback budget exhausted; ending slice
+PANIC: psx-io/src/mdec.rs:99
+```
+
+This is worth recording because it is the opposite of the theory the earlier
+sections of this file spent a long time on. The MDEC did not object to a
+live drive -- the drive overflowed. The guest services a sector in ~1.3 ms
+of slice-granularity polling during a decode, which is fine, but between
+decodes it serviced the stream **once per display period**, and a sector
+arrives every ~7.7 ms against a data FIFO only a sector or two deep. The
+FIFO overran, the stream desynchronised, the next frame was corrupt, and
+*that* is what wedged the MDEC. A corrupt bitstream looks exactly like the
+"MDEC waiting for input that never arrives" signature above, which is
+presumably why the earlier probes kept reading as MDEC contention.
+
+The fix is not a smaller chunk, it is servicing the stream while waiting for
+VBlank:
+
+```rust
+fn wait_vblank_serving(&mut self, storage: &mut VideoStorage) -> u32 {
+    if !self.using_cd || !self.stream_active {
+        psx_rt::interrupts::wait_vblank();
+        return psx_rt::interrupts::vblank_count();
+    }
+    let before = psx_rt::interrupts::vblank_count();
+    loop {
+        self.pump_ready_sectors(storage);
+        if psx_rt::interrupts::vblank_count() != before { return ...; }
+        core::hint::spin_loop();
+    }
+}
+```
+
+This is the load-bearing change. Without it there is no overlap, because a
+`ReadN` cannot survive a 16.7 ms gap.
+
+## What ships
+
+`game/src/video.rs`: `VBLANKS_PER_VIDEO_FRAME` back to 4 (15 fps, the rate
+the assets are encoded at -- they were never re-encoded, so 10 fps was
+playing a 15 fps cut at two-thirds speed against an unslowed voiceover). The
+batch prefetch is replaced by a chunked ring:
+
+- `CHUNK_FRAMES = 16` -- frames per `ReadN`, so 10 stop-and-seek cycles.
+- `RING_FRAMES = 32` -- two chunks, so a chunk streams in while the previous
+  one decodes. Also what sets the seek interval: a new chunk starts once the
+  decode has drained 16 frames.
+- `PRIME_FRAMES = 8` -- the first read, ~0.6 s of black. Filling the ring
+  would be ~1.7 s and buys nothing; the slack absorbs the refill.
+
+Sectors move with `pump_ready_sectors` after every slice, and the ring slot
+is `frame % RING_FRAMES` so the decode drains the front while the drive fills
+the back. The frame is copied out of the ring *before* the decode starts,
+since its slot is allowed to be overwritten once pumping begins.
+
+## Result
+
+Median of 3 runs, identical to the byte across all three:
+
+| | before | after |
+| --- | --- | --- |
+| presented fps | 7.50 | **15.00** |
+| presents on the 4 vb target | 112/150 | **140/150** |
+| stuttering presents | 37 | **9** |
+| worst interval | 19 vb | **6 vb** |
+| decode integrity | OK | OK |
+
+Two new counters make the mechanism checkable rather than asserted:
+
+```
+chunk starts (seeks)          10   stop+re-seek cycles
+sectors read under a decode  994   of 1050 total  (95%)
+```
+
+**95% of the video's sectors are now read underneath a decode instead of in
+front of one.** That is the overlap, measured directly rather than inferred
+from a total. The 56 that are not are exactly the prime -- `PRIME_FRAMES` 8
+frames x 7 sectors = 56, and `1050 - 56 = 994` -- so the counter is
+accounting for every sector in the file and the "underneath a decode"
+claim is not a rounding of something else.
+
+## The 9 remaining late presents are the seek, one for one
+
+10 chunk starts, 9 late presents, and the mapping is exact. It is also
+arithmetic rather than bad luck: a 4.02-period block cannot fit inside a
+4.00-period cadence without crossing a swap, and a crossed swap costs a
+whole display period because the present is gated on
+`now - last_swap >= VBLANKS`. The 8-frame chunk was measured at 12 late
+from 19 seeks -- same ratio, more seeks -- which is why the chunk went to
+16. Going to 32 would need a 64-frame ring (917 KiB) and would buy about
+4 presents.
+
+Three ways out, none of them free:
+
+1. **Make the seek preemptible.** The real fix. `SectorReader::stop` and
+   `start_read` are synchronous handshakes with poll loops; splitting them
+   into a resumable state machine would let the swap happen mid-seek. That
+   is an SDK change, and it is the only one of the three that gets to zero
+   without spending RAM.
+2. **`pause_read`/`resume_read` instead of stop/seek.** No `Setloc`, so
+   plausibly much cheaper than 4.02 periods. The blocker is documented in
+   the SDK: "the first sector can duplicate the last sector returned before
+   Pause", which would silently corrupt a frame. The variable-container
+   experiment above already found pause-based reads wedging the reader.
+3. **Bigger chunks.** 32 frames/chunk, 4 seeks, ~4 presents late, at 917 KiB
+   of ring. Trades the thing that is nearly free (RAM, 710 KiB spare today)
+   for the thing that is nearly not.
+
+Option 1 is the honest answer. It is also the one this change deliberately
+does not attempt, because the brief was the shipped PIO reader with no new
+hardware path -- and an SDK reader rewrite is a bigger claim than a
+scheduler change should make on its own.
