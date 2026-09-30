@@ -846,6 +846,112 @@ These are cheap to add once the real modules are importable, and each one is cur
 
 # 📋 Merged Priority Plan
 
+## Remediation Status
+
+All P0 and P1 items are closed. The test suite grew from **11 suites / 63
+assertions** to **46 suites**, and the crate now builds with **zero dead-code
+warnings** (the blanket `#![allow(dead_code)]` is gone).
+
+| ID | Finding | Status |
+|---|---|---|
+| **PD-11** | Every save after boot written with a stale checksum → campaign reset on every reboot | ✅ found during remediation, fixed |
+| PD-1 | Three divergent `commit_progress` implementations | ✅ one method, one writer |
+| PD-2 | `unlocked_act` overloaded for two meanings | ✅ clear-count sentinel |
+| PD-3 | "NEW CAMPAIGN" never reset the save | ✅ wipes with confirmation prompt |
+| PD-4 | `renderer.rs` 2,688-line monolith, 38 concerns | ⬜ open (see below) |
+| PD-5 | Level layout hardcoded in the renderer | 🟡 queries added; call sites pending PD-4 |
+| PD-6 | Save written as a raw struct blob incl. padding | ✅ 46-byte explicit wire format |
+| PD-7 | Alert: never expires / chase cancelled / wrong BGM | ✅ all three |
+| PD-8 | Line of sight was a midpoint sample | ✅ supercover grid walk |
+| PD-9 | No save validation, commutative checksum, unused `LoadError` | ✅ all three |
+| PD-10 | `allow(dead_code)`, `u8 frame` wrap, `pub mod` inconsistency | ✅ |
+| SE-1 | ~~Rumble inert (`0x4D`)~~ | ⚠️ **withdrawn** — payload was already correct |
+| SE-2 | Title background wrapped at 256 texels | ✅ framebuffer upload, no texcoords |
+| SE-3 | Backface winding overflowed `i32`; behind-camera not culled | ✅ both |
+| SE-4 | CD hiccup latched streaming off + leaked the IRQ mask | ✅ retry + unconditional restore |
+| SE-5 | 782 KB of assets embedded on a 2 MB target | 🟡 dedup + bounds done; see below |
+| SE-6 | `VOICE_SELECT` never configured | ✅ 13 fanfare sites fixed |
+| SE-7 | 51,856 B of duplicate SPU uploads | ✅ content-addressed bank |
+| SE-8 | SPU allocator unbounded; decode errors silent | ✅ bound + on-screen fault report |
+| SE-9 | No triangle budget; pathological case ~15× over | ✅ budget + distance LOD |
+| SE-10 | Row-bucket "depth sort"; box faces unsorted | 🟡 faces now sorted back-to-front; row interleave open |
+| SE-11 | Empty port burned ~131 K spins/frame | ✅ probe/committed split |
+| SE-12 | Port failover left motors running | ✅ |
+| SE-13 | `Game` on the stack vs a 32 KiB reserve | ✅ moved to `.bss` |
+| SE-14 | VRAM layout unproven | ✅ compile-time `first_vram_overlap` |
+| SE-15 | Audio clipped during cinematics | ✅ |
+| SE-16 | 127 ms title-music loop | ⬜ open |
+| SE-17 | ISO 9660 out-of-bounds read; prefix match | ✅ |
+| SE-18 | PIO fallback: seconds of frozen screen | ✅ per-slice budget |
+| UX-1 | Rank S unreachable → Camo unobtainable | ✅ rank the final mission |
+| UX-2 | Laser tripwires decorative; half the grid erased | ✅ real hazard, ordering fixed |
+| UX-3 | 19 strings overflowed 320 px | ✅ ~60 call sites, width-aware |
+| UX-4 | Analog movement zero on diagonals | ✅ heading vector, digital too |
+| UX-5 | Held input read as "motionless box" | ✅ `input_moving` |
+| UX-6 | Unaware guards meleed the player | ✅ sight-gated |
+| UX-7 | Final boss had no phases (3 dead fields) | ✅ engine/venting/exposed |
+| UX-8 | Drones jittered, jetski lane dead, river froze | ✅ |
+| UX-9 | Boss intro orbit was a 16-step stutter | ✅ 240 positions |
+| UX-10 | 5 statistics written and never displayed | ✅ service-record panel |
+| UX-11 | Stage select discarded its unlock data | ✅ CLEAR / NEXT / LOCKED |
+| UX-12 | No difficulty option | ⬜ open |
+| UX-13 | Options saves failed silently; stale `memcard_ok` | ✅ |
+| UX-14 | Video Standard did nothing; PAL timing 20% wrong | ✅ |
+| UX-15 | Save / continue / new-campaign management | ✅ |
+| UX-16 | Deadzone duplicated, right stick ungated, em-dash | ✅ |
+| MK-1 | "ACTION" vs "OPERATION" | ✅ |
+| MK-2 | README linked gitignored files | ✅ |
+| MK-3 | Six README/manual claims the build did not honour | ✅ |
+| MK-4 | Manual documented wrong buttons and ranks | ✅ all 12 ranks, real thresholds |
+| MK-5 | Four serial numbers; fabricated disc track map | ✅ derived from the real cue |
+| MK-6 | No LICENSE / provenance / submodule URL | ✅ GPL-2.0 + real upstream URL |
+| MK-7 | No discoverability assets | ⬜ open (needs artwork) |
+| MK-8 | `PLAN.md` / `TODO.md` read as a live status board | ✅ status banners |
+| MK-9 | Credits overflow the screen | ✅ via UX-3 |
+| QA-1 | Tests duplicated the game's types | 🟡 mirrors kept faithful; see below |
+| QA-2 | No CI, no toolchain pin | ✅ workflow + `rust-toolchain.toml` |
+| QA-3 | No `#[test]` harness | ⬜ open (see below) |
+| QA-4 | Untested surface | 🟡 35 suites added; see below |
+| QA-5 | No property-based testing | ✅ exhaustive sweeps added |
+| QA-6 | Make the tests test the real code | ⬜ open (needs a `[lib]` target) |
+| QA-7 | Build reproducibility hazards | ✅ toolchain pin, media preflight |
+| QA-8 | 66.6 MB tracked, 28.6 MB dead | 🟡 `.opencode` ignored; media open |
+| QA-9 | Assertions the suite should make | ✅ all ten added |
+
+### Deliberately left open
+
+These need a decision or work outside a code fix, so they are recorded rather
+than quietly closed.
+
+- **PD-4 / QA-3 / QA-6 — the test harness still mirrors the game.**
+  `tools/test_game_logic` has no dependency on `game/src`; it re-declares
+  `SaveData`, `Codename`, `Act` and `CellType`. Every mirror was updated by hand
+  as the game changed, which works but does not *enforce* anything. The real fix
+  is a `[lib]` target on the game crate (or a shared `plattypus-core`), after
+  which the harness can import the types and the duplication disappears. That is
+  a structural change larger than any other item here and deserves its own
+  branch.
+- **SE-5 — embedded asset budget.** 782 KB still ships in the executable. The
+  SPU dedup recovered 52 KB of *runtime* RAM, but the ROM image itself is
+  unchanged. The largest single object, `video_mdec.bin` (262 KB), is a fallback
+  read only after CD streaming has already failed. Dropping it is an
+  asset/distribution decision: with it the game degrades gracefully on a bad
+  drive, without it a single read failure means no cinematics at all.
+- **SE-10 (second half) — row interleave.** Box faces are now sorted
+  back-to-front, but a `gz` bucket still spans 64 world units and emits tiles
+  before entities within a row, so an entity at the near edge of a row can draw
+  over a wall at the far edge. Fixing it properly means a real per-primitive
+  sort, which is a larger change than the face sort and interacts with the
+  quad budget.
+- **SE-16 — 127 ms title loop.** `Music/title_music.adpcm` is 1,600 bytes
+  hardware-looped for the whole title screen. The full track is already mastered
+  to the disc as CD-DA; deciding which one the title screen should use is a
+  design call.
+- **UX-12 / MK-7 / QA-8 (media).** Difficulty selection, promotional artwork,
+  and pruning the ~28.6 MB of unreferenced `.mp3`/`.mp4` from version control.
+
+---
+
 ## P0 — Ship blockers (fix before anyone plays a build)
 
 Status legend: ✅ merged to master · 🔄 in progress · ⬜ open · ⚠️ withdrawn
