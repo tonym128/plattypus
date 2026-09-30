@@ -114,16 +114,8 @@ fn main() -> ! {
     tty::print_hex_u32(dma_ok as u32);
     tty::print("\n@@VB1 UPLOAD_PATHS 0");
 
-    // P0e: bisect the MDEC/CD contention. Emitted first and on its own
-    // so the answer cannot be lost to a later-phase wedge.
-    stages::probe_mdec_contention();
-    stages::probe_mdec_repeat(40);
-    stages::probe_mdec_nocd(40);
-    stages::probe_mdec_sweep(6);
-    stages::probe_mdec_frames_no_cd(8);
-
     // P1: paced run -- the numbers that matter.
-    let (presents, using_cd, dma_fallbacks, chunk_starts, overlapped_sectors) =
+    let (presents, using_cd, dma_fallbacks, pumped_sectors, overlapped_sectors, restarts) =
         run_paced(&mut renderer);
     // Emit the headline numbers now, before the diagnostic phases, so a
     // wedge in one of those cannot cost us the deliverable.
@@ -131,8 +123,9 @@ fn main() -> ! {
         &presents,
         using_cd,
         dma_fallbacks,
-        chunk_starts,
+        pumped_sectors,
         overlapped_sectors,
+        restarts,
     );
 
     // P2: burst stage attribution.
@@ -166,7 +159,7 @@ fn main() -> ! {
 ///
 /// Presents come from the `PresentStep` the shipped `present()` returns
 /// rather than being inferred from the VBlank counter.
-fn run_paced(r: &mut renderer::Renderer) -> (stages::Presents, bool, u32, u32, u32) {
+fn run_paced(r: &mut renderer::Renderer) -> (stages::Presents, bool, u32, u32, u32, u32) {
     let mut player = VideoPlayer::new();
     player.start_video(VideoKind::Intro);
 
@@ -209,14 +202,39 @@ fn run_paced(r: &mut renderer::Renderer) -> (stages::Presents, bool, u32, u32, u
         }
     }
 
+    tty::println("@@VB1 PLAYER 1");
+    tty::print("@@VB1 player shown=");
+    tty::print_hex_u32(player.frames_shown as u32);
+    tty::print(" decode_errors=");
+    tty::print_hex_u32(player.decode_errors as u32);
+    tty::print(" dropped=");
+    tty::print_hex_u32(player.dropped_frames as u32);
+    tty::print(" cd_errors=");
+    tty::print_hex_u32(player.cd_errors as u32);
+    tty::print(" stalled=");
+    tty::print_hex_u32(player.stalled as u32);
+    tty::print(" eof=");
+    tty::print_hex_u32(player.eof as u32);
+    tty::print(" pumped=");
+    tty::print_hex_u32(player.pumped_sectors);
+    tty::print(" overlapped=");
+    tty::print_hex_u32(player.overlapped_sectors);
+    tty::print(" restarts=");
+    tty::print_hex_u32(player.restarts);
+    tty::print(" dma_cols=");
+    tty::print_hex_u32(player.vram_dma_columns);
+    tty::print("\n@@VB1 PLAYER 0");
+
     (
         presents,
         using_cd,
         player.vram_dma_fallbacks,
-        player.chunk_starts,
+        player.pumped_sectors,
         player.overlapped_sectors,
+        player.restarts,
     )
 }
+
 
 /// Times the shipped decode path with no display pacing, as a closure
 /// check against `stages::run_burst`.

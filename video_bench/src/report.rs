@@ -450,8 +450,9 @@ pub fn emit_paced_only(
     presents: &Presents,
     using_cd: bool,
     vram_dma_fallbacks: u32,
-    chunk_starts: u32,
+    pumped_sectors: u32,
     overlapped_sectors: u32,
+    restarts: u32,
 ) {
     let items = presents.as_slice();
     let presented = items.len() as u32;
@@ -480,7 +481,8 @@ pub fn emit_paced_only(
     tty::println("@@VB1 PACED_ONLY 1");
     kv("paced_only", "using_cd", using_cd as u32);
     kv("paced_only", "vram_dma_fallbacks", vram_dma_fallbacks);
-    kv("paced_only", "chunk_starts", chunk_starts);
+    kv("paced_only", "pumped_sectors", pumped_sectors);
+    kv("paced_only", "restarts", restarts);
     kv("paced_only", "overlapped_sectors", overlapped_sectors);
     kv("paced_only", "presented", presented);
     kv("paced_only", "fps_x1000", fps_x1000);

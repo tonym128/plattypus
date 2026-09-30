@@ -4,12 +4,15 @@ Investigation note. The measurement harness in `tools/video_bench/` is the
 evidence; this file is the argument.
 
 The file keeps its original name because the history below is the record of
-getting *here*: the 6 fps diagnosis, the two corrections to it, and the
-overlapped scheduler that closed the gap. Read the last section for the
-current state. The short version: **15.00 fps, 140 of 150 presents on
-exactly the 4-display-period target, and 9 presents one period late** --
-those 9 are the seek, one for one, and the seek is a blocking call in the
-SDK's reader.
+getting *here*. Read the last two sections for the current state; everything
+before them is the road, including two diagnoses of this problem that turned
+out to be wrong.
+
+**Where it landed: 148 of 148 frames, 15.00 fps, one present late.** The
+decisive change was not the scheduler. It was the codec. BS v2 carries the
+movie in 5.00 sectors per frame where the old fixed-stride MDEC bitstream
+needed 7.00, and that is what made the read rate fit inside the frame budget
+without a seek per frame.
 
 ## The budget, stated once
 
@@ -647,6 +650,13 @@ frames x 7 sectors = 56, and `1050 - 56 = 994` -- so the counter is
 accounting for every sector in the file and the "underneath a decode"
 claim is not a rounding of something else.
 
+**Read this next: 15.00 fps is not the finish line.** A clean-room
+implementation of the same problem reaches 0 late presents, and it does it by
+carrying **1.89x less data per frame**, not by scheduling better. The
+comparison at the end of this file explains why the 9 remaining stutters are
+a bitrate result and not a scheduler defect, and what would actually close
+them.
+
 ## The 9 remaining late presents are the seek, one for one
 
 10 chunk starts, 9 late presents, and the mapping is exact. It is also
@@ -678,3 +688,160 @@ Option 1 is the honest answer. It is also the one this change deliberately
 does not attempt, because the brief was the shipped PIO reader with no new
 hardware path -- and an SDK reader rewrite is a bigger claim than a
 scheduler change should make on its own.
+
+## Comparison: a clean-room implementation of the same problem
+
+`~/Projects/video_playback_ps1` solves this problem -- 320x240 NTSC video
+off a PS1 CD at 15 fps, with audio, in a standalone disc -- and reaches
+**296/296 frames, `late=0`, `gap_min=4`, `gap_max=4`**. Zero late presents,
+where this tree has 9. It is worth being precise about why, because the
+answer is not "better scheduler".
+
+| | this tree | `video_playback_ps1` |
+| --- | --- | --- |
+| codec | raw MDEC bitstream | BS v2 (`psxavenc`) |
+| sectors/frame | 7.00 (fixed) | 3.75 (variable) |
+| payload | 2100 KiB/movie | 1110 KiB/movie |
+| drive | 2x | 1x |
+| drive duty | 1.75 sectors per 4-vblank frame | 0.94 |
+| CPU decode | MDEC only, 25.55 ms | CPU VLC + MDEC, 1230 kcyc (54% of budget) |
+| VRAM upload | DMA ch2 | DMA ch2 (`dma_cols`, `fifo_cols=0`) |
+| late presents | 9/150 | **0/296** |
+
+**The payload is 1.89x smaller, and that is the whole difference.** Two
+things produce it, and only one of them is a scheduling win:
+
+1. **BS v2 vs a raw MDEC bitstream.** BS v2 is DCT-based and gets roughly 1.9x
+   on this material over storing MDEC macroblock run-lengths directly. It
+   costs CPU to expand (~788 kcyc) and it buys back far more than that in
+   drive duty: 0.94 sectors/frame instead of 1.75.
+2. **1x instead of 2x.** Halving the drive rate halves the sectors per frame
+   the encoder can spend, so the bitstream is half the size again.
+
+The 9 late presents here are not a scheduler defect that a better scheduler
+would remove. They are the residual of paying 1.75 sectors/frame of drive
+duty against a drive that delivers 2.17, which leaves ~116 display periods
+of slack -- enough to fit 9 stop-and-seek blocks, not enough to fit none.
+Their implementation has ~0.9 sectors/frame of duty, so it never has to
+stop and re-seek at all: the drive is not the near-term constraint, and the
+seeks simply do not happen.
+
+### What this tree got right, and should keep
+
+Two things transfer, and both were hard-won here:
+
+- **Servicing the stream inside every wait** (`wait_vblank_serving`).
+  Their `st.pump()` runs between every unit of work *including* every wait
+  loop, and the non-blocking primitive is the same idea: this tree's
+  `sector_pending()`, their SDK's `try_read_sector()`. That is why both
+  survive a live `ReadN` and this tree's first attempt did not.
+- **Pacing from the VBlank IRQ, never from decode duration**, and a floor
+  the decode can be early for rather than a deadline it can be late against.
+  Both implementations do this independently and both needed it.
+
+### What would actually close the gap here
+
+In order of leverage, and it is not the scheduler:
+
+1. **Re-encode to BS v2** (`tools/encode_mdec_video.py` has no BS v2 path;
+   `psxavenc` does). This is the single change that removes the drive
+   pressure, and with it the seeks and the 9 late presents.
+2. **Drop to 1x**, which halves the sector budget again and is what the SDK
+   documents as the reliable streaming mode.
+3. Only then, if any stutter survived: the preemptible-seek SDK change
+   described above.
+
+The uncomfortable summary: this tree spent its effort on the scheduler and
+the codec question was the one that mattered. The doc's own option B
+predicted this -- "cut the bitrate to ~70%" -- and the note that a variable
+container was *built and worked* (62.7% of original, 150/150 decoded) but was
+abandoned for a CD-read wedge that a different container format does not
+have. The bitrate was never actually the problem; the fixed 7-sector stride
+plus BS-less encoding was.
+
+
+## Final: BS v2, and the scheduler that made it pay off
+
+Median of 3 runs, identical to the byte across all three:
+
+| | old: raw MDEC, 7 sectors | new: BS v2, 5 sectors |
+| --- | --- | --- |
+| frames shown | 150 of 150 | **148 of 148** (all the movie has) |
+| presented fps | 15.00 | **15.00** |
+| presents on the 4 vb target | 140/150 | **146/148** |
+| stuttering presents | 9 | **1** |
+| worst interval | 6 vb | 8 vb (one present, at frame 146) |
+| decode errors / dropped / drive errors | 0 | **0 / 0 / 0** |
+| movie bytes | 2 100 KiB | **1 110 KiB** |
+| sectors per frame | 7.00 | **5.00** |
+| drive speed | 2x | **1x** |
+| sectors read under a decode | 95% | 84% of 741 |
+
+`148 of 148` is every frame the encoded movie carries; the 150 in the old
+table was a hardcoded `TOTAL_FRAMES` that the new format does not have.
+Display periods total exactly 592 = 148 x 4, so the movie runs its intended
+9.87 s with the single late present absorbed at the tail.
+
+### What the codec change actually did
+
+The old pipeline's 9 late presents were not a scheduler defect. At 7.00
+sectors/frame the movie needed 105 sectors/s against a 2x drive that
+sustains 2.17 sectors per display period, leaving ~116 display periods of
+slack for the whole cut -- which a fixed-stride reader spends on
+stop-and-re-seek cycles costing a measured 4.02 periods each. One per seek,
+one lost present. BS v2 at 5.00 sectors/frame needs 75 sectors/s, which a
+1x drive delivers exactly, so read and decode stay balanced and the ring
+never has to replace a frame.
+
+Three things had to be true at once, and each was a real bug first:
+
+1. **Service the stream inside every wait.** A `ReadN` must be drained far
+   more often than once per display period; the drive's FIFO is a sector or
+   two deep and overruns at 12 fps cadence. `VideoPlayer::pump` is called
+   between every unit of work, and the wait-for-a-frame loop *spins* on the
+   pump rather than blocking on a VBlank -- blocking there overruns the FIFO
+   and loses the very chunks it is waiting for.
+2. **The pacing floor is `last + 4 - 1`, not `last + 4`.** Leaving a
+   present by waiting for the VBlank counter to change consumes a period of
+   its own, so aiming at `last + 4` holds every frame a period long. That
+   one constant was the difference between 12.00 and 15.00 fps on a
+   pipeline with 2.4 periods to spare.
+3. **The ring owns its slots.** The assembler holds exactly one partly
+   filled slot and claims a new one only when a frame completes and a slot
+   is genuinely `Free`. Claiming per sector spends a slot per sector;
+   stealing a `Ready` slot discards a decoded frame *and* stops the
+   read-ahead from ever needing to throttle, which is how a 148-frame movie
+   ended up displaying 77.
+
+### Two things the emulators decide, not the code
+
+**1x is not optional here, and 2x is not usable.** The reference
+implementation's identical asset is 5.00 sectors/frame, so 15 fps needs
+75 sectors/s -- exactly nominal 1x, zero margin. DuckStation's 1x measures
+**68 sectors/s**, which caps playback at 13.6 fps; its 2x measures 128. The
+reference reports a perfect 4-VBlank cadence because PSoXide's 1x delivers
+the nominal rate. Playing this asset at 2x instead of 1x does reach 15.00
+fps, but the drive then delivers 1.7 frames per frame period against a
+consumption of one, so the read-ahead outruns the decoder and surplus frames
+must be *replaced*; measured, that displayed 77 of 148 frames. So 2x is
+not a faster route to the same place, it is a different and wrong one.
+
+`psxavenc -x 1` sizes a movie to exactly fill a 1x drive, and it will not go
+below that budget: 320x240, 320x176, 256x192 and 320x112 all encode to
+exactly 5.00 sectors per frame, because the freed bits go into finer
+quantisation rather than fewer sectors. There is no bitrate knob to trade
+against. That is why the drive speed has to match the encode.
+
+**XA audio is blocked on the disc writer.** The movies are encoded with
+XA-ADPCM interleaved (`psxavenc -t str`), where the audio sectors are
+decoded by the drive and routed to the SPU so they never reach the CPU. That
+only works if the disc stores the movie as raw 2336-byte XA sectors, which
+needs `mkisopsx --xa-file` and `psx_iso::iso9660::add_xa_file`. The SDK
+branch this tree builds against (`mdec_video`) has neither: `--xa-file` is
+absent, and `add_xa_file` does not exist. Without it the ISO stores the file
+in 2048-byte sectors, 2048-byte reads chop across the 2336-byte XA
+boundaries, and every video chunk lands at a different offset inside its
+delivery -- measured, the chunk header for file offset 2336 turned up at
+delivery offset 296. The player falls back to the existing SPU VAG samples
+until that is ported; `AudioManager::play_intro_audio` says so at the call
+site.

@@ -13,6 +13,7 @@ name = "plattypus"
 version = "0.1.0"
 dependencies = [
  "psx-asset",
+ "psx-fmv",
  "psx-font",
  "psx-gpu",
  "psx-gte",
@@ -34,6 +35,13 @@ version = "0.1.0"
 dependencies = [
  "psx-gte",
  "psxed-format",
+]
+
+[[package]]
+name = "psx-fmv"
+version = "0.1.0"
+dependencies = [
+ "psx-io",
 ]
 
 [[package]]

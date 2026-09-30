@@ -213,8 +213,12 @@ static mut CDDA_WAS_PLAYING: bool = false;
 
 impl AudioManager {
     pub fn init() {
+        // Cinematic voiceover level for the intro and outro movies.
+        const CINEMATIC_VOLUME: Volume = Volume::linear(2, 3);
         spu::init();
         spu::set_main_volume(Volume::MAX, Volume::MAX);
+        // Movie audio arrives as XA-ADPCM in the disc stream, decoded by the
+        // drive and routed to the SPU. Open the CD channel so it is audible.
         spu::set_cd_volume(spu::CdVolume::MAX, spu::CdVolume::MAX);
         spu::enable_cd_audio(true);
 
@@ -275,10 +279,7 @@ impl AudioManager {
             ADDR_TITLE_MUSIC = addr_title;
         }
 
-        // Upload Intro Video audio sample (22050 Hz mono VAG).
-        // A cinematic voice at unity gain sums with the BGM, the SFX bank and
-        // CD-DA past full scale, and the SPU saturates on the final sum.
-        const CINEMATIC_VOLUME: Volume = Volume::linear(2, 3);
+        // Cinematic audio for the intro and outro movies.
         if INTRO_AUDIO_VAG.len() > 48 {
             let adpcm_data = &INTRO_AUDIO_VAG[48..];
             if let Some((addr_intro, _)) = spu_reserve(adpcm_data.len()) {
@@ -286,8 +287,6 @@ impl AudioManager {
                 VOICE_INTRO.configure_sample(addr_intro, 22050, CINEMATIC_VOLUME, Adsr::sample());
             }
         }
-
-        // Upload Outro Video audio sample (22050 Hz mono VAG)
         if OUTRO_AUDIO_VAG.len() > 48 {
             let adpcm_data = &OUTRO_AUDIO_VAG[48..];
             if let Some((addr_outro, _)) = spu_reserve(adpcm_data.len()) {
@@ -629,22 +628,30 @@ impl AudioManager {
         }
     }
 
-    /// Play cinematic intro video audio (SPU ADPCM sample).
+    /// Play the intro movie's voiceover (an SPU ADPCM sample in the EXE).
+    ///
+    /// This is a stopgap, not the intended design. The movies are encoded
+    /// with XA-ADPCM interleaved into the `.VID` stream, which is how the
+    /// reference player carries audio: the drive decodes it and routes it to
+    /// the SPU, so it costs the CPU nothing and needs no sample in the
+    /// binary. That needs the disc writer to store the movies as raw
+    /// 2336-byte XA sectors (`mkisopsx --xa-file`), which this SDK branch
+    /// does not have -- see `docs/perf/why-6fps.md`.
     pub fn play_intro_audio() {
         Voice::key_on(VOICE_INTRO.mask());
     }
 
-    /// Stop cinematic intro video audio.
+    /// Stop the intro movie's voiceover.
     pub fn stop_intro_audio() {
         Voice::key_off(VOICE_INTRO.mask());
     }
 
-    /// Play cinematic outro video audio (SPU ADPCM sample).
+    /// Play the outro movie's voiceover (an SPU ADPCM sample in the EXE).
     pub fn play_outro_audio() {
         Voice::key_on(VOICE_OUTRO.mask());
     }
 
-    /// Stop cinematic outro video audio.
+    /// Stop the outro movie's voiceover.
     pub fn stop_outro_audio() {
         Voice::key_off(VOICE_OUTRO.mask());
     }

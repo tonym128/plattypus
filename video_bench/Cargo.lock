@@ -17,6 +17,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "psx-fmv"
+version = "0.1.0"
+dependencies = [
+ "psx-io",
+]
+
+[[package]]
 name = "psx-font"
 version = "0.1.0"
 dependencies = [
@@ -116,6 +123,7 @@ name = "video-bench"
 version = "0.1.0"
 dependencies = [
  "psx-asset",
+ "psx-fmv",
  "psx-font",
  "psx-gpu",
  "psx-hw",
