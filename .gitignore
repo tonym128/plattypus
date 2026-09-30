@@ -11,3 +11,4 @@
 .cargo-build-lock
 .cargo-lock
 .worktrees/
+__pycache__/
