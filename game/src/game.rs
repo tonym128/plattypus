@@ -11,6 +11,28 @@ use crate::renderer::Renderer;
 use psx_gpu as gpu;
 use psx_pad::{button, AnalogSticks, ButtonState, PadMode, PadState};
 
+/// One full turn of the boss intro camera orbit, in the 256-units-per-
+/// revolution that `sin_1_3_12` indexes its table with.
+const ORBIT_TURN_UNITS: u32 = 256;
+/// Frames in the boss intro cutscene. The camera sweeps exactly one turn
+/// across them.
+const BOSS_INTRO_FRAMES: u16 = 240;
+/// Radius, in world units, of the boss intro camera orbit.
+const BOSS_ORBIT_RADIUS: i32 = 450;
+/// Camera height for the boss intro orbit.
+const BOSS_ORBIT_HEIGHT: i32 = -300;
+/// Follow-camera height above the player, and how far behind the player the
+/// camera sits.
+const CAMERA_HEIGHT_OFFSET: i32 = -280;
+const CAMERA_TRAIL_OFFSET: i32 = -240;
+/// Frames per second of the two video standards. Every frame->second
+/// conversion goes through [`Game::frames_per_second`].
+const FPS_NTSC: u32 = 60;
+const FPS_PAL: u32 = 50;
+/// Idle frames the "erase saved progress?" prompt waits before it accepts
+/// input, so the press that opened it cannot confirm it.
+const NEW_CAMPAIGN_CONFIRM_DELAY: u16 = 15;
+
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct MissionStats {
     pub play_time_frames: u32,
@@ -37,6 +59,7 @@ pub enum GameState {
     BossIntroCutscene { act: Act, timer: u16 },
     ChapterTitleCard { act: Act, timer: u16 },
     StageSelect,
+    ConfirmNewCampaign,
 }
 
 pub struct Game {
@@ -63,6 +86,10 @@ pub struct Game {
     pub stage_time_frames: u32,
     pub stage_alerts: u16,
     pub stage_start_takedowns: u16,
+    /// Whether a formatted card is present, from a probe run when the CODEC is
+    /// opened. `memcard.status` cannot answer this: it is a self-clearing
+    /// message, not a card state.
+    pub card_present: bool,
 }
 
 impl Game {
@@ -71,29 +98,19 @@ impl Game {
         let platty = Platypus::new(level.player_start_x, level.player_start_z);
         let mut entities = EntityManager::new();
         entities.load_act(Act::Act1_1Drainage);
-        let mut renderer = Renderer::new();
+        let renderer = Renderer::new();
         // Upload title screen background texture to VRAM
         unsafe { crate::title_bg::upload_title_bg(); }
         let codec = CodecManager::new();
         let video = crate::video::VideoPlayer::new();
         let mut memcard = crate::save::MemoryCardManager::new();
         let save_data = memcard.load_from_slot1().unwrap_or_else(crate::save::SaveData::new);
-        renderer.costume = save_data.selected_costume;
-        renderer.wireframe = save_data.wireframe_enabled != 0;
-        renderer.language = save_data.language;
-        renderer.screen_offset_x = save_data.screen_offset_x;
-        renderer.screen_offset_y = save_data.screen_offset_y;
-        if save_data.pal_mode == 0 {
-            renderer.video_mode = psx_gpu::VideoMode::Ntsc;
-        } else if save_data.pal_mode == 1 {
-            renderer.video_mode = psx_gpu::VideoMode::Pal;
-        }
-        renderer.apply_display_offset();
+        let card_present = probe_card_present();
 
         let mut dualshock = DualShockController::new();
         dualshock.init();
 
-        Self {
+        let mut game = Self {
             state: GameState::Title,
             level,
             platty,
@@ -117,7 +134,10 @@ impl Game {
             stage_time_frames: 0,
             stage_alerts: 0,
             stage_start_takedowns: 0,
-        }
+            card_present,
+        };
+        game.apply_save_preferences();
+        game
     }
 
     pub fn run(&mut self) -> ! {
@@ -184,16 +204,21 @@ impl Game {
                         if has_save {
                             match self.title_selection {
                                 0 => {
-                                    if self.save_data.unlocked_act >= 11 {
+                                    if campaign_completed(self.save_data.unlocked_act) {
                                         // Unlocked Post-Campaign Stage Select
                                         AudioManager::stop_cdda();
                                         self.state = GameState::StageSelect;
                                         self.stage_selection = 0;
                                     } else {
-                                        // Continue Campaign from unlocked act (clamped to campaign acts 0..=11)
+                                        // Continue Campaign from the pending
+                                        // mission. The clear count is clamped to
+                                        // the campaign, so Act 4-3 (count 11) is
+                                        // the last thing Continue can reach --
+                                        // it used to be shadowed by the
+                                        // completion check and so was only
+                                        // reachable by playing through.
                                         AudioManager::stop_cdda();
-                                        let act_idx = self.save_data.unlocked_act.min(11);
-                                        let act = Act::from_u8(act_idx);
+                                        let act = Act::from_u8(pending_act(self.save_data.unlocked_act));
                                         self.load_act(act);
                                         let briefing = get_act_dialogue(act);
                                         self.codec.start_conversation(briefing);
@@ -201,12 +226,11 @@ impl Game {
                                     }
                                 }
                                 1 => {
-                                    // New Campaign Infiltration
+                                    // New Campaign: the save holds a completed
+                                    // campaign, so ask before erasing it.
                                     AudioManager::stop_cdda();
-                                    self.mission_stats = MissionStats::default();
-                                    self.platty.reset_for_new_game();
-                                    self.video.start();
-                                    self.state = GameState::IntroVideo;
+                                    self.state = GameState::ConfirmNewCampaign;
+                                    self.idle_timer = 0;
                                 }
                                 2 => {
                                     // VR Training Simulator
@@ -225,10 +249,7 @@ impl Game {
                                 0 => {
                                     // Campaign Infiltration
                                     AudioManager::stop_cdda();
-                                    self.mission_stats = MissionStats::default();
-                                    self.platty.reset_for_new_game();
-                                    self.video.start();
-                                    self.state = GameState::IntroVideo;
+                                    self.start_new_campaign();
                                 }
                                 1 => {
                                     // VR Training Simulator
@@ -255,6 +276,22 @@ impl Game {
 
                 self.renderer.begin_frame();
                 self.renderer.draw_title_screen(self.frame, self.title_selection, &self.save_data);
+            }
+            GameState::ConfirmNewCampaign => {
+                self.idle_timer = self.idle_timer.saturating_add(1);
+                if self.idle_timer > NEW_CAMPAIGN_CONFIRM_DELAY && is_connected {
+                    if just_cross || just_start {
+                        self.start_new_campaign();
+                    } else if just_circle {
+                        AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
+                        self.state = GameState::Title;
+                        self.idle_timer = 0;
+                    }
+                }
+
+                self.renderer.begin_frame();
+                self.renderer.draw_title_screen(self.frame, self.title_selection, &self.save_data);
+                self.draw_new_campaign_prompt();
             }
             GameState::StageSelect => {
                 if is_connected {
@@ -355,16 +392,16 @@ impl Game {
                                     }
                                 }
                                 self.save_data.selected_costume = next_costume;
-                                self.renderer.costume = next_costume;
-                                self.memcard.save_to_slot1(&self.save_data);
+                                self.apply_save_preferences();
+                                self.save_card();
                                 AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                             }
                             1 => {
                                 // Toggle Wireframe mode if unlocked
                                 if self.save_data.wireframe_unlocked != 0 {
                                     self.save_data.wireframe_enabled = if self.save_data.wireframe_enabled == 0 { 1 } else { 0 };
-                                    self.renderer.wireframe = self.save_data.wireframe_enabled != 0;
-                                    self.memcard.save_to_slot1(&self.save_data);
+                                    self.apply_save_preferences();
+                                    self.save_card();
                                     AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                                 }
                             }
@@ -375,33 +412,30 @@ impl Game {
                                 } else {
                                     self.save_data.language = if self.save_data.language == 0 { 4 } else { self.save_data.language - 1 };
                                 }
-                                self.renderer.language = self.save_data.language;
-                                self.memcard.save_to_slot1(&self.save_data);
+                                self.apply_save_preferences();
+                                self.save_card();
                                 AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                             }
                             3 => {
                                 // Video Standard: 0 (NTSC 60Hz), 1 (PAL 50Hz), 2 (Auto Detect)
                                 self.save_data.pal_mode = (self.save_data.pal_mode + 1) % 3;
-                                let mode = match self.save_data.pal_mode {
-                                    0 => psx_gpu::VideoMode::Ntsc,
-                                    1 => psx_gpu::VideoMode::Pal,
-                                    _ => crate::save::detect_console_region().0,
-                                };
-                                self.renderer.video_mode = mode;
-                                self.renderer.apply_display_offset();
-                                self.memcard.save_to_slot1(&self.save_data);
+                                self.apply_save_preferences();
+                                self.save_card();
                                 AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                             }
                             4 => {
-                                // Screen V-Center Offset (-16..16 scanlines)
+                                // Screen V-Center Offset (-16..16 scanlines). The
+                                // horizontal axis is loaded and applied but has
+                                // no editor: the options screen has five fixed
+                                // rows and no field for X (UX-14c).
+                                let limit = crate::save::SCREEN_OFFSET_LIMIT;
                                 if just_left {
-                                    self.save_data.screen_offset_y = (self.save_data.screen_offset_y - 1).max(-16);
+                                    self.save_data.screen_offset_y = (self.save_data.screen_offset_y - 1).max(-limit);
                                 } else {
-                                    self.save_data.screen_offset_y = (self.save_data.screen_offset_y + 1).min(16);
+                                    self.save_data.screen_offset_y = (self.save_data.screen_offset_y + 1).min(limit);
                                 }
-                                self.renderer.screen_offset_y = self.save_data.screen_offset_y;
-                                self.renderer.apply_display_offset();
-                                self.memcard.save_to_slot1(&self.save_data);
+                                self.apply_save_preferences();
+                                self.save_card();
                                 AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                             }
                             _ => {}
@@ -411,6 +445,10 @@ impl Game {
 
                 self.renderer.begin_frame();
                 self.renderer.draw_options_menu(&self.save_data, self.options_selection, self.memcard.last_load);
+                // All five rows above write the card, so the status has to be
+                // reported here too: it used to be drawn only while playing,
+                // and an options change on a cardless console failed silently.
+                self.draw_save_status_osd();
             }
             GameState::MissionDebriefing { ref mut timer, codename } => {
                 *timer = timer.saturating_add(1);
@@ -421,7 +459,7 @@ impl Game {
 
                 self.renderer.begin_frame();
                 self.renderer.draw_debriefing_screen(
-                    self.mission_stats.play_time_frames / 60,
+                    self.mission_stats.play_time_frames / self.frames_per_second(),
                     self.mission_stats.alerts_count,
                     self.platty.takedowns,
                     self.platty.total_damage,
@@ -438,6 +476,8 @@ impl Game {
                 } else if self.video.needs_redraw() {
                     self.renderer.begin_frame();
                     self.video.draw(&self.renderer);
+                    // "NEW CAMPAIGN" rewrites the save on the way in.
+                    self.draw_save_status_osd();
                 } else {
                     // Hold the displayed buffer until the next 15 fps video
                     // frame is ready; swapping every VBlank flashes the stale
@@ -630,30 +670,25 @@ impl Game {
             }
             GameState::ChapterTitleCard { act, ref mut timer } => {
                 *timer = timer.saturating_add(1);
+                let elapsed = *timer;
 
-                let target_x = self.platty.x;
-                let target_y = self.platty.y - 280;
-                let target_z = self.platty.z - 240;
-                self.renderer.cam_x = target_x;
-                self.renderer.cam_y = target_y;
-                self.renderer.cam_z = target_z;
-                self.renderer.screen_shake = 0;
-                self.renderer.update_camera(self.platty.x, self.platty.y, self.platty.z);
+                self.snap_camera_to_player();
 
-                let skip = *timer >= 180 || just_cross || just_start;
+                let skip = elapsed >= 180 || just_cross || just_start;
                 if skip {
                     self.state = GameState::Playing;
                     AudioManager::play_jump();
                 } else {
                     self.renderer.begin_frame();
                     self.renderer.draw_3d_scene(&self.level, &self.platty, &self.entities, self.frame);
-                    self.renderer.draw_chapter_title_card(act, *timer);
+                    self.renderer.draw_chapter_title_card(act, elapsed);
                 }
             }
             GameState::BossIntroCutscene { act, ref mut timer } => {
                 *timer = timer.saturating_add(1);
+                let elapsed = *timer;
 
-                if *timer == 1 {
+                if elapsed == 1 {
                     AudioManager::play_alert();
                 }
 
@@ -666,25 +701,20 @@ impl Game {
                     _ => (self.platty.x, self.platty.z),
                 };
 
-                let ang = ((*timer as u16) * 16) & 0x0FFF;
-                let sin_v = psx_gte_core::transform::sin_1_3_12(ang) as i32;
-                let cos_v = psx_gte_core::transform::cos_1_3_12(ang) as i32;
-                self.renderer.cam_x = bx + ((sin_v * 450) >> 12);
-                self.renderer.cam_y = -300;
-                self.renderer.cam_z = bz + ((cos_v * 450) >> 12);
+                let (orbit_x, orbit_z) = boss_orbit_offset(elapsed);
+                self.renderer.cam_x = bx + orbit_x;
+                self.renderer.cam_y = BOSS_ORBIT_HEIGHT;
+                self.renderer.cam_z = bz + orbit_z;
 
-                let skip = *timer >= 240 || just_cross || just_start;
+                let skip = elapsed >= BOSS_INTRO_FRAMES || just_cross || just_start;
                 if skip {
-                    self.renderer.cam_x = self.platty.x;
-                    self.renderer.cam_y = self.platty.y - 280;
-                    self.renderer.cam_z = self.platty.z - 240;
-                    self.renderer.screen_shake = 0;
+                    self.snap_camera_to_player();
                     self.state = GameState::Playing;
                     AudioManager::play_alert();
                 } else {
                     self.renderer.begin_frame();
                     self.renderer.draw_3d_scene(&self.level, &self.platty, &self.entities, self.frame);
-                    self.renderer.draw_boss_title_card(act, *timer);
+                    self.renderer.draw_boss_title_card(act, elapsed);
                 }
             }
             GameState::Playing => {
@@ -695,6 +725,12 @@ impl Game {
                     AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                 } else if just_select {
                     self.codec.open_tuner();
+                    // Probe the card now, while the player is about to use the
+                    // scribe: `memcard.status` is whatever the last card
+                    // transaction left behind (it was still the boot-time
+                    // "no save" status for the first 90 frames, which made the
+                    // scribe claim "no memory card" on a healthy card).
+                    self.card_present = probe_card_present();
                     self.state = GameState::InGameCodec;
                 } else {
                     // Update player and 3D entities
@@ -771,53 +807,44 @@ impl Game {
                                 self.save_data.tuxedo_unlocked = 1;
                                 self.save_data.wireframe_unlocked = 1;
                             }
-                            self.memcard.save_to_slot1(&self.save_data);
+                            // A VR clear never advances the campaign; the sims
+                            // have no place in the linear order.
+                            self.commit_progress(None);
                             AudioManager::play_fanfare();
                             self.state = GameState::VrMenu;
-                        } else {
-                            // Automatically save progress & high score to Memory Card
-                            // Clamp campaign progression to Act 4-3 (index 11) so VR stages are not loaded as campaign
-                            let next_act_idx = if (self.level.act as u8) < 11 {
-                                self.level.act as u8 + 1
-                            } else {
-                                11
-                            };
-                            self.save_data.unlocked_act = next_act_idx.max(self.save_data.unlocked_act).min(11);
-                            self.save_data.highest_score = self.save_data.highest_score.max(self.platty.score);
-                            self.save_data.total_yabbies = self.save_data.total_yabbies.saturating_add(self.platty.yabbies_collected as u16);
-                            self.memcard.save_to_slot1(&self.save_data);
+                        } else if self.level.act == Act::Act4_3ExcavatorBoss {
+                            // The final boss also settles the campaign records
+                            // (best time, rank, unlocks) before the one write.
+                            let time_s = self.mission_stats.play_time_frames / self.frames_per_second();
+                            let codename = crate::save::Codename::evaluate(
+                                self.mission_stats.alerts_count,
+                                self.platty.total_damage,
+                                time_s,
+                                self.platty.takedowns,
+                            );
 
-                            if self.level.act == Act::Act4_3ExcavatorBoss {
-                                let time_s = self.mission_stats.play_time_frames / 60;
-                                let codename = crate::save::Codename::evaluate(
-                                    self.mission_stats.alerts_count,
-                                    self.platty.total_damage,
-                                    time_s,
-                                    self.platty.takedowns,
-                                );
-
-                                // Award unlocks
-                                self.save_data.tuxedo_unlocked = 1;
-                                self.save_data.wireframe_unlocked = 1;
-                                if codename == crate::save::Codename::BigPlatypus {
-                                    self.save_data.camo_unlocked = 1;
-                                }
-
-                                self.save_data.best_time_seconds = self.save_data.best_time_seconds.min(time_s);
-                                self.save_data.alerts_count = self.save_data.alerts_count.min(self.mission_stats.alerts_count);
-
-                                let name_bytes = codename.name().as_bytes();
-                                for (i, b) in self.save_data.best_codename.iter_mut().enumerate() {
-                                    *b = if i < name_bytes.len() { name_bytes[i] } else { b' ' };
-                                }
-
-                                self.memcard.save_to_slot1(&self.save_data);
-                                self.video.start_outro();
-                                self.state = GameState::OutroVideo { codename };
-                            } else {
-                                self.state = GameState::StageClear;
-                                AudioManager::play_fanfare();
+                            // Award unlocks
+                            self.save_data.tuxedo_unlocked = 1;
+                            self.save_data.wireframe_unlocked = 1;
+                            if codename == crate::save::Codename::BigPlatypus {
+                                self.save_data.camo_unlocked = 1;
                             }
+
+                            self.save_data.best_time_seconds = self.save_data.best_time_seconds.min(time_s);
+                            self.save_data.alerts_count = self.save_data.alerts_count.min(self.mission_stats.alerts_count);
+
+                            let name_bytes = codename.name().as_bytes();
+                            for (i, b) in self.save_data.best_codename.iter_mut().enumerate() {
+                                *b = if i < name_bytes.len() { name_bytes[i] } else { b' ' };
+                            }
+
+                            self.commit_progress(Some(self.level.act));
+                            self.video.start_outro();
+                            self.state = GameState::OutroVideo { codename };
+                        } else {
+                            self.commit_progress(Some(self.level.act));
+                            self.state = GameState::StageClear;
+                            AudioManager::play_fanfare();
                         }
                     }
 
@@ -826,51 +853,25 @@ impl Game {
                     self.renderer.draw_3d_scene(&self.level, &self.platty, &self.entities, self.frame);
                     self.renderer.draw_hud(&self.platty, &self.entities, &self.level, self.frame);
 
-                    // Memory Card tactical OSD message
-                    match self.memcard.status {
-                        crate::save::SaveStatus::Saving => {
-                            gpu::draw_rect_flat(100, 214, 120, 18, 10, 25, 40);
-                            self.renderer.font.draw_text(106, 218, "SAVING TO MEM CARD...", (100, 220, 255));
-                        }
-                        crate::save::SaveStatus::SaveSuccess => {
-                            gpu::draw_rect_flat(96, 214, 128, 18, 10, 35, 20);
-                            self.renderer.font.draw_text(102, 218, "MISSION PROGRESS SAVED", (120, 255, 140));
-                        }
-                        crate::save::SaveStatus::SaveErrorNoCard => {
-                            gpu::draw_rect_flat(88, 214, 144, 18, 35, 10, 10);
-                            self.renderer.font.draw_text(94, 218, "NO MEMORY CARD FOUND", (255, 160, 160));
-                        }
-                        crate::save::SaveStatus::SaveErrorUnformatted => {
-                            gpu::draw_rect_flat(88, 214, 144, 18, 35, 25, 10);
-                            self.renderer.font.draw_text(94, 218, "CARD IS UNFORMATTED", (255, 200, 100));
-                        }
-                        crate::save::SaveStatus::SaveErrorCorrupt => {
-                            gpu::draw_rect_flat(88, 214, 144, 18, 35, 18, 10);
-                            self.renderer.font.draw_text(94, 218, "CARD IS UNREADABLE", (255, 170, 90));
-                        }
-                        crate::save::SaveStatus::SaveErrorFailed => {
-                            gpu::draw_rect_flat(88, 214, 144, 18, 35, 10, 10);
-                            self.renderer.font.draw_text(94, 218, "SAVE OPERATION FAILED", (255, 160, 160));
-                        }
-                        _ => {}
-                    }
+                    self.draw_save_status_osd();
                 }
             }
             GameState::InGameCodec => {
                 self.codec.update();
                 match self.codec.mode {
                     crate::codec::CodecMode::Tuning => {
-                        let memcard_ok = matches!(self.memcard.status, crate::save::SaveStatus::Idle | crate::save::SaveStatus::SaveSuccess);
-                        if self.codec.handle_tuner_input(buttons, self.prev_buttons, self.level.act, memcard_ok) {
+                        if self.codec.handle_tuner_input(buttons, self.prev_buttons, self.level.act, self.card_present) {
                             self.state = GameState::Playing;
                         }
                     }
                     crate::codec::CodecMode::InCall => {
                         if self.codec.pending_save {
-                            self.save_data.unlocked_act = (self.level.act as u8).max(self.save_data.unlocked_act);
-                            self.save_data.highest_score = self.save_data.highest_score.max(self.platty.score);
-                            self.save_data.total_yabbies = self.save_data.total_yabbies.max(self.platty.yabbies_collected as u16);
-                            self.memcard.save_to_slot1(&self.save_data);
+                            // The scribe records the mission in progress. It
+                            // never advances the campaign: this path used to
+                            // write the *current* act's index into
+                            // `unlocked_act` with no clamp, which is how a VR
+                            // sim ended up marked as campaign progress.
+                            self.commit_progress(None);
                             self.codec.pending_save = false;
                         }
 
@@ -888,10 +889,7 @@ impl Game {
             GameState::StageClear => {
                 if just_cross || just_start {
                     if let Some(next_act) = self.level.act.next() {
-                        self.save_data.unlocked_act = (next_act as u8).min(11).max(self.save_data.unlocked_act);
-                        self.save_data.highest_score = self.save_data.highest_score.max(self.platty.score);
-                        self.save_data.total_yabbies = self.save_data.total_yabbies.max(self.platty.yabbies_collected as u16);
-                        self.memcard.save_to_slot1(&self.save_data);
+                        self.commit_progress(Some(self.level.act));
 
                         self.load_act(next_act);
                         let briefing = get_act_dialogue(next_act);
@@ -903,7 +901,7 @@ impl Game {
                 }
 
                 self.renderer.begin_frame();
-                let stage_time_s = self.stage_time_frames / 60;
+                let stage_time_s = self.stage_time_frames / self.frames_per_second();
                 let stage_takedowns = self.platty.takedowns.saturating_sub(self.stage_start_takedowns);
                 self.renderer.draw_stage_clear(
                     self.level.act,
@@ -1008,14 +1006,7 @@ impl Game {
         self.stage_start_takedowns = self.platty.takedowns;
 
         // Snap camera immediately to spawn target without slow drifting
-        let target_x = self.platty.x;
-        let target_y = self.platty.y - 280;
-        let target_z = self.platty.z - 240;
-        self.renderer.cam_x = target_x;
-        self.renderer.cam_y = target_y;
-        self.renderer.cam_z = target_z;
-        self.renderer.screen_shake = 0;
-        self.renderer.update_camera(self.platty.x, self.platty.y, self.platty.z);
+        self.snap_camera_to_player();
 
         let track = if act.is_boss() {
             crate::audio::BgmTrack::Boss
@@ -1031,6 +1022,182 @@ impl Game {
             }
         };
         AudioManager::set_bgm(track);
+    }
+
+    /// Place the camera on its follow position behind the player, with no
+    /// shake and no drift. The single definition of that offset: it is needed
+    /// on a stage load, on every chapter title card, and on the way out of the
+    /// boss intro.
+    fn snap_camera_to_player(&mut self) {
+        self.renderer.cam_x = self.platty.x;
+        self.renderer.cam_y = self.platty.y + CAMERA_HEIGHT_OFFSET;
+        self.renderer.cam_z = self.platty.z + CAMERA_TRAIL_OFFSET;
+        self.renderer.screen_shake = 0;
+        self.renderer.update_camera(self.platty.x, self.platty.y, self.platty.z);
+    }
+
+    /// The video standard the player's `pal_mode` selects, with the BIOS
+    /// consulted for "auto".
+    fn video_standard(&self) -> psx_gpu::VideoMode {
+        match self.save_data.pal_mode {
+            0 => psx_gpu::VideoMode::Ntsc,
+            1 => psx_gpu::VideoMode::Pal,
+            _ => crate::save::detect_console_region().0,
+        }
+    }
+
+    /// Copy the save's display preferences into the renderer, and re-program
+    /// the GPU for the video standard they name.
+    fn apply_save_preferences(&mut self) {
+        self.renderer.costume = self.save_data.selected_costume;
+        self.renderer.wireframe = self.save_data.wireframe_enabled != 0;
+        self.renderer.language = self.save_data.language;
+        self.renderer.screen_offset_x = self.save_data.screen_offset_x;
+        self.renderer.screen_offset_y = self.save_data.screen_offset_y;
+        self.renderer.video_mode = self.video_standard();
+        self.program_display_mode();
+        self.renderer.apply_display_offset();
+    }
+
+    /// Re-issue GP1(08h) for the video standard in force.
+    ///
+    /// `gpu::init` is the only other writer of the display mode and runs once
+    /// from `Renderer::new`, so before this the "Video Standard" option changed
+    /// nothing on hardware. GP1(08h) is accepted at any time and resets the
+    /// display window to the new mode's default, which is why
+    /// `apply_display_offset` re-issues the window straight after. The frame
+    /// loop is driven by the VBlank IRQ rather than by a fixed period, so it
+    /// follows the new standard without a timer being reprogrammed.
+    fn program_display_mode(&self) {
+        // The horizontal/vertical resolution, depth and interlace fields must
+        // match what `Renderer::new` passed to `gpu::init` (320x240, 15bpp,
+        // progressive): only the PAL bit is allowed to differ.
+        const HRES_320: u32 = 1;
+        const VRES_240_PROGRESSIVE: u32 = 0;
+        let pal = matches!(self.renderer.video_mode, psx_gpu::VideoMode::Pal);
+        psx_io::gpu::write_gp1(psx_hw::gpu::gp1::display_mode(
+            HRES_320,
+            VRES_240_PROGRESSIVE,
+            pal,
+            false,
+            false,
+        ));
+    }
+
+    /// The video standard's frame rate. Every frame->second conversion goes
+    /// through here: the loop follows the display's VBlank, so a PAL console
+    /// really does run at 50 Hz and every hardcoded 60 made the displayed time,
+    /// the stored best time and all 12 codename thresholds 20% too generous.
+    fn frames_per_second(&self) -> u32 {
+        match self.renderer.video_mode {
+            psx_gpu::VideoMode::Pal => FPS_PAL,
+            psx_gpu::VideoMode::Ntsc => FPS_NTSC,
+        }
+    }
+
+    /// The only writer of the card, so every write carries a fresh checksum.
+    fn save_card(&mut self) {
+        self.save_data = self.save_data.with_checksum();
+        self.memcard.save_to_slot1(&self.save_data);
+    }
+
+    /// The single place campaign progress is written (PD-1).
+    ///
+    /// `cleared` is the act the player just finished, or `None` for a write
+    /// that only records statistics without advancing the campaign (the CODEC
+    /// scribe, a VR clear).
+    ///
+    /// `unlocked_act` is a campaign *clear count* in `0..=CAMPAIGN_ACT_COUNT`,
+    /// so it is raised to at most the campaign range on every path. A VR act
+    /// (12..=15) leaves it untouched: the scribe path used to write the act it
+    /// happened to be in, which both skipped the clamp and could promote a
+    /// training sim to campaign progress.
+    fn commit_progress(&mut self, cleared: Option<Act>) {
+        if let Some(act) = cleared {
+            let idx = act as u8;
+            if idx < crate::save::CAMPAIGN_ACT_COUNT {
+                let target = (idx + 1).min(crate::save::CAMPAIGN_ACT_COUNT);
+                self.save_data.unlocked_act = self.save_data.unlocked_act.max(target);
+            }
+        }
+        self.save_data.highest_score = self.save_data.highest_score.max(self.platty.score);
+        // `platty.yabbies_collected` is cumulative since `reset_for_new_game`
+        // and this field is cumulative too, so the two are compared and never
+        // summed -- the old `saturating_add` added a running total onto a
+        // running total and grew it quadratically.
+        self.save_data.total_yabbies = self.save_data.total_yabbies.max(self.platty.yabbies_collected);
+        self.save_card();
+    }
+
+    /// Start a fresh campaign: progression is wiped from the save and the card
+    /// is rewritten. Without this, every writer used `max`, so a completed
+    /// campaign's `unlocked_act` survived "NEW CAMPAIGN" forever and the linear
+    /// game could never be replayed from 1-1.
+    fn start_new_campaign(&mut self) {
+        let fresh = crate::save::new_campaign_save(&self.save_data);
+        self.save_data = fresh;
+        self.apply_save_preferences();
+        self.save_card();
+        self.mission_stats = MissionStats::default();
+        self.platty.reset_for_new_game();
+        self.video.start();
+        self.state = GameState::IntroVideo;
+    }
+
+    /// Memory Card tactical OSD message. Drawn by every state that can have
+    /// written the save -- the options menu writes on all five rows -- so a
+    /// failed write is never silent.
+    fn draw_save_status_osd(&self) {
+        match self.memcard.status {
+            crate::save::SaveStatus::SaveSuccess => {
+                gpu::draw_rect_flat(96, 214, 128, 18, 10, 35, 20);
+                self.renderer.font.draw_text(102, 218, "MISSION PROGRESS SAVED", (120, 255, 140));
+            }
+            crate::save::SaveStatus::SaveErrorNoCard => {
+                gpu::draw_rect_flat(88, 214, 144, 18, 35, 10, 10);
+                self.renderer.font.draw_text(94, 218, "NO MEMORY CARD FOUND", (255, 160, 160));
+            }
+            crate::save::SaveStatus::SaveErrorUnformatted => {
+                gpu::draw_rect_flat(88, 214, 144, 18, 35, 25, 10);
+                self.renderer.font.draw_text(94, 218, "CARD IS UNFORMATTED", (255, 200, 100));
+            }
+            crate::save::SaveStatus::SaveErrorCorrupt => {
+                gpu::draw_rect_flat(88, 214, 144, 18, 35, 18, 10);
+                self.renderer.font.draw_text(94, 218, "CARD IS UNREADABLE", (255, 170, 90));
+            }
+            crate::save::SaveStatus::SaveErrorFailed => {
+                gpu::draw_rect_flat(88, 214, 144, 18, 35, 10, 10);
+                self.renderer.font.draw_text(94, 218, "SAVE OPERATION FAILED", (255, 160, 160));
+            }
+            // `SaveStatus::Saving` has no arm: `save_game` sets it and overwrites
+            // it before it returns, so no reader can ever observe it. The old
+            // "SAVING TO MEM CARD..." branch here was unreachable.
+            _ => {}
+        }
+    }
+
+    /// "NEW CAMPAIGN" confirmation: erasing a completed save is irreversible,
+    /// so it is asked for rather than done behind a menu press.
+    fn draw_new_campaign_prompt(&self) {
+        let box_x: i16 = 34;
+        let box_y: i16 = 108;
+        let box_w: u16 = 252;
+        let box_h: u16 = 74;
+
+        gpu::draw_rect_flat(box_x, box_y, box_w, box_h, 30, 14, 14);
+        gpu::draw_rect_flat(box_x + 2, box_y + 2, box_w - 4, box_h - 4, 14, 6, 6);
+        gpu::draw_rect_flat(box_x, box_y, box_w, 2, 220, 60, 60);
+        gpu::draw_rect_flat(box_x, box_y + box_h as i16 - 2, box_w, 2, 220, 60, 60);
+        gpu::draw_rect_flat(box_x, box_y, 2, box_h, 220, 60, 60);
+        gpu::draw_rect_flat(box_x + box_w as i16 - 2, box_y, 2, box_h, 220, 60, 60);
+
+        self.renderer.font.draw_text(box_x + 30, box_y + 12, "ERASE SAVED PROGRESS?", (255, 120, 110));
+        self.renderer
+            .font
+            .draw_text(box_x + 20, box_y + 30, "THIS RESTARTS FROM STAGE 1-1", (230, 220, 200));
+        self.renderer
+            .font
+            .draw_text(box_x + 14, box_y + 48, "CROSS: ERASE AND START     O: CANCEL", (255, 235, 120));
     }
 
     fn draw_controller_disconnected_overlay(&self) {
@@ -1094,4 +1261,57 @@ impl Game {
         // Footer helper
         self.renderer.font.draw_text(box_x + 24, box_y + box_h as i16 - 18, "CROSS/START: SELECT   O: RESUME", (100, 140, 160));
     }
+}
+
+/// Whether the card is there *and* a save would land, probed when the CODEC is
+/// opened.
+///
+/// Asked at the point of use rather than read off `memcard.status`, which is a
+/// self-clearing message rather than a card state: right after boot it still
+/// held the outcome of the load, so for the first 90 frames the scribe played
+/// "no memory card found" on a healthy card. The slot order and the acceptance
+/// test match `save_game`, so the answer is the question the scribe is really
+/// asking -- a card that answers but is unformatted or unreadable cannot hold
+/// a save, and reporting otherwise is the silent-failure case.
+fn probe_card_present() -> bool {
+    for slot in [psx_mc::Slot::One, psx_mc::Slot::Two] {
+        let mut card = psx_mc::Card::new(psx_mc::HardwareCard::new(slot));
+        if matches!(card.is_formatted(), Ok(true)) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Camera offset from the boss on frame `frame` of the intro orbit.
+///
+/// `sin_1_3_12` indexes its 256-entry table with `angle & 0xFF`, so one
+/// revolution is [`ORBIT_TURN_UNITS`], not the 4096 the old `* 16 & 0x0FFF`
+/// implied: that reduced the angle to `(frame & 0x0F) * 16` and the whole
+/// cutscene to 16 camera positions, repeated 15 times. Scaling the frame index
+/// by a full turn and dividing once spreads the remainder over the cutscene,
+/// so the step is 1 or 2 units and the sweep takes
+/// `BOSS_INTRO_FRAMES` distinct positions -- far above the 60 a smooth orbit
+/// needs.
+fn boss_orbit_offset(frame: u16) -> (i32, i32) {
+    let angle = (frame as u32 * ORBIT_TURN_UNITS / BOSS_INTRO_FRAMES as u32) as u16;
+    let sin_v = psx_gte_core::transform::sin_1_3_12(angle) as i32;
+    let cos_v = psx_gte_core::transform::cos_1_3_12(angle) as i32;
+    (
+        (sin_v * BOSS_ORBIT_RADIUS) >> 12,
+        (cos_v * BOSS_ORBIT_RADIUS) >> 12,
+    )
+}
+
+/// True when every campaign act has been cleared, as distinct from "Act 4-3 is
+/// the pending mission" -- which is count 11, and used to be indistinguishable
+/// from completion because both were read as `unlocked_act >= 11`.
+fn campaign_completed(unlocked_act: u8) -> bool {
+    unlocked_act >= crate::save::CAMPAIGN_ACT_COUNT
+}
+
+/// The campaign act the title screen's CONTINUE loads: the clear count itself,
+/// clamped so it can never name a VR training act.
+fn pending_act(unlocked_act: u8) -> u8 {
+    unlocked_act.min(crate::save::CAMPAIGN_ACT_COUNT - 1)
 }

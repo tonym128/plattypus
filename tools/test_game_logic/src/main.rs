@@ -320,7 +320,7 @@ impl SaveData {
     }
 
     pub fn is_sane(&self) -> bool {
-        self.unlocked_act < 16
+        self.unlocked_act <= CAMPAIGN_ACT_COUNT
             && self.selected_costume < 3
             && self.language < 5
             && self.pal_mode < 3
@@ -438,6 +438,132 @@ impl Act {
             _ => Act::Act1_1Drainage,
         }
     }
+}
+
+// --------------------------------------------------------------------------
+// Campaign progress (mirror of game/src/game.rs + game/src/save.rs)
+// --------------------------------------------------------------------------
+
+/// Mirror of `save::CAMPAIGN_ACT_COUNT`.
+pub const CAMPAIGN_ACT_COUNT: u8 = 12;
+/// Mirror of the video standards' frame rates (game/src/game.rs).
+const FPS_NTSC: u32 = 60;
+const FPS_PAL: u32 = 50;
+/// Mirror of the boss intro cutscene constants (game/src/game.rs).
+const BOSS_INTRO_FRAMES: u16 = 240;
+const BOSS_ORBIT_RADIUS: i32 = 450;
+const ORBIT_TURN_UNITS: u32 = 256;
+
+/// Mirror of `save::new_campaign_save`.
+pub fn new_campaign_save(previous: &SaveData) -> SaveData {
+    SaveData {
+        language: previous.language,
+        pal_mode: previous.pal_mode,
+        screen_offset_x: previous.screen_offset_x,
+        screen_offset_y: previous.screen_offset_y,
+        wireframe_enabled: previous.wireframe_enabled,
+        ..SaveData::new()
+    }
+    .with_checksum()
+}
+
+/// Mirror of `Game::commit_progress`: the only writer of the campaign clear
+/// count, the high score and the yabby total.
+pub fn commit_progress(save: &mut SaveData, cleared: Option<Act>, score: u32, yabbies: u16) {
+    if let Some(act) = cleared {
+        let idx = act as u8;
+        if idx < CAMPAIGN_ACT_COUNT {
+            let target = (idx + 1).min(CAMPAIGN_ACT_COUNT);
+            save.unlocked_act = save.unlocked_act.max(target);
+        }
+    }
+    save.highest_score = save.highest_score.max(score);
+    save.total_yabbies = save.total_yabbies.max(yabbies);
+}
+
+/// Mirror of `game::campaign_completed`.
+pub fn campaign_completed(unlocked_act: u8) -> bool {
+    unlocked_act >= CAMPAIGN_ACT_COUNT
+}
+
+/// Mirror of `game::pending_act`.
+pub fn pending_act(unlocked_act: u8) -> u8 {
+    unlocked_act.min(CAMPAIGN_ACT_COUNT - 1)
+}
+
+/// Mirror of the title screen's CONTINUE decision.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum TitleContinue {
+    StageSelect,
+    PlayAct(Act),
+}
+
+pub fn title_continue(unlocked_act: u8) -> TitleContinue {
+    if campaign_completed(unlocked_act) {
+        TitleContinue::StageSelect
+    } else {
+        TitleContinue::PlayAct(Act::from_u8(pending_act(unlocked_act)))
+    }
+}
+
+/// Mirror of `Game::frames_per_second`.
+pub fn frames_to_seconds(frames: u32, fps: u32) -> u32 {
+    frames / fps
+}
+
+/// 256-entry Q1.12 sine table, copied from psx-math (`sincos.rs`).
+/// `sin_1_3_12` indexes it with `angle & 0xFF`, so one revolution is 256 units.
+const SIN_TABLE: [i16; 256] = [
+    0, 101, 201, 301, 401, 501, 601, 700, 799, 897, 995, 1092, 1189, 1285, 1380, 1474, 1567, 1660,
+    1751, 1842, 1931, 2019, 2106, 2191, 2276, 2359, 2440, 2520, 2598, 2675, 2751, 2824, 2896, 2967,
+    3035, 3102, 3166, 3229, 3290, 3349, 3406, 3461, 3513, 3564, 3612, 3659, 3703, 3745, 3784, 3822,
+    3857, 3889, 3920, 3948, 3973, 3996, 4017, 4036, 4052, 4065, 4076, 4085, 4091, 4095, 4096, 4095,
+    4091, 4085, 4076, 4065, 4052, 4036, 4017, 3996, 3973, 3948, 3920, 3889, 3857, 3822, 3784, 3745,
+    3703, 3659, 3612, 3564, 3513, 3461, 3406, 3349, 3290, 3229, 3166, 3102, 3035, 2967, 2896, 2824,
+    2751, 2675, 2598, 2520, 2440, 2359, 2276, 2191, 2106, 2019, 1931, 1842, 1751, 1660, 1567, 1474,
+    1380, 1285, 1189, 1092, 995, 897, 799, 700, 601, 501, 401, 301, 201, 101, 0, -101, -201, -301,
+    -401, -501, -601, -700, -799, -897, -995, -1092, -1189, -1285, -1380, -1474, -1567, -1660,
+    -1751, -1842, -1931, -2019, -2106, -2191, -2276, -2359, -2440, -2520, -2598, -2675, -2751,
+    -2824, -2896, -2967, -3035, -3102, -3166, -3229, -3290, -3349, -3406, -3461, -3513, -3564,
+    -3612, -3659, -3703, -3745, -3784, -3822, -3857, -3889, -3920, -3948, -3973, -3996, -4017,
+    -4036, -4052, -4065, -4076, -4085, -4091, -4095, -4096, -4095, -4091, -4085, -4076, -4065,
+    -4052, -4036, -4017, -3996, -3973, -3948, -3920, -3889, -3857, -3822, -3784, -3745, -3703,
+    -3659, -3612, -3564, -3513, -3461, -3406, -3349, -3290, -3229, -3166, -3102, -3035, -2967,
+    -2896, -2824, -2751, -2675, -2598, -2520, -2440, -2359, -2276, -2191, -2106, -2019, -1931,
+    -1842, -1751, -1660, -1567, -1474, -1380, -1285, -1189, -1092, -995, -897, -799, -700, -601,
+    -501, -401, -301, -201, -101,
+];
+
+/// Mirror of `psx_gte_core::transform::sin_1_3_12` / `cos_1_3_12`.
+fn sin_1_3_12(angle: u16) -> i16 {
+    SIN_TABLE[(angle & 0xFF) as usize]
+}
+
+fn cos_1_3_12(angle: u16) -> i16 {
+    sin_1_3_12(angle.wrapping_add(64))
+}
+
+/// Mirror of `game::boss_orbit_offset`: one full turn across the cutscene.
+fn boss_orbit_offset(frame: u16) -> (i32, i32) {
+    let angle = (frame as u32 * ORBIT_TURN_UNITS / BOSS_INTRO_FRAMES as u32) as u16;
+    let sin_v = sin_1_3_12(angle) as i32;
+    let cos_v = cos_1_3_12(angle) as i32;
+    (
+        (sin_v * BOSS_ORBIT_RADIUS) >> 12,
+        (cos_v * BOSS_ORBIT_RADIUS) >> 12,
+    )
+}
+
+/// The pre-fix formula, kept only to pin the regression it caused: a 4096-unit
+/// mask on a 256-entry table, so the angle is `(frame & 0x0F) * 16`.
+fn boss_orbit_offset_legacy(frame: u16) -> (i32, i32) {
+    let angle = frame.wrapping_mul(16) & 0x0FFF;
+    let sin_v = sin_1_3_12(angle) as i32;
+    let cos_v = cos_1_3_12(angle) as i32;
+    (
+        (sin_v * BOSS_ORBIT_RADIUS) >> 12,
+        (cos_v * BOSS_ORBIT_RADIUS) >> 12,
+    )
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -587,6 +713,10 @@ fn main() {
         ("screen_offset_y = 127", SaveData { screen_offset_y: 127, ..sample }),
         ("screen_offset_y = 17", SaveData { screen_offset_y: 17, ..sample }),
         ("unlocked_act = 16", SaveData { unlocked_act: 16, ..sample }),
+        // A VR act index in the campaign clear count: no longer reachable, so
+        // a card carrying one is a save written by the unclamped CODEC path.
+        ("unlocked_act = 13 (VR index)", SaveData { unlocked_act: 13, ..sample }),
+        ("unlocked_act = 15 (VR index)", SaveData { unlocked_act: 15, ..sample }),
         ("vr_cleared = 200", SaveData { vr_cleared: 200, ..sample }),
         ("tuxedo_unlocked = 7", SaveData { tuxedo_unlocked: 7, ..sample }),
     ];
@@ -598,9 +728,21 @@ fn main() {
     }
     let edge = SaveData { screen_offset_x: -16, screen_offset_y: 16, ..sample }.with_checksum();
     assert!(edge.is_sane(), "The options menu's +/-16 clamp is the accepted boundary");
-    // VR act indices are legitimate progress, not corruption.
-    let vr_progress = SaveData { unlocked_act: 15, ..sample }.with_checksum();
-    assert!(vr_progress.is_sane(), "A save written from the VR trainer (act 12..=15) must stay valid");
+    // A VR clear records `vr_cleared` and leaves the campaign count alone, so a
+    // save written from the VR trainer carries a campaign count, never a VR
+    // act index: the largest legitimate value is "all 12 acts cleared".
+    let vr_progress = SaveData {
+        vr_cleared: 0x0F,
+        unlocked_act: CAMPAIGN_ACT_COUNT,
+        ..sample
+    }
+    .with_checksum();
+    assert!(vr_progress.is_sane(), "A save written from the VR trainer must stay valid");
+    assert_eq!(
+        load_outcome_for(Some(&vr_progress.to_bytes())),
+        LoadOutcome::Loaded,
+        "A VR-trainer save must load, not be reported as corrupt"
+    );
     println!("✓ Save field-range validation test (PD-9d) PASSED");
 
     // 1e. Load classification: absent vs incompatible vs corrupt (PD-9c / 2.7)
@@ -677,25 +819,25 @@ fn main() {
     assert!(!CellType::Floor.is_water());
     println!("✓ Infiltration collision & terrain mechanics test PASSED");
 
-    // 5. Campaign Completion & Continue Bounds Tests (QA-1 / PD-1)
+    // 5. Campaign Completion & Continue Bounds Tests (QA-1 / PD-1 / PD-2)
     let max_campaign_act = Act::Act4_3ExcavatorBoss as u8;
     assert_eq!(max_campaign_act, 11, "Act 4-3 must be act index 11");
+    assert_eq!(CAMPAIGN_ACT_COUNT, 12, "The campaign clear count tops out at 12");
 
-    // Simulate completion of Act 4-3: unlocked_act must be clamped to 11
-    let next_act_idx = if max_campaign_act < 11 {
-        max_campaign_act + 1
-    } else {
-        11
-    };
-    let completed_unlocked_act = next_act_idx.min(11);
-    assert_eq!(completed_unlocked_act, 11, "Completed campaign must clamp unlocked_act to 11");
+    // Clearing the last act must read as "finished", which is a different
+    // value from "Act 4-3 is now available" (11).
+    let mut finished = SaveData::new();
+    commit_progress(&mut finished, Some(Act::Act4_3ExcavatorBoss), 0, 0);
+    assert_eq!(finished.unlocked_act, CAMPAIGN_ACT_COUNT, "Clearing 4-3 completes the campaign");
+    assert!(campaign_completed(finished.unlocked_act));
+    assert!(finished.is_sane());
 
-    // Continue flow: continue act index must never resolve to a VR act (>= 12)
+    // Continue flow: the pending act must never resolve to a VR act (>= 12),
+    // whatever the card carries.
     for unlocked in 0..=255u8 {
-        let continue_act_idx = unlocked.min(11);
-        let continue_act = Act::from_u8(continue_act_idx);
-        assert!(!continue_act.is_vr(), "Continue act must never be a VR training stage");
-        assert!((continue_act as u8) <= 11, "Continue act index must be in 0..=11");
+        let act = Act::from_u8(pending_act(unlocked));
+        assert!(!act.is_vr(), "Continue act must never be a VR training stage");
+        assert!((act as u8) <= 11, "Continue act index must be in 0..=11");
     }
     println!("✓ Campaign completion & continue bounds test (QA-1) PASSED");
 
@@ -866,13 +1008,288 @@ fn main() {
     assert_eq!(&format_score(1_500_000), b"999990", "Scores > 999,990 must be capped cleanly to 6 digits");
     println!("✓ Score display format & 6-digit bounds test (QA-7) PASSED");
 
-    // 11. PAL 50Hz vs NTSC 60Hz Timer Scaling Test (QA-8)
-    // Under NTSC: 60 fps. Under PAL: 50 fps.
-    let time_s_ntsc = |frames: u32| frames / 60;
-    let time_s_pal = |frames: u32| frames / 50;
-    assert_eq!(time_s_ntsc(3600), 60);
-    assert_eq!(time_s_pal(3000), 60);
-    println!("✓ PAL 50Hz vs NTSC 60Hz time scaling test (QA-8) PASSED");
+    // 11. PAL 50Hz vs NTSC 60Hz Frame->Second Conversion (QA-8 / UX-14b)
+    // Every conversion in the game goes through `frames_to_seconds(frames,
+    // frames_per_second)`, and the rate comes from the video standard in
+    // force. Hardcoding 60 made a PAL run's displayed time, its stored
+    // `best_time_seconds` and all 12 codename thresholds 20% too generous.
+    assert_eq!(frames_to_seconds(3600, FPS_NTSC), 60, "3600 frames at 60Hz is a minute");
+    assert_eq!(frames_to_seconds(3000, FPS_PAL), 60, "3000 frames at 50Hz is a minute");
+    assert_eq!(frames_to_seconds(0, FPS_NTSC), 0);
+    assert_eq!(frames_to_seconds(59, FPS_NTSC), 0, "A partial second truncates");
+    assert_eq!(frames_to_seconds(49, FPS_PAL), 0);
+    // The same wall clock is the same number of seconds on both standards:
+    // 72 s is 4320 frames at 60Hz and 3600 at 50Hz.
+    assert_eq!(frames_to_seconds(4320, FPS_NTSC), 72);
+    assert_eq!(frames_to_seconds(3600, FPS_PAL), 72);
+    // The regression: 3600 frames used to be reported as 60 s on both, so a PAL
+    // player was told 72 s of play had taken a minute.
+    assert_ne!(frames_to_seconds(3600, FPS_NTSC), frames_to_seconds(3600, FPS_PAL));
+    // Codename thresholds are in seconds, so a 420 s rank-S run must be 420 s
+    // of frames on whichever standard is in force -- the difficulty is the
+    // same in wall-clock terms, which is the point.
+    for (fps, frames_for_420s) in [(FPS_NTSC, 420 * FPS_NTSC), (FPS_PAL, 420 * FPS_PAL)] {
+        assert_eq!(frames_to_seconds(frames_for_420s, fps), 420);
+        assert_eq!(frames_to_seconds(frames_for_420s + 1, fps), 420);
+        assert_eq!(frames_to_seconds(frames_for_420s - 1, fps), 419);
+        assert_eq!(
+            Codename::evaluate(0, 0, frames_to_seconds(frames_for_420s, fps), 0),
+            Codename::BigPlatypus,
+            "A clean 420 s run is Rank S on either standard"
+        );
+    }
+    // 300 s is the Speedy Wallaby gate; on PAL it is 15000 frames, not 18000.
+    assert_eq!(frames_to_seconds(300 * FPS_PAL, FPS_PAL), 300);
+    assert_eq!(frames_to_seconds(300 * FPS_PAL - 1, FPS_PAL), 299);
+    println!("✓ PAL 50Hz vs NTSC 60Hz frame->second conversion test (QA-8 / UX-14b) PASSED");
 
-    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (15/15 test suites)");
+    // 12. Single commit_progress path: no writer leaves unlocked_act out of
+    // range, and a VR act never advances the campaign (PD-1).
+    {
+        // The regression: the CODEC scribe wrote `(act as u8).max(cur)` with no
+        // clamp, so a VR sim followed by a scribe save marked the campaign
+        // complete. Every act, from every prior count, through every path.
+        // (`max` cannot lower a count, so an already out-of-range card stays
+        // out of range -- which is why `is_sane` rejects one at load instead of
+        // trusting it. Only reachable counts are swept here.)
+        for start in 0..=CAMPAIGN_ACT_COUNT {
+            for idx in 0..=15u8 {
+                for advance in [false, true] {
+                    let mut save = SaveData::new();
+                    save.unlocked_act = start;
+                    let act = Act::from_u8(idx);
+                    commit_progress(&mut save, if advance { Some(act) } else { None }, 100, 3);
+                    assert!(
+                        save.unlocked_act <= CAMPAIGN_ACT_COUNT,
+                        "unlocked_act {} (from {start}, act {idx}, advance {advance}) is out of range",
+                        save.unlocked_act
+                    );
+                    let checked = save.with_checksum();
+                    assert!(checked.is_valid() && checked.is_sane(), "A committed save must pass its own validation");
+                    if act.is_vr() {
+                        assert_eq!(
+                            save.unlocked_act, start,
+                            "A VR act ({act:?}) must leave the campaign count at {start}"
+                        );
+                    }
+                    if !advance {
+                        assert_eq!(save.unlocked_act, start, "A stats-only write must not move the campaign count");
+                    }
+                }
+            }
+        }
+
+        // A linear playthrough raises the count by exactly one act per clear
+        // and lands on "finished", never above it.
+        let mut linear = SaveData::new();
+        let mut act = Act::Act1_1Drainage;
+        let mut clears = 0u8;
+        loop {
+            commit_progress(&mut linear, Some(act), 0, 0);
+            clears += 1;
+            assert_eq!(linear.unlocked_act, clears, "Clearing act {} must unlock exactly {}", act as u8, clears);
+            assert!(!campaign_completed(linear.unlocked_act) || clears == CAMPAIGN_ACT_COUNT);
+            match act.next() {
+                Some(next) => act = next,
+                None => break,
+            }
+        }
+        assert_eq!(clears, 12);
+        assert!(campaign_completed(linear.unlocked_act), "A finished playthrough reads as finished");
+        // Replaying an earlier act (Stage Select after the finish) must not
+        // walk the count backwards: every writer is a `max`.
+        commit_progress(&mut linear, Some(Act::Act1_1Drainage), 0, 0);
+        assert_eq!(linear.unlocked_act, CAMPAIGN_ACT_COUNT, "Progress never regresses on its own");
+
+        // `total_yabbies` compares, it does not add: `platty.yabbies_collected`
+        // is cumulative since `reset_for_new_game`, so the old `saturating_add`
+        // grew the total quadratically. Ten yabbies per act, 12 acts.
+        let mut yabbies = SaveData::new();
+        let mut act = Act::Act1_1Drainage;
+        let mut collected = 0u16;
+        loop {
+            collected += 10;
+            commit_progress(&mut yabbies, Some(act), 0, collected);
+            match act.next() {
+                Some(next) => act = next,
+                None => break,
+            }
+        }
+        assert_eq!(
+            yabbies.total_yabbies, 120,
+            "The yabby total is the campaign-cumulative count, not the sum of every stage's running total"
+        );
+        // A VR clear and a scribe save both record stats without touching it.
+        commit_progress(&mut yabbies, Some(Act::VrSpeed), 0, 5);
+        commit_progress(&mut yabbies, None, 0, 7);
+        assert_eq!(yabbies.total_yabbies, 120, "A lower running total must not lower the record");
+        assert_eq!(yabbies.highest_score, 0);
+    }
+    println!("✓ Single commit_progress path & range invariant test (PD-1) PASSED");
+
+    // 13. "NEW CAMPAIGN" resets the save (PD-3)
+    {
+        // A finished campaign, fully unlocked, as it sits on the card.
+        let mut done = SaveData::new();
+        let mut act = Act::Act1_1Drainage;
+        loop {
+            commit_progress(&mut done, Some(act), 5000, 120);
+            match act.next() {
+                Some(next) => act = next,
+                None => break,
+            }
+        }
+        done.tuxedo_unlocked = 1;
+        done.camo_unlocked = 1;
+        done.vr_cleared = 0x0F;
+        done.best_time_seconds = 240;
+        done.best_codename = *b"IRON BILL       ";
+        done.language = 2;
+        done.pal_mode = 1;
+        done.screen_offset_x = -4;
+        done.screen_offset_y = 6;
+        done.wireframe_enabled = 1;
+        let done = done.with_checksum();
+        assert!(campaign_completed(done.unlocked_act), "Precondition: the save is a finished campaign");
+
+        let fresh = new_campaign_save(&done);
+        assert_eq!(fresh.unlocked_act, 0, "A new campaign starts at the first act, not the last");
+        assert!(!campaign_completed(fresh.unlocked_act), "The title must not offer STAGE SELECT after a reset");
+        assert_eq!(title_continue(fresh.unlocked_act), TitleContinue::PlayAct(Act::Act1_1Drainage));
+        assert!(fresh.is_sane(), "A reset save must pass the field-range check");
+        assert!(fresh.is_valid(), "A reset save must be checksummed and loadable");
+        assert_eq!(load_outcome_for(Some(&fresh.to_bytes())), LoadOutcome::Loaded);
+
+        // Progression is gone, the player's display setup is not.
+        assert_eq!(fresh.tuxedo_unlocked, 0);
+        assert_eq!(fresh.camo_unlocked, 0);
+        assert_eq!(fresh.vr_cleared, 0);
+        assert_eq!(fresh.highest_score, 0);
+        assert_eq!(fresh.total_yabbies, 0);
+        assert_eq!(fresh.best_time_seconds, 9999);
+        assert_eq!(&fresh.best_codename, b"NEW RECRUIT     ");
+        // The costume returns to the default suit: tuxedo and camo are exactly
+        // the unlocks being cleared, so keeping the selection would leave the
+        // player wearing an unearned costume.
+        assert_eq!(fresh.selected_costume, 0);
+        assert_eq!(fresh.language, 2, "Language is a setting, not an achievement");
+        assert_eq!(fresh.pal_mode, 1, "The video standard is a setting");
+        assert_eq!(fresh.screen_offset_x, -4);
+        assert_eq!(fresh.screen_offset_y, 6);
+        assert_eq!(fresh.wireframe_enabled, 1, "Wireframe is on by default, so its toggle survives");
+
+        // The reset depends on nothing but the five preserved settings, and is
+        // deterministic: the same card always resets to the same save.
+        assert_eq!(fresh, new_campaign_save(&done), "The reset must be a pure function of the settings");
+        let mut other = done;
+        other.unlocked_act = 1;
+        other.tuxedo_unlocked = 0;
+        other.vr_cleared = 0;
+        other.highest_score = 0;
+        other.selected_costume = 2;
+        other.best_time_seconds = 9999;
+        assert_eq!(fresh, new_campaign_save(&other), "Progression must not survive in any form");
+        let baseline = SaveData::new();
+        assert_eq!(fresh.magic, baseline.magic);
+        assert_eq!(fresh.version, baseline.version);
+        assert_eq!(fresh.best_time_seconds, baseline.best_time_seconds);
+        assert_eq!(fresh.wireframe_unlocked, baseline.wireframe_unlocked, "Wireframe stays available by default");
+    }
+    println!("✓ New-campaign save reset test (PD-3) PASSED");
+
+    // 14. "Campaign complete" is a distinct signal from "Act 4-3 pending" (PD-2)
+    {
+        // Eleven acts cleared: Act 4-3 is the pending mission, and the title's
+        // CONTINUE must load it. Before the split, `unlocked_act >= 11` was
+        // read as completion, so this branch was unreachable and the final
+        // boss could only be reached by playing through or via Stage Select.
+        let mut before_final = SaveData::new();
+        let mut act = Act::Act1_1Drainage;
+        while act != Act::Act4_3ExcavatorBoss {
+            commit_progress(&mut before_final, Some(act), 0, 0);
+            act = act.next().expect("the campaign must lead to 4-3");
+        }
+        assert_eq!(before_final.unlocked_act, 11);
+        assert!(!campaign_completed(before_final.unlocked_act), "4-3 pending is not completion");
+        assert_eq!(title_continue(before_final.unlocked_act), TitleContinue::PlayAct(Act::Act4_3ExcavatorBoss));
+        assert!(!Act::Act4_3ExcavatorBoss.is_vr());
+
+        // Clearing 4-3 moves the count to 12, which is the only value that
+        // means completion, and the title switches to Stage Select.
+        let mut after_final = before_final;
+        commit_progress(&mut after_final, Some(Act::Act4_3ExcavatorBoss), 0, 0);
+        assert_ne!(
+            after_final.unlocked_act, before_final.unlocked_act,
+            "The completion signal must be a different value from the pending act"
+        );
+        assert!(campaign_completed(after_final.unlocked_act));
+        assert_eq!(title_continue(after_final.unlocked_act), TitleContinue::StageSelect);
+
+        // The two states are one value apart, so the title cannot confuse them.
+        assert_eq!(before_final.unlocked_act + 1, after_final.unlocked_act);
+        // Every reachable clear count resolves to exactly one title behaviour.
+        for cleared in 0..=CAMPAIGN_ACT_COUNT {
+            let act = title_continue(cleared);
+            if campaign_completed(cleared) {
+                assert_eq!(act, TitleContinue::StageSelect);
+            } else {
+                assert_eq!(act, TitleContinue::PlayAct(Act::from_u8(cleared)));
+            }
+        }
+    }
+    println!("✓ Campaign-complete vs 4-3-pending title routing test (PD-2) PASSED");
+
+    // 15. Boss intro camera orbit is a smooth full turn (UX-9)
+    {
+        let mut positions = [(0i32, 0i32); BOSS_INTRO_FRAMES as usize];
+        for (i, slot) in positions.iter_mut().enumerate() {
+            *slot = boss_orbit_offset(i as u16 + 1);
+        }
+        let mut distinct: Vec<(i32, i32)> = positions.to_vec();
+        distinct.sort_unstable();
+        distinct.dedup();
+        assert!(
+            distinct.len() >= 60,
+            "The intro orbit must sweep a full turn: {} distinct positions over {BOSS_INTRO_FRAMES} frames, need >= 60",
+            distinct.len()
+        );
+        assert_eq!(
+            distinct.len(),
+            BOSS_INTRO_FRAMES as usize,
+            "Every frame of the sweep is its own camera position (frame 240 is the one that wraps to the start)"
+        );
+
+        // One revolution: the sweep starts and ends in the same place, and the
+        // radius is the one the cutscene asks for.
+        let (start_x, start_z) = boss_orbit_offset(0);
+        let (end_x, end_z) = boss_orbit_offset(BOSS_INTRO_FRAMES);
+        assert_eq!((start_x, start_z), (end_x, end_z), "The orbit must complete one full turn");
+        for (x, z) in positions.iter() {
+            let r2 = x * x + z * z;
+            let lo = (BOSS_ORBIT_RADIUS - 4) * (BOSS_ORBIT_RADIUS - 4);
+            let hi = (BOSS_ORBIT_RADIUS + 4) * (BOSS_ORBIT_RADIUS + 4);
+            assert!((lo..=hi).contains(&r2), "Orbit radius drifted to {r2}");
+        }
+
+        // Smooth: no frame-to-frame jump, where the old formula repeated the
+        // same 16 positions 15 times over the cutscene.
+        let mut legacy_distinct: Vec<(i32, i32)> = (0..BOSS_INTRO_FRAMES).map(boss_orbit_offset_legacy).collect();
+        legacy_distinct.sort_unstable();
+        legacy_distinct.dedup();
+        assert_eq!(legacy_distinct.len(), 16, "The pre-fix formula really was a 16-step stutter");
+        for w in positions.windows(2) {
+            let step = (w[1].0 - w[0].0).abs().max((w[1].1 - w[0].1).abs());
+            assert!(step <= 32, "Camera jumped {step} units in one frame");
+        }
+        // Half the cutscene in, the camera must be on the far side of the boss.
+        let (mid_x, mid_z) = boss_orbit_offset(BOSS_INTRO_FRAMES / 2);
+        let across = (mid_x - start_x).abs().max((mid_z - start_z).abs());
+        assert!(
+            across > BOSS_ORBIT_RADIUS / 2,
+            "Halfway through the sweep the camera must be opposite its start (moved {across} units)"
+        );
+    }
+    println!("✓ Boss intro orbit sweep test (UX-9) PASSED");
+
+    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (19/19 test suites)");
 }
