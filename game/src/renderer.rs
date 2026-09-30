@@ -1060,26 +1060,62 @@ impl Renderer {
             return;
         }
 
-        if let Some(tex) = texture {
-            self.draw_quad_3d_textured_gouraud(world_pts[0], world_pts[1], world_pts[2], world_pts[3], tex, FaceDirection::Top, col);
-            self.draw_quad_3d_textured_gouraud(world_pts[2], world_pts[3], world_pts[6], world_pts[7], tex, FaceDirection::Front, col);
-            self.draw_quad_3d_textured_gouraud(world_pts[1], world_pts[0], world_pts[5], world_pts[4], tex, FaceDirection::Back, col);
-            self.draw_quad_3d_textured_gouraud(world_pts[2], world_pts[0], world_pts[6], world_pts[4], tex, FaceDirection::Left, col);
-            self.draw_quad_3d_textured_gouraud(world_pts[1], world_pts[3], world_pts[5], world_pts[7], tex, FaceDirection::Right, col);
-            self.draw_quad_3d_textured_gouraud(world_pts[6], world_pts[7], world_pts[4], world_pts[5], tex, FaceDirection::Bottom, col);
-        } else {
-            let f_col = ((col.0 as u16 * 85 / 100) as u8, (col.1 as u16 * 85 / 100) as u8, (col.2 as u16 * 85 / 100) as u8);
-            let b_col = ((col.0 as u16 * 75 / 100) as u8, (col.1 as u16 * 75 / 100) as u8, (col.2 as u16 * 75 / 100) as u8);
-            let l_col = ((col.0 as u16 * 70 / 100) as u8, (col.1 as u16 * 70 / 100) as u8, (col.2 as u16 * 70 / 100) as u8);
-            let r_col = ((col.0 as u16 * 60 / 100) as u8, (col.1 as u16 * 60 / 100) as u8, (col.2 as u16 * 60 / 100) as u8);
-            let bot_col = ((col.0 as u16 * 45 / 100) as u8, (col.1 as u16 * 45 / 100) as u8, (col.2 as u16 * 45 / 100) as u8);
+        let f_col = ((col.0 as u16 * 85 / 100) as u8, (col.1 as u16 * 85 / 100) as u8, (col.2 as u16 * 85 / 100) as u8);
+        let b_col = ((col.0 as u16 * 75 / 100) as u8, (col.1 as u16 * 75 / 100) as u8, (col.2 as u16 * 75 / 100) as u8);
+        let l_col = ((col.0 as u16 * 70 / 100) as u8, (col.1 as u16 * 70 / 100) as u8, (col.2 as u16 * 70 / 100) as u8);
+        let r_col = ((col.0 as u16 * 60 / 100) as u8, (col.1 as u16 * 60 / 100) as u8, (col.2 as u16 * 60 / 100) as u8);
+        let bot_col = ((col.0 as u16 * 45 / 100) as u8, (col.1 as u16 * 45 / 100) as u8, (col.2 as u16 * 45 / 100) as u8);
 
-            Self::draw_quad_3d(world_pts[0], world_pts[1], world_pts[2], world_pts[3], col.0, col.1, col.2);
-            Self::draw_quad_3d(world_pts[2], world_pts[3], world_pts[6], world_pts[7], f_col.0, f_col.1, f_col.2);
-            Self::draw_quad_3d(world_pts[1], world_pts[0], world_pts[5], world_pts[4], b_col.0, b_col.1, b_col.2);
-            Self::draw_quad_3d(world_pts[2], world_pts[0], world_pts[6], world_pts[4], l_col.0, l_col.1, l_col.2);
-            Self::draw_quad_3d(world_pts[1], world_pts[3], world_pts[5], world_pts[7], r_col.0, r_col.1, r_col.2);
-            Self::draw_quad_3d(world_pts[6], world_pts[7], world_pts[4], world_pts[5], bot_col.0, bot_col.1, bot_col.2);
+        // Faces are emitted back-to-front. The order used to be fixed, so on a
+        // `rotate_y`-transformed box the back face was drawn before the left and
+        // right faces and overwrote them on roughly half of all rotations.
+        // Sorting by the face centre's distance from the camera restores the
+        // painter's algorithm within the box; there is no depth buffer to fall
+        // back on.
+        let face_depth = |a: usize, b: usize, c: usize, dd: usize| -> i32 {
+            let z = (world_pts[a].z as i32 + world_pts[b].z as i32
+                + world_pts[c].z as i32 + world_pts[dd].z as i32) / 4;
+            let dz = z - self.cam_z;
+            if dz < 0 { -dz } else { dz }
+        };
+        // (corner quad, direction, base colour) sorted by descending depth.
+        let mut faces: [(usize, usize, usize, usize, FaceDirection, (u8, u8, u8)); 6] = [
+            (0, 1, 2, 3, FaceDirection::Top, col),
+            (2, 3, 6, 7, FaceDirection::Front, f_col),
+            (1, 0, 5, 4, FaceDirection::Back, b_col),
+            (2, 0, 6, 4, FaceDirection::Left, l_col),
+            (1, 3, 5, 7, FaceDirection::Right, r_col),
+            (6, 7, 4, 5, FaceDirection::Bottom, bot_col),
+        ];
+        // Insertion sort by descending depth: six elements, and this runs per
+        // box, so the constant factor matters more than asymptotics.
+        for i in 1..faces.len() {
+            let mut j = i;
+            while j > 0
+                && face_depth(
+                    faces[j].0, faces[j].1, faces[j].2, faces[j].3,
+                ) > face_depth(
+                    faces[j - 1].0, faces[j - 1].1, faces[j - 1].2, faces[j - 1].3,
+                )
+            {
+                faces.swap(j, j - 1);
+                j -= 1;
+            }
+        }
+
+        if let Some(tex) = texture {
+            for f in faces.iter() {
+                self.draw_quad_3d_textured_gouraud(
+                    world_pts[f.0], world_pts[f.1], world_pts[f.2], world_pts[f.3], tex, f.4, f.5,
+                );
+            }
+        } else {
+            for f in faces.iter() {
+                Self::draw_quad_3d(
+                    world_pts[f.0], world_pts[f.1], world_pts[f.2], world_pts[f.3],
+                    f.5.0, f.5.1, f.5.2,
+                );
+            }
         }
     }
 

@@ -2770,5 +2770,50 @@ fn main() {
         );
     }
 
-    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (45/45 test suites)");
+    // 41. Box faces are emitted back-to-front (SE-10)
+    //
+    // Faces were emitted in a fixed order, so on a rotated box the back face
+    // was drawn before the left and right faces and overwrote them on roughly
+    // half of all rotations. There is no depth buffer to fall back on.
+    {
+        // Six faces of an axis-aligned box, indexed by corner. Mirror of the
+        // insertion sort in `draw_model_box_textured`.
+        const FACES: [(usize, usize, usize, usize); 6] = [
+            (0, 1, 2, 3), // top
+            (2, 3, 6, 7), // front
+            (1, 0, 5, 4), // back
+            (2, 0, 6, 4), // left
+            (1, 3, 5, 7), // right
+            (6, 7, 4, 5), // bottom
+        ];
+        // A unit cube's corner z values.
+        let corner_z = [0i32, 0, 1, 1, 0, 0, 1, 1];
+        let depth = |f: (usize, usize, usize, usize)| -> i32 {
+            (corner_z[f.0] + corner_z[f.1] + corner_z[f.2] + corner_z[f.3]) / 4
+        };
+        let sort_desc = |mut v: Vec<(usize, usize, usize, usize)>| {
+            for i in 1..v.len() {
+                let mut j = i;
+                while j > 0 && depth(v[j]) > depth(v[j - 1]) {
+                    v.swap(j, j - 1);
+                    j -= 1;
+                }
+            }
+            v
+        };
+
+        let sorted = sort_desc(FACES.to_vec());
+        // Descending by depth: the two z=1 faces first, then the z=0 faces.
+        for w in sorted.windows(2) {
+            assert!(depth(w[0]) >= depth(w[1]), "faces must be sorted back-to-front");
+        }
+        assert_eq!(depth(sorted[0]), 1, "the nearest-depth face draws first");
+        assert_eq!(depth(sorted[5]), 0, "the furthest-depth face draws last");
+        assert_eq!(sorted.len(), 6, "all six faces must still be drawn");
+        // The old order put `back` (z=0) before `left`/`right` (z=0) only by
+        // accident of listing; with a rotated box that put a far face in front
+        // of a near one. Sorting is what makes it correct at any rotation.
+    }
+
+    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (46/46 test suites)");
 }
