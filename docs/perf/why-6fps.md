@@ -48,36 +48,49 @@ where it stops, and the reason is not a performance problem.**
 ## The blocker: the MDEC cannot decode while a ReadN is live
 
 With a CD `ReadN` running, the MDEC's block-mode input DMA (channel 0)
-stops partway through a frame and the decode dies at about **slice 14 of
-20**. Register-level trace of one frame, stream live versus stopped:
+stops partway through a frame and the decode dies at about **slice 12-14
+of 20**. Register trace of the failing frame:
 
 ```
-stream live                          stream stopped
-col 11 pre=2E04038F inb=1            col 11 -> ...
-col 12 pre=2E04038F inb=0   <- ch0 finally done
-col 13 ok=1 post=9604FFFF   <- DATA_IN_FULL | DATA_OUT_EMPTY, dead
-"MDEC produced no more pixels"
+f=8 col=11 pre=2E0402D4 inb=1     <- input DMA still running at slice 11
+f=8 col=13 post=9604FFFF          <- dead
+"no more pixels f=8 col=11 stat=9604FFFF w0=38000DC0 avail=8"
 ```
 
-`0x9604FFFF` is the MDEC sitting with a full input buffer and an empty
-output, having consumed only part of the frame. Ruled out along the way:
-the ring contents are correct (`w0=38000D40`, the right decode command);
-the IRQ mask is `0x1` (VBlank only, so no CD interrupt storm); masking the
-idle CD DMA channel changes nothing; and the `stop()` in the shipped code
-was load-bearing, not incidental.
+`0x9604FFFF` decoded against `psx_hw::mdec::status` is **not** what it
+first appears: `DATA_OUT_EMPTY`(31)=1, `DATA_IN_FULL`(30)=**0**,
+`BUSY`(29)=**0**, `DATA_IN_REQ`(28)=**1**. The MDEC is not backed up, it
+is *starving* -- actively requesting input while the input channel is
+idle. The DMA under-delivered. An earlier reading of this word as
+"DATA_IN_FULL set" sent the investigation down the wrong path; the
+corrected decode is what redirected it.
 
-Two workarounds were built and both made it worse:
+The sharpest single piece of evidence: **frames 0-7 always decode, frame 8
+always fails.** Frames 0-7 come from the blocking prime at startup, read
+back to back with no decode in between. Frame 8 is the first frame read by
+the non-blocking `service_cd` path, i.e. the first one that arrives after
+the ring has filled and the drive's data FIFO has backed up. So the
+trigger is *CD state during the decode*, not DMA arbitration.
 
-- **Feed the MDEC through its data port** from the drain's service
-  callback, removing the ch0 DMA entirely. The callback only fires every
-  1024 spins, which cannot keep the input FIFO topped up: 150/150 frames
-  failed, against 4/150 with the original path.
-- **`pause_read`/`resume_read` around each decode** to keep the stream
-  seek-free. `resume_read` re-delivers the sector that was in flight, so
-  every frame is offset by a sector; with the discard it failed on all
-  frames, without it on 4 then panicked. The SDK's own wording -- "the
-  first sector *can* duplicate" -- is not something to build frame
-  alignment on.
+### What was tried, and what each one ruled out
+
+| Attempt | Result | Ruled out |
+| --- | --- | --- |
+| Feed the MDEC via its data port from the drain's service callback | 150/150 frames fail (callback fires every 1024 spins, cannot keep the input FIFO full) | Not a ch0-DMA problem |
+| `CHCR` mode sweep against a zeroed buffer | "20 slices" was a false positive: ch1 completes trivially with no input | The shipped `0x01000201` SyncBlock mode is fine; a SyncRequest "fix" was a red herring |
+| `mdec::init()` before every frame | No change on its own | Not MDEC latch state |
+| Mask the idle CD DMA channel (DPCR bit 27) | No change | Not DMA channel arbitration |
+| Clear the drive's interrupt-enable mask, keep streaming | 0 failures, but the run then **stalls** -- the ring-full path set `stream_closed` and never resumed, so no further reads happened and it fell back to the old behaviour | Not (only) drive interrupts |
+| `pause_read` around each decode | Still fails at frame 8, with the drive confirmed paused (`pause ok=1`) | **`pause` is not enough; `stop` is** |
+| `psx_io::irq::ack(CDROM)` before the decode | Still frame 8 | Not the outstanding CPU `I_STAT` bit alone |
+
+`SectorReader::stop` is `pause_read` **plus** `ack_all()` plus clearing the
+deferred-sector state, and only `stop` is known to make the decode work.
+So the requirement is narrow and precise: the decode needs the reader in
+its fully-stopped state, and `pause_read` does not reach it. Finding what
+in that delta the MDEC is actually sensitive to is the remaining work, and
+it is a small, well-posed question -- but it is in the SDK's CD path, not
+in the video player.
 
 ## What the arithmetic says is actually required
 
