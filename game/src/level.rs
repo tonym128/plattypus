@@ -6,6 +6,16 @@ pub const GRID_W: usize = 24;
 pub const GRID_D: usize = 24;
 pub const TILE_SZ: i32 = 64; // 64x64 world units per tile
 
+/// Tripwire cells guarding the Act 1-2 laser grid. Three of these sit on
+/// column 11, which a cosmetic grating pass also paints, so they are applied
+/// after every other pass in that generator.
+const ACT1_2_LASER_TRIPWIRES: [(usize, usize); 6] =
+    [(7, 6), (7, 16), (15, 11), (11, 11), (11, 6), (11, 16)];
+
+/// Half-extent of the stage-exit trigger, kept inside `TILE_SZ` so the exit
+/// cannot be taken from the adjacent tile.
+const EXIT_TRIGGER_RADIUS: i32 = TILE_SZ / 2 - 4;
+
 // SE-7: Compile-time overflow guard ensuring world coordinates fit in PS1 16-bit GTE/GPU limits
 const _: () = {
     assert!((GRID_W as i32 * TILE_SZ) < (i16::MAX as i32));
@@ -32,8 +42,7 @@ impl CellType {
     #[inline]
     pub fn is_solid(&self, is_crawling: bool) -> bool {
         match self {
-            CellType::Wall | CellType::Container => true,
-            CellType::Crate => true,
+            CellType::Wall | CellType::Container | CellType::Crate => true,
             CellType::AirDuct => !is_crawling, // Passable only when crawling!
             _ => false,
         }
@@ -266,6 +275,35 @@ impl Level {
         self.get_cell(gx, gz).is_water()
     }
 
+    /// True when a security laser tripwire occupies this world position.
+    /// Tripwires are passable -- crawling under a beam is the intended
+    /// bypass -- so this is a separate query from `is_solid_at`.
+    pub fn laser_tripwire_at(&self, wx: i32, wz: i32) -> bool {
+        if wx < 0 || wz < 0 {
+            return false;
+        }
+        let gx = (wx / TILE_SZ) as usize;
+        let gz = (wz / TILE_SZ) as usize;
+        self.get_cell(gx, gz) == CellType::LaserTripwire
+    }
+
+    /// True when the given grid column is painted as Act 3 road marking.
+    /// The renderer used to hardcode these columns, which put level layout
+    /// knowledge in the draw path.
+    pub fn is_road_row(&self, gz: usize) -> bool {
+        gz == 18 || gz == 12
+    }
+
+    /// True when the given grid column is Act 3 sidewalk paving.
+    pub fn is_sidewalk_col(&self, gx: usize) -> bool {
+        gx == 4 || gx == 19
+    }
+
+    /// True when the given grid column is Act 4 dune sand.
+    pub fn is_dune_col(&self, gx: usize) -> bool {
+        gx == 6 || gx == 22
+    }
+
     pub fn is_tall_grass_at(&self, wx: i32, wz: i32) -> bool {
         if wx < 0 || wz < 0 {
             return false;
@@ -275,10 +313,15 @@ impl Level {
         self.get_cell(gx, gz) == CellType::TallGrass
     }
 
+    /// True when a world position is inside the exit burrow tile.
+    ///
+    /// The trigger is confined to its own tile. An earlier 40-unit half-extent
+    /// spanned 80 units across a 64-unit tile, so the exit could be taken from
+    /// the neighbouring tile and through a wall.
     pub fn is_exit_at(&self, wx: i32, wz: i32) -> bool {
         let dx = (wx - self.exit_x).abs();
         let dz = (wz - self.exit_z).abs();
-        dx < 40 && dz < 40
+        dx < EXIT_TRIGGER_RADIUS && dz < EXIT_TRIGGER_RADIUS
     }
 
     fn generate(&mut self) {
@@ -400,14 +443,6 @@ impl Level {
             }
         }
 
-        // Laser tripwires across high-security hallways
-        self.set_cell(7, 6, CellType::LaserTripwire);
-        self.set_cell(7, 16, CellType::LaserTripwire);
-        self.set_cell(15, 11, CellType::LaserTripwire);
-        self.set_cell(11, 11, CellType::LaserTripwire);
-        self.set_cell(11, 6, CellType::LaserTripwire);
-        self.set_cell(11, 16, CellType::LaserTripwire);
-
         // Ventilation duct crawl passages connecting sectors (stealth bypasses!)
         self.set_cell(7, 4, CellType::AirDuct);
         self.set_cell(7, 18, CellType::AirDuct);
@@ -431,6 +466,17 @@ impl Level {
             self.set_cell(3, z, CellType::MetalGrate);
             self.set_cell(11, z, CellType::MetalGrate);
             self.set_cell(19, z, CellType::MetalGrate);
+        }
+
+        // Laser tripwires across high-security hallways.
+        //
+        // Placed last: `set_cell` is last-write-wins, and the grating pass
+        // above overwrites column 11 for z = 5..=17. Placing these earlier
+        // silently erased the three tripwires on that column, halving the grid
+        // this stage is named for. Hazards therefore go after every pass that
+        // paints walkable or cosmetic ground.
+        for (lx, lz) in ACT1_2_LASER_TRIPWIRES {
+            self.set_cell(lx, lz, CellType::LaserTripwire);
         }
 
         // Exit blast door burrow leading out to perimeter wall

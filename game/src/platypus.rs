@@ -20,6 +20,17 @@ pub const HITBOX_JETSKI_RADIUS: i32 = 48;
 pub const HITBOX_SNIPER_RADIUS: i32 = 56;
 pub const HITBOX_EXCAVATOR_RADIUS: i32 = 60;
 
+/// How close an alerted sentry must be to strike, and how long it waits
+/// between swings.
+pub const SENTRY_CONTACT_RADIUS: i32 = 28;
+pub const SENTRY_ATTACK_COOLDOWN: u8 = 45;
+
+/// Cost of walking upright through a security laser tripwire, and how long the
+/// beam takes to re-arm afterwards.
+pub const TRIPWIRE_DAMAGE: u8 = 1;
+pub const TRIPWIRE_REARM_FRAMES: u8 = 90;
+pub const TRIPWIRE_NOISE_RADIUS: i32 = 120;
+
 pub const SCORE_CQC_FRONTAL: u32 = 200;
 pub const SCORE_CQC_SILENT: u32 = 500;
 pub const SCORE_CONDUIT_HIT: u32 = 150;
@@ -28,6 +39,46 @@ pub const SCORE_BOSS_HIT: u32 = 1000;
 pub const SCORE_BOSS_DEFEATED: u32 = 5000;
 pub const SCORE_EXCAVATOR_HIT: u32 = 1500;
 pub const SCORE_FINAL_BOSS_DEFEATED: u32 = 10000;
+
+/// Deflection that counts as a full-tilt analog push, matching
+/// `psx_pad::Deadzone`'s normalised output.
+pub const ANALOG_FULL_DEFLECTION: i32 = 127;
+
+/// Radial deadzone applied to every analog stick, in raw stick units about
+/// centre. One value for both sticks: the right stick aims the sonar and CQC
+/// facing, and an ungated right stick made a worn pad read as aiming.
+pub const ANALOG_DEADZONE: i16 = 18;
+
+/// Below this the player counts as deliberately standing still, which the
+/// cardboard box relies on.
+pub const MOVING_SPEED_EPSILON: i32 = 1;
+
+/// X component of a velocity of magnitude `speed` pointing along a heading.
+/// Headings are 0..256 units per revolution with 0 = South (+Z) and
+/// 64 = East (+X), so X follows sine and Z follows cosine.
+///
+/// Scaling the heading rather than the stick axes keeps the movement speed
+/// identical at every stick angle: dividing each axis by the full deflection a
+/// second time truncated moderate diagonal input to a velocity of zero.
+///
+/// The shift rounds rather than truncates. On a diagonal each axis is
+/// `speed * 0.707`, so truncating threw away almost 30% of the intended speed
+/// (a run of 4 became 2 per axis) and could round a slow diagonal push down to
+/// a dead stop.
+pub fn heading_vx(angle: u16, speed: i32) -> i32 {
+    let n = sin_1_3_12(angle) as i32 * speed;
+    let q = n.div_euclid(1 << 12);
+    let r = n.rem_euclid(1 << 12);
+    (q + (r >= (1 << 11)) as i32).clamp(-speed, speed)
+}
+
+/// Z component of a velocity of magnitude `speed` pointing along a heading.
+pub fn heading_vz(angle: u16, speed: i32) -> i32 {
+    let n = cos_1_3_12(angle) as i32 * speed;
+    let q = n.div_euclid(1 << 12);
+    let r = n.rem_euclid(1 << 12);
+    (q + (r >= (1 << 11)) as i32).clamp(-speed, speed)
+}
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum PlayerState {
@@ -72,6 +123,15 @@ pub struct Platypus {
     pub step_audio_timer: u8,
     pub on_ground: bool,
 
+    /// Frames until a tripped laser tripwire can fire again.
+    pub tripwire_cooldown: u8,
+
+    /// Whether the player is actively asking to move this frame, recorded
+    /// from the input rather than inferred from velocity. The cardboard box
+    /// treats a motionless box as harmless, and a diagonal analog push that
+    /// truncated to zero velocity used to read as "not moving".
+    pub input_moving: bool,
+
     // DualShock Vibration Timers
     pub rumble_small_timer: u8,
     pub rumble_large_timer: u8,
@@ -108,6 +168,8 @@ impl Platypus {
             anim_frame: 0,
             step_audio_timer: 0,
             on_ground: true,
+            input_moving: false,
+            tripwire_cooldown: 0,
             rumble_small_timer: 0,
             rumble_large_timer: 0,
             rumble_large_intensity: 0,
@@ -147,6 +209,8 @@ impl Platypus {
         self.total_damage = 0;
         self.has_box = false;
         self.in_box = false;
+        self.input_moving = false;
+        self.tripwire_cooldown = 0;
     }
 
     pub fn trigger_rumble_small(&mut self, duration: u8) {
@@ -619,7 +683,7 @@ impl Platypus {
 
         // DualShock Analog Stick vs Digital D-pad directional movement
         let (lx, ly) = pad.sticks.left_centered();
-        let dz = Deadzone::new(18);
+        let dz = Deadzone::new(ANALOG_DEADZONE);
         let analog_stick = if pad.mode.has_sticks() {
             dz.scaled(lx, ly)
         } else {
@@ -627,6 +691,7 @@ impl Platypus {
         };
 
         let mut is_analog_moving = false;
+        self.input_moving = false;
 
         if let Some((sx, sy)) = analog_stick {
             let sx_i32 = sx as i32;
@@ -635,6 +700,7 @@ impl Platypus {
 
             if mag > 0 {
                 is_analog_moving = true;
+                self.input_moving = true;
 
                 // True 360-degree angle from analog stick via atan2_q12
                 // atan2_q12(sx, sy) returns 0..4096. Shifting >> 4 gives 0..256 matching GTE rotation.
@@ -656,13 +722,18 @@ impl Platypus {
                     4 // Full run speed
                 };
 
-                // Scale velocity smoothly with analog stick deflection
-                let speed = (max_speed * mag) / 127;
+                // Scale velocity smoothly with analog stick deflection, then
+                // aim it along the stick heading. Scaling each *axis* by the
+                // scalar speed divided the stick by 127 a second time, so
+                // moderate diagonal input truncated to a velocity of zero
+                // while the player still counted as Running and emitted full
+                // footstep noise.
+                let speed = (max_speed * mag) / ANALOG_FULL_DEFLECTION;
                 let speed = speed.max(1);
 
-                self.vx = (sx_i32 * speed) / 127;
+                self.vx = heading_vx(self.angle, speed);
                 // Stick UP (negative sy) = South (+Z), stick DOWN (positive sy) = North (-Z)
-                self.vz = (-sy_i32 * speed) / 127;
+                self.vz = heading_vz(self.angle, speed);
 
                 if level.act.is_rapids() {
                     self.vz -= 2; // Rushing downriver!
@@ -734,8 +805,7 @@ impl Platypus {
             };
 
             if move_x != 0 || move_z != 0 {
-                self.vx = move_x * speed;
-                self.vz = move_z * speed;
+                self.input_moving = true;
 
                 // Facing angle: 0=South (+Z), 64=East (+X), 128=North (-Z), 192=West (-X)
                 if move_x > 0 && move_z == 0 {
@@ -755,6 +825,13 @@ impl Platypus {
                 } else if move_x < 0 && move_z < 0 {
                     self.angle = 160; // NW
                 }
+
+                // Aim the same normalised velocity the analog path uses.
+                // Setting both axes to the full speed made a diagonal 41%
+                // faster than a cardinal, which rewarded D-pad play over
+                // stick play and disagreed with the analog result.
+                self.vx = heading_vx(self.angle, speed);
+                self.vz = heading_vz(self.angle, speed);
 
                 if self.in_box {
                     self.noise_radius = 45;
@@ -807,6 +884,27 @@ impl Platypus {
             self.vz = 0;
         }
 
+        // Security laser tripwire. Tripwires are passable rather than solid so
+        // the belly-crawl is the intended bypass, so nothing else in the
+        // collision pass would ever notice the player walking into one. A
+        // crawler is under the beam; anything upright trips it. The trigger
+        // re-arms after the cooldown, and the invulnerability window from
+        // `take_damage` prevents a single crossing being charged repeatedly.
+        if !self.crawl_mode
+            && !self.in_box
+            && level.laser_tripwire_at(self.x, self.z)
+            && self.tripwire_cooldown == 0
+        {
+            self.tripwire_cooldown = TRIPWIRE_REARM_FRAMES;
+            self.take_damage(TRIPWIRE_DAMAGE);
+            // A tripped beam is loud: it hands the player off to whoever is
+            // listening, which is the whole reason to crawl under it.
+            self.noise_radius = self.noise_radius.max(TRIPWIRE_NOISE_RADIUS);
+        }
+        if self.tripwire_cooldown > 0 {
+            self.tripwire_cooldown -= 1;
+        }
+
         // Collectibles pickup
         for c in entities.collectibles.iter_mut() {
             if !c.active || !c.revealed {
@@ -856,13 +954,21 @@ impl Platypus {
             }
         }
 
-        // Sentry Collision & Attack Check (any stage with active sentries)
+        // Sentry Collision & Attack Check (any stage with active sentries).
+        // Only a sentry that has actually acquired the player may strike.
+        // Proximity alone meant an unaware guard -- one still rendering the
+        // "?" marker, or nothing at all -- hit for damage every cooldown,
+        // which made closing the distance strictly worse than staying away.
         for s in entities.sentries.iter_mut() {
-            if s.active && s.stun_timer == 0 {
+            if s.active
+                && s.stun_timer == 0
+                && (s.see_player || s.state == SentryState::AlertChase)
+                && s.attack_cooldown == 0
+            {
                 let dx = (self.x - s.x).abs();
                 let dz = (self.z - s.z).abs();
-                if dx < 28 && dz < 28 && s.attack_cooldown == 0 {
-                    s.attack_cooldown = 45;
+                if dx < SENTRY_CONTACT_RADIUS && dz < SENTRY_CONTACT_RADIUS {
+                    s.attack_cooldown = SENTRY_ATTACK_COOLDOWN;
                     self.take_damage(1);
                     self.vx = if self.x < s.x { -6 } else { 6 };
                     self.vz = if self.z < s.z { -6 } else { 6 };
