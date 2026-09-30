@@ -321,8 +321,42 @@ pub struct ExcavatorBoss {
     pub hit_timer: u8,
     pub slime_cooldown: u16,
     pub shields_down: bool,
-    pub engine_hp: [u8; 3],
+    /// Remaining hits on each of the three engines. Taking one down drops the
+    /// machine into a venting window, which is the player's only safe opening.
+    pub engine_hp: [u8; EXCAVATOR_ENGINES],
+    pub state: ExcavatorState,
 }
+
+/// Phase machine for the Act 4-3 climax. The three engines are the fight: each
+/// one dropped forces a recovery window, and the machine only dies once all
+/// three are gone.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum ExcavatorState {
+    /// Shields up. Claw sweep and slime mortar only; the hull cannot be hurt.
+    Shielded,
+    /// An engine was just destroyed. The machine vents for
+    /// `EXCAVATOR_VENTING_FRAMES`, during which the hull takes damage.
+    Venting(u16),
+    /// All engines gone, shields permanently down.
+    Exposed,
+    Defeated(u16),
+}
+
+/// Number of destructible engines on the excavator.
+pub const EXCAVATOR_ENGINES: usize = 3;
+/// How long the machine vents after an engine is destroyed.
+pub const EXCAVATOR_VENTING_FRAMES: u16 = 150;
+/// Engine health when the fight starts.
+pub const EXCAVATOR_ENGINE_HP: u8 = 2;
+/// Striking radius of one engine.
+pub const EXCAVATOR_ENGINE_HIT_RADIUS: i32 = 40;
+/// How long the death animation plays after the final engine falls.
+pub const EXCAVATOR_DEATH_FRAMES: u16 = 120;
+
+/// X offset of each engine relative to the machine's centre, so the player can
+/// tell which one they are about to hit.
+pub const EXCAVATOR_ENGINE_OFFSETS: [(i32, i32); EXCAVATOR_ENGINES] =
+    [(-90, 0), (0, -70), (90, 0)];
 
 impl ExcavatorBoss {
     pub const fn empty() -> Self {
@@ -339,12 +373,54 @@ impl ExcavatorBoss {
             hit_timer: 0,
             slime_cooldown: 120,
             shields_down: false,
-            engine_hp: [2, 2, 2],
+            engine_hp: [EXCAVATOR_ENGINE_HP; EXCAVATOR_ENGINES],
+            state: ExcavatorState::Shielded,
         }
     }
 
     pub fn is_defeated(&self) -> bool {
         self.health == 0 || !self.active
+    }
+
+    /// True while the hull is open to damage.
+    pub fn is_vulnerable(&self) -> bool {
+        self.active && !self.is_defeated() && matches!(self.state, ExcavatorState::Venting(_))
+    }
+
+    /// Index of the engine within striking distance of a world position, if any.
+    pub fn engine_at(&self, wx: i32, wz: i32) -> Option<usize> {
+        if !self.active {
+            return None;
+        }
+        EXCAVATOR_ENGINE_OFFSETS
+            .iter()
+            .position(|(dx, dz)| {
+                (wx - (self.x + dx)).abs() <= EXCAVATOR_ENGINE_HIT_RADIUS
+                    && (wz - (self.z + dz)).abs() <= EXCAVATOR_ENGINE_HIT_RADIUS
+            })
+    }
+
+    /// Apply a strike to an engine, returning true if that engine was destroyed.
+    ///
+    /// Destroying the last engine leaves the machine permanently exposed; any
+    /// other engine forces a venting window.
+    pub fn damage_engine(&mut self, index: usize) -> bool {
+        if index >= EXCAVATOR_ENGINES || self.engine_hp[index] == 0 {
+            return false;
+        }
+        self.engine_hp[index] -= 1;
+        if self.engine_hp[index] > 0 {
+            return false;
+        }
+        let all_down = self.engine_hp.iter().all(|hp| *hp == 0);
+        if all_down {
+            self.shields_down = true;
+            self.state = ExcavatorState::Exposed;
+        } else {
+            self.state = ExcavatorState::Venting(EXCAVATOR_VENTING_FRAMES);
+        }
+        self.state_timer = 0;
+        true
     }
 }
 
@@ -1265,7 +1341,8 @@ impl EntityManager {
             hit_timer: 0,
             slime_cooldown: 120,
             shields_down: false,
-            engine_hp: [2, 2, 2],
+            engine_hp: [EXCAVATOR_ENGINE_HP; EXCAVATOR_ENGINES],
+            state: ExcavatorState::Shielded,
         };
 
         self.spawn_item(0, CollectibleType::YabbyRation, 4 * TILE_SZ, 15 * TILE_SZ, true);
@@ -1998,23 +2075,72 @@ impl EntityManager {
         if self.boss_excavator.hit_timer > 0 {
             self.boss_excavator.hit_timer -= 1;
         }
-        self.boss_excavator.state_timer = self.boss_excavator.state_timer.wrapping_add(1);
-
-        // Sweeping shovel claw
-        self.boss_excavator.claw_angle = self.boss_excavator.claw_angle.wrapping_add((self.boss_excavator.sweep_dir * 3) as u16);
-        if self.boss_excavator.claw_angle > 180 {
-            self.boss_excavator.sweep_dir = -1;
-        } else if self.boss_excavator.claw_angle < 40 {
-            self.boss_excavator.sweep_dir = 1;
+        let exc = &mut self.boss_excavator;
+        if exc.hit_timer > 0 {
+            exc.hit_timer -= 1;
+        }
+        if exc.is_defeated() {
+            // Burn out the death timer and stop acting.
+            if let ExcavatorState::Defeated(ref mut t) = exc.state {
+                *t = t.saturating_sub(1);
+                if *t == 0 {
+                    exc.active = false;
+                }
+            } else {
+                exc.state = ExcavatorState::Defeated(EXCAVATOR_DEATH_FRAMES);
+            }
+            return;
         }
 
-        // Slime mortar
-        if self.boss_excavator.slime_cooldown > 0 {
-            self.boss_excavator.slime_cooldown -= 1;
+        // Phase timer. `state_timer` was previously incremented and never read;
+        // it now measures how long the current phase has run, which the renderer
+        // uses for the venting flash.
+        exc.state_timer = exc.state_timer.wrapping_add(1);
+
+        // Phase transitions.
+        match exc.state {
+            ExcavatorState::Venting(ref mut t) => {
+                if *t > 0 {
+                    *t -= 1;
+                    if *t == 0 {
+                        // Shields back up. The machine is never permanently open
+                        // unless every engine is gone.
+                        exc.state = if exc.shields_down {
+                            ExcavatorState::Exposed
+                        } else {
+                            ExcavatorState::Shielded
+                        };
+                        exc.state_timer = 0;
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        let venting = exc.is_vulnerable();
+
+        // Sweeping shovel claw. It stops while the machine vents, which is the
+        // window the player is meant to use.
+        if !venting {
+            exc.claw_angle = exc.claw_angle.wrapping_add((exc.sweep_dir * 3) as u16);
+            if exc.claw_angle > 180 {
+                exc.sweep_dir = -1;
+            } else if exc.claw_angle < 40 {
+                exc.sweep_dir = 1;
+            }
+        }
+
+        // Slime mortar. Suppressed while venting so the recovery window is
+        // actually safe rather than merely a damage opening.
+        if venting {
+            exc.slime_cooldown = EXCAVATOR_VENTING_FRAMES.min(90);
+        } else if exc.slime_cooldown > 0 {
+            exc.slime_cooldown -= 1;
         } else {
-            self.boss_excavator.slime_cooldown = 110;
+            let target_z = exc.z + 120;
+            exc.slime_cooldown = 110;
             AudioManager::play_swoosh();
-            self.spawn_particle(player_x, -10, self.boss_excavator.z + 120, 0, 1, 0, 30, (80, 220, 40), 4);
+            self.spawn_particle(player_x, -10, target_z, 0, 1, 0, 30, (80, 220, 40), 4);
         }
     }
 

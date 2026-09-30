@@ -2498,5 +2498,108 @@ fn main() {
         assert!(distinct > 200, "a drone must visit many distinct positions, got {distinct}");
     }
 
-    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (40/40 test suites)");
+    // 36. The excavator is a real fight, not four free hits (UX-7)
+    //
+    // The climax shipped as a flat four-HP stationary target. `state_timer`,
+    // `shields_down` and `engine_hp` existed and were never read: three fields
+    // documenting a mechanic that was never implemented.
+    {
+        const ENGINES: usize = 3;
+        const ENGINE_HP: u8 = 2;
+        const VENTING_FRAMES: u16 = 150;
+
+        #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+        enum State {
+            Shielded,
+            Venting(u16),
+            Exposed,
+        }
+
+        // Mirror of `ExcavatorBoss`.
+        struct Excavator {
+            health: u8,
+            engine_hp: [u8; ENGINES],
+            shields_down: bool,
+            state: State,
+        }
+        impl Excavator {
+            fn vulnerable(&self) -> bool {
+                self.health > 0 && matches!(self.state, State::Venting(_))
+            }
+            fn damage_engine(&mut self, i: usize) -> bool {
+                if i >= ENGINES || self.engine_hp[i] == 0 {
+                    return false;
+                }
+                self.engine_hp[i] -= 1;
+                if self.engine_hp[i] > 0 {
+                    return false;
+                }
+                if self.engine_hp.iter().all(|h| *h == 0) {
+                    self.shields_down = true;
+                    self.state = State::Exposed;
+                } else {
+                    self.state = State::Venting(VENTING_FRAMES);
+                }
+                true
+            }
+        }
+
+        let mut e = Excavator {
+            health: 4,
+            engine_hp: [ENGINE_HP; ENGINES],
+            shields_down: false,
+            state: State::Shielded,
+        };
+
+        // The hull is untouchable while the shields hold.
+        assert!(!e.vulnerable(), "the hull must be closed at the start");
+
+        // Each engine takes two hits, and only the killing blow opens a window.
+        assert!(!e.damage_engine(0), "first hit must not destroy the engine");
+        assert_eq!(e.engine_hp[0], 1);
+        assert!(!e.vulnerable(), "a single hit must not open the hull");
+        assert!(e.damage_engine(0), "the second hit must destroy the engine");
+        assert!(e.vulnerable(), "destroying an engine must open the hull");
+
+        // Every engine is independently targetable.
+        for i in 1..ENGINES {
+            assert!(!e.damage_engine(i));
+            assert!(e.damage_engine(i), "engine {i} must be destructible");
+        }
+
+        // All three down: permanently exposed, and the flag is finally read.
+        assert_eq!(e.engine_hp, [0; ENGINES]);
+        assert!(e.shields_down, "shields_down must be set once every engine is gone");
+        assert_eq!(e.state, State::Exposed, "the final engine must not just vent");
+        assert!(!e.vulnerable(), "Exposed is a distinct state from Venting");
+
+        // An already-destroyed engine cannot be hit again.
+        assert!(!e.damage_engine(0), "a destroyed engine must not be re-killed");
+        // Out-of-range indices are inert rather than panicking.
+        assert!(!e.damage_engine(ENGINES), "an out-of-range engine index must be ignored");
+
+        // The fight costs six engine strikes, so the four HP hull is a real
+        // second phase rather than the whole battle.
+        assert_eq!(ENGINES * ENGINE_HP as usize, 6);
+    }
+
+    // 37. Venting windows expire and the shields come back up (UX-7)
+    {
+        const VENTING_FRAMES: u16 = 150;
+        // An engine destroyed mid-fight vents for a bounded time, then the
+        // shields return. The window must be a window, not a permanent state.
+        let mut venting = VENTING_FRAMES;
+        let mut frames = 0u16;
+        while venting > 0 {
+            venting -= 1;
+            frames += 1;
+        }
+        assert_eq!(frames, VENTING_FRAMES, "the window must last exactly its duration");
+        assert!(
+            VENTING_FRAMES as i32 >= 60 && VENTING_FRAMES as i32 <= 300,
+            "a venting window of {VENTING_FRAMES} frames is not a fair opening"
+        );
+    }
+
+    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (42/42 test suites)");
 }

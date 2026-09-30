@@ -1425,6 +1425,44 @@ impl Renderer {
         self.draw_model_box(ex, ey, ez, 4 + arm_reach / 2, -30, 36, 8, 8, 24, &rot, (150, 150, 160));
         // Heavy Shovel Bucket Claw
         self.draw_model_box(ex, ey, ez, 2 + arm_reach, -18, 54, 14, 16, 16, &rot, (60, 65, 70));
+
+        // The three engines. They are the only part of the machine the player
+        // can damage while the shields hold, so they have to read as targets
+        // from across the arena: a pulsing intake when intact, a dark burnt
+        // housing once destroyed.
+        use crate::entities::{EXCAVATOR_ENGINES, EXCAVATOR_ENGINE_OFFSETS, ExcavatorState};
+        let venting = matches!(exc.state, ExcavatorState::Venting(_));
+        for i in 0..EXCAVATOR_ENGINES {
+            let hp = exc.engine_hp.get(i).copied().unwrap_or(0);
+            let (ox, oz) = EXCAVATOR_ENGINE_OFFSETS[i];
+            let hx = ex + ox;
+            let hz = ez + oz;
+            if hp == 0 {
+                // Destroyed: a blackened stub and a wisp of smoke.
+                self.draw_model_box(hx, ey, hz, -8, -22, -8, 16, 8, 16, &rot, (28, 26, 26));
+                if (exc.state_timer / 8) % 3 != 0 {
+                    self.draw_model_box(hx, ey, hz, -4, -30, -4, 8, 10, 8, &rot, (60, 58, 58));
+                }
+            } else {
+                let pulse = if venting { 255 } else { 200 };
+                let base = if hp == 2 { (110, 200, 255) } else { (255, 190, 60) };
+                // Housing plus a glowing intake, so damage is visible.
+                self.draw_model_box(hx, ey, hz, -12, -26, -12, 24, 14, 24, &rot, (60, 64, 70));
+                self.draw_model_box(
+                    hx,
+                    ey,
+                    hz,
+                    -8,
+                    -32,
+                    -8,
+                    16,
+                    10,
+                    16,
+                    &rot,
+                    (base.0.min(pulse), base.1.min(pulse), base.2),
+                );
+            }
+        }
     }
 
     fn draw_jetski_boss_hud(&self, jetski: &crate::entities::JetSkiBoss) {
@@ -1466,18 +1504,50 @@ impl Renderer {
     }
 
     fn draw_excavator_boss_hud(&self, exc: &crate::entities::ExcavatorBoss) {
+        use crate::entities::{EXCAVATOR_ENGINES, ExcavatorState};
+
         let bx: i16 = 180;
         let by: i16 = 8;
         let bw: u16 = 134;
-        let bh: u16 = 36;
+        let bh: u16 = 40;
 
         gpu::draw_rect_flat(bx, by, bw, bh, 24, 20, 10);
         gpu::draw_rect_flat(bx + 2, by + 2, bw - 4, bh - 4, 10, 8, 4);
 
-        self.font.draw_text(bx + 6, by + 4, "DR. TOAD-DOZER", (255, 200, 40));
-        self.font.draw_text(bx + 6, by + 18, "VALVES", (140, 230, 80));
-        let hp_w = (exc.health as u16 * 14).min(56);
-        gpu::draw_rect_flat(bx + 66, by + 19, hp_w, 8, 255, 180, 40);
+        self.draw_text_clamped(bx + 6, by + 4, "DR. TOAD-DOZER", (255, 200, 40));
+
+        // One pip per engine, filling as it takes damage. The engines are the
+        // fight, so the gauge has to name them rather than showing hull health
+        // the player cannot act on.
+        self.draw_text_clamped(bx + 6, by + 16, "ENGINES", (140, 230, 80));
+        for i in 0..EXCAVATOR_ENGINES {
+            let px = bx + 62 + (i as i16) * 22;
+            let hp = exc.engine_hp.get(i).copied().unwrap_or(0);
+            gpu::draw_rect_flat(px, by + 16, 18, 9, 40, 36, 20);
+            if hp > 0 {
+                let w = (hp as u16 * 9).min(18);
+                gpu::draw_rect_flat(px, by + 16, w, 9, 255, 180, 40);
+            }
+        }
+
+        // Shield state, and a clear prompt during the venting window so the
+        // player knows the hull is open right now.
+        let (label, colour) = match exc.state {
+            ExcavatorState::Venting(_) => ("VENTING - HIT NOW", (120, 255, 160)),
+            ExcavatorState::Exposed => ("SHIELDS DOWN", (120, 255, 160)),
+            _ => ("SHIELDS UP", (200, 200, 210)),
+        };
+        self.draw_text_clamped(bx + 6, by + 28, label, colour);
+
+        // Hull pips, only meaningful once the shields are down.
+        if matches!(exc.state, ExcavatorState::Venting(_) | ExcavatorState::Exposed) {
+            for i in 0..exc.max_health as u16 {
+                let px = bx + 100 + (i as i16) * 7;
+                let filled = i < exc.health as u16;
+                let c = if filled { (255, 60, 60) } else { (70, 40, 40) };
+                gpu::draw_rect_flat(px, by + 29, 5, 7, c.0, c.1, c.2);
+            }
+        }
     }
 
     // -------------------------------------------------------------------------

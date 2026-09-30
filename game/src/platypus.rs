@@ -3,7 +3,10 @@
 //! belly-crawl stealth mode, water diving, and electro-reception radar pulse.
 
 use crate::audio::AudioManager;
-use crate::entities::{CollectibleType, EntityManager, MechState, RiverObstacleType, SentryState};
+use crate::entities::{
+    CollectibleType, EntityManager, MechState, RiverObstacleType, SentryState,
+    EXCAVATOR_ENGINE_OFFSETS,
+};
 use crate::level::{Act, CellType, Level, TILE_SZ};
 use psx_gte_core::transform::{cos_1_3_12, sin_1_3_12};
 use psx_pad::{button, ButtonState, Deadzone, PadState};
@@ -39,6 +42,8 @@ pub const SCORE_BOSS_HIT: u32 = 1000;
 pub const SCORE_BOSS_DEFEATED: u32 = 5000;
 pub const SCORE_EXCAVATOR_HIT: u32 = 1500;
 pub const SCORE_FINAL_BOSS_DEFEATED: u32 = 10000;
+/// Destroying one of the excavator's three engines.
+pub const SCORE_EXCAVATOR_ENGINE: u32 = 750;
 
 /// Deflection that counts as a full-tilt analog push, matching
 /// `psx_pad::Deadzone`'s normalised output.
@@ -649,28 +654,54 @@ impl Platypus {
                 }
             }
 
-            // Boss Act 4-3: Dr. Cane Toad's Excavator Strike
+            // Boss Act 4-3: Dr. Cane Toad's Excavator
+            //
+            // The fight is the three engines. Striking one damages it; the
+            // strike that kills an engine forces the machine into a venting
+            // window, and the hull only takes damage while it vents or once all
+            // engines are gone. Previously this was four free hits on a static
+            // target with no counter-play.
             if level.act == Act::Act4_3ExcavatorBoss {
                 let exc = &mut entities.boss_excavator;
                 if exc.active && !exc.is_defeated() && exc.hit_timer == 0 {
-                    let dx = (self.x - exc.x).abs();
-                    let dz = (self.z - exc.z).abs();
-                    if dx < HITBOX_EXCAVATOR_RADIUS && dz < HITBOX_EXCAVATOR_RADIUS {
-                        exc.hit_timer = 30;
-                        if exc.health > 1 {
-                            exc.health -= 1;
-                            self.score += SCORE_EXCAVATOR_HIT;
-                            self.screen_shake = 12;
-                            self.trigger_rumble_large(24, 255);
-                            AudioManager::play_metal();
-                            spark_pos = Some((exc.x, -24, exc.z));
+                    if let Some(engine) = exc.engine_at(self.x, self.z) {
+                        exc.hit_timer = 24;
+                        if exc.damage_engine(engine) {
+                            self.score += SCORE_EXCAVATOR_ENGINE;
+                            self.screen_shake = 14;
+                            self.trigger_rumble_large(26, 255);
+                            AudioManager::play_hit();
+                            AudioManager::play_alert();
+                            let (ex, ez) = (exc.x + EXCAVATOR_ENGINE_OFFSETS[engine].0, exc.z + EXCAVATOR_ENGINE_OFFSETS[engine].1);
+                            for _ in 0..5 {
+                                entities.spawn_particle(ex, -22, ez, 0, -3, 0, 26, (255, 150, 40), 4);
+                            }
                         } else {
-                            exc.health = 0;
-                            self.score += SCORE_FINAL_BOSS_DEFEATED;
-                            self.screen_shake = 20;
-                            self.trigger_rumble_large(40, 255);
-                            AudioManager::play_fanfare();
-                            spark_pos = Some((exc.x, -24, exc.z));
+                            self.score += SCORE_EXCAVATOR_HIT;
+                            self.screen_shake = 8;
+                            self.trigger_rumble_large(16, 255);
+                            AudioManager::play_metal();
+                        }
+                    } else if exc.is_vulnerable() {
+                        // Hull strike, only possible while the shields are down.
+                        let dx = (self.x - exc.x).abs();
+                        let dz = (self.z - exc.z).abs();
+                        if dx < HITBOX_EXCAVATOR_RADIUS && dz < HITBOX_EXCAVATOR_RADIUS {
+                            exc.hit_timer = 30;
+                            if exc.health > 1 {
+                                exc.health -= 1;
+                                self.score += SCORE_EXCAVATOR_HIT;
+                                self.screen_shake = 12;
+                                self.trigger_rumble_large(24, 255);
+                                AudioManager::play_metal();
+                            } else {
+                                exc.health = 0;
+                                exc.state = crate::entities::ExcavatorState::Defeated(crate::entities::EXCAVATOR_DEATH_FRAMES);
+                                self.score += SCORE_FINAL_BOSS_DEFEATED;
+                                self.screen_shake = 20;
+                                self.trigger_rumble_large(40, 255);
+                                AudioManager::play_fanfare();
+                            }
                         }
                     }
                 }
