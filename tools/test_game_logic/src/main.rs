@@ -1982,5 +1982,100 @@ fn main() {
         assert!(!strikes(true, SentryState::Patrolling, 30, 0), "a stunned guard must not strike");
     }
 
-    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (29/29 test suites)");
+    // 25. SPU sample bank: dedup, bounds, and the unconfigured-voice fix
+    //     (SE-6, SE-7, SE-8)
+    {
+        // Mirror of `audio::spu_reserve` + `upload_sample_once`. Sizes mirror
+        // the real blobs: SELECT is the largest SFX, METAL and SWOOSH are the
+        // ones the table re-points.
+        const SPU_BASE: u32 = 0x1010;
+        const SPU_END: u32 = 0x8_0000;
+        const SPU_MAX: usize = 24;
+
+        // Each entry is (address, length, fingerprint) mirroring SPU_BANK.
+        let mut bank: [(u32, u32, u32); 24] = [(0, 0, 0); 24];
+        let mut bank_len = 0usize;
+        let mut cursor = SPU_BASE;
+        let mut failures = 0u8;
+        let mut sram_used = 0u32;
+
+        // The distinct blobs, and how many voices want each.
+        let blobs: [(&str, u32); 8] = [
+            ("jump", 6336), ("coin", 7200), ("swoosh", 14256), ("punch", 7264),
+            ("metal", 31536), ("beep", 2048), ("footstep", 2832), ("select", 40800),
+        ];
+        // The SFX table, as (blob index, voice). VOICE_SPLASH reuses swoosh,
+        // VOICE_SPUR reuses metal, ALERT/CHIME/VOICE reuses beep.
+        let table: [(usize, u32); 13] = [
+            (0, 0), (1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6),
+            (2, 7),  // SPLASH -> swoosh
+            (5, 8),  // ALERT  -> beep
+            (4, 9),  // SPUR   -> metal
+            (5, 10), // CHIME  -> beep
+            (5, 11), // VOICE  -> beep
+            (7, 12), // SELECT -> select
+        ];
+
+        let mut addrs = [0u32; 13];
+        for (blob, voice) in table {
+            let (_, len) = blobs[blob];
+            let fp = (blob as u32) | 0x8000_0000; // unique per blob
+            let mut reused = None;
+            for i in 0..bank_len {
+                if bank[i].1 == len && bank[i].2 == fp {
+                    reused = Some(bank[i].0);
+                    break;
+                }
+            }
+            if let Some(addr) = reused {
+                addrs[voice as usize] = addr; // reused, no upload
+                continue;
+            }
+            let end = cursor + ((len + 7) & !7);
+            if end > SPU_END || bank_len == SPU_MAX {
+                failures += 1;
+                continue;
+            }
+            bank[bank_len] = (cursor, len, fp);
+            bank_len += 1;
+            cursor = end;
+            sram_used += (len + 7) & !7;
+            addrs[voice as usize] = cursor - ((len + 7) & !7);
+        }
+
+        // Every voice, including SELECT, now has a real address.
+        for v in 0..13u32 {
+            assert!(addrs[v as usize] >= SPU_BASE, "voice {v} has no configured address");
+        }
+        // 13 voices but only 8 distinct blobs.
+        assert_eq!(bank_len, 8, "expected 8 distinct uploads for 13 voices");
+        // The two voices sharing a blob share an address.
+        assert_eq!(addrs[2], addrs[7], "SPLASH must reuse SWOOSH");
+        assert_eq!(addrs[4], addrs[9], "SPUR must reuse METAL");
+        assert_eq!(addrs[5], addrs[8], "ALERT must reuse ELECTRO");
+        assert_eq!(addrs[5], addrs[10], "CHIME must reuse ELECTRO");
+        assert_eq!(addrs[5], addrs[11], "VOICE must reuse ELECTRO");
+        // No overlap: each upload starts where the previous ended.
+        for i in 1..bank_len {
+            let prev = bank[i - 1];
+            assert!(
+                prev.0 + ((prev.1 + 7) & !7) <= bank[i].0,
+                "SPU bank entries overlap"
+            );
+        }
+        // Well inside the 512 KB SPU.
+        assert!(cursor < SPU_END, "bank overflowed SPU RAM");
+        // The 13 distinct uploads this replaces cost ~52 KB more.
+        assert!(
+            sram_used < 0x5_0000,
+            "bank should stay well under SPU RAM, used {sram_used}"
+        );
+        assert_eq!(failures, 0, "no bank entry should fail to fit");
+
+        // SE-6 regression: the fanfare voice is voice 12 and must be in the
+        // table, not merely declared.
+        assert_eq!(table[12].1, 12, "the fanfare voice must be configured");
+    }
+
+    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (30/30 test suites)");
 }

@@ -20,6 +20,127 @@ static OUTRO_AUDIO_VAG: &[u8] = include_bytes!("../../Videos/outro_audio.vag");
 
 const SPU_SAMPLE_BASE: u32 = 0x1010;
 
+/// First byte past the SPU's 512 KB of sample RAM. The allocator refuses to
+/// cross it; without a bound, adding one sample silently wrote off the end.
+const SPU_RAM_END: u32 = 0x8_0000;
+
+/// Largest number of distinct sample blobs the bank can hold. Every entry in
+/// the SFX table, the two VAGs, the title track and the four synth tones.
+const SPU_MAX_SAMPLES: usize = 24;
+
+/// How many sample blobs failed to decode or would not fit. Surfaced on the
+/// options screen so a malformed asset is visible instead of an inaudible dead
+/// voice. Single-threaded by construction, so a plain cell is enough.
+static mut AUDIO_DECODE_FAILURES: u8 = 0;
+
+/// Number of samples that failed to decode or fit in the SPU bank. Surfaced on
+/// the options screen so a malformed asset is visible rather than an inaudible
+/// dead voice.
+pub fn audio_decode_failures() -> u8 {
+    unsafe { AUDIO_DECODE_FAILURES }
+}
+
+fn note_decode_failure() {
+    unsafe {
+        AUDIO_DECODE_FAILURES = AUDIO_DECODE_FAILURES.saturating_add(1);
+    }
+}
+
+/// Decoded sample rate per bank entry, so a shared blob is not re-parsed for
+/// every voice that points at it.
+static mut SPU_RATES: [u32; SPU_MAX_SAMPLES] = [0; SPU_MAX_SAMPLES];
+
+struct SampleBank {
+    /// Addresses of already-uploaded blobs, and the blob each came from.
+    /// Keyed by (length, first four bytes) so identical samples collide
+    /// without hashing the whole payload.
+    entries: [(u32, u32, u32); SPU_MAX_SAMPLES],
+    count: usize,
+    cursor: u32,
+}
+
+static mut SPU_BANK: SampleBank = SampleBank {
+    entries: [(0, 0, 0); SPU_MAX_SAMPLES],
+    count: 0,
+    cursor: SPU_SAMPLE_BASE,
+};
+
+/// The SPU bank cursor, so a caller that uploads outside [`upload_sample_once`]
+/// (the tone generators) continues where the SFX bank left off.
+fn spu_cursor() -> u32 {
+    unsafe { SPU_BANK.cursor }
+}
+
+fn set_spu_cursor(addr: u32) {
+    unsafe {
+        SPU_BANK.cursor = addr;
+    }
+}
+
+/// Upload a sample unless an identical blob is already resident, then return
+/// the address it lives at and its sample rate.
+///
+/// Sharing by content is what keeps the bank inside 512 KB: five SFX entries
+/// reuse a blob another entry already uploaded, which is ~52 KB.
+///
+/// Kept out of line: this runs once per sample at boot, so inlining the ADPCM
+/// decoder into the call site added tens of kilobytes of text for no benefit.
+#[inline(never)]
+fn upload_sample_once(bytes: &'static [u8]) -> Option<(SpuAddr, u32)> {
+    let audio = match Audio::from_bytes(bytes) {
+        Ok(audio) => audio,
+        Err(_) => {
+            // A rejected sample leaves its voice pointing at whatever the SPU
+            // latched at reset, so it plays garbage. Count it rather than
+            // failing the boot.
+            note_decode_failure();
+            return None;
+        }
+    };
+    let payload = audio.adpcm_bytes();
+    let key = (
+        payload.len() as u32,
+        u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]),
+    );
+
+    // Look for the blob before touching the allocator. The comparison is
+    // length plus a 4-byte fingerprint, which is enough to catch the exact
+    // duplicates in the table without hashing the whole payload.
+    unsafe {
+        for i in 0..SPU_BANK.count {
+            if (SPU_BANK.entries[i].1, SPU_BANK.entries[i].2) == key {
+                return Some((SpuAddr::new(SPU_BANK.entries[i].0), SPU_RATES[i]));
+            }
+        }
+        let addr = SPU_BANK.cursor;
+        let end = addr + ((payload.len() as u32 + 7) & !7);
+        if end > SPU_RAM_END || SPU_BANK.count == SPU_MAX_SAMPLES {
+            note_decode_failure();
+            return None;
+        }
+        spu::upload_adpcm(SpuAddr::new(addr), payload);
+        SPU_RATES[SPU_BANK.count] = audio.sample_rate_hz();
+        SPU_BANK.entries[SPU_BANK.count] = (addr, key.0, key.1);
+        SPU_BANK.count += 1;
+        SPU_BANK.cursor = end;
+        Some((SpuAddr::new(addr), audio.sample_rate_hz()))
+    }
+}
+
+/// Reserve raw bytes in the bank for samples that are not `.psau` blobs (the
+/// VAG cinematics, the title track, the synth tones).
+fn spu_reserve(len: usize) -> Option<(SpuAddr, u32)> {
+    let addr = spu_cursor();
+    let end = addr + ((len as u32 + 7) & !7);
+    if end > SPU_RAM_END {
+        note_decode_failure();
+        return None;
+    }
+    set_spu_cursor(end);
+    Some((SpuAddr::new(addr), end))
+}
+
+
 // SFX Voices (0..12)
 pub const VOICE_JUMP: Voice = Voice::V0;
 pub const VOICE_YABBY: Voice = Voice::V1;
@@ -101,6 +222,11 @@ impl AudioManager {
         cdrom::set_mode(cdrom::MODE_CDDA);
         cdrom::demute();
 
+        // SFX sample bank.
+        //
+        // Several entries deliberately share a blob: the SPU can point several
+        // voices at one sample address, and uploading a duplicate cost ~52 KB
+        // of the 512 KB SPU RAM for no audible difference.
         let sfx = [
             (VOICE_JUMP, JUMP_SFX, Volume::linear(1, 4)),
             (VOICE_YABBY, COIN_SFX, Volume::linear(1, 4)),
@@ -114,65 +240,73 @@ impl AudioManager {
             (VOICE_SPUR, METAL_SFX, Volume::linear(1, 3)),
             (VOICE_CHIME, BEEP_SFX, Volume::linear(1, 3)),
             (VOICE_VOICE, BEEP_SFX, Volume::linear(1, 5)),
+            (VOICE_SELECT, SELECT_SFX, Volume::linear(1, 4)),
         ];
 
-        let mut next_addr = SPU_SAMPLE_BASE;
         for (voice, bytes, vol) in sfx.iter() {
-            if let Ok(audio) = Audio::from_bytes(bytes) {
-                let addr = SpuAddr::new(next_addr);
-                spu::upload_adpcm(addr, audio.adpcm_bytes());
-                voice.configure_sample(addr, audio.sample_rate_hz(), *vol, Adsr::sample());
-                next_addr += (audio.adpcm_bytes().len() as u32 + 7) & !7;
-            }
+            // Resolve by content: the first voice to want a blob uploads it,
+            // the rest reuse its address.
+            let (addr, rate) = match upload_sample_once(bytes) {
+                Some(v) => v,
+                None => continue,
+            };
+            voice.configure_sample(addr, rate, *vol, Adsr::sample());
         }
+
 
         // Upload custom title music ADPCM (raw ADPCM blocks, 22050 Hz mono)
         // Convert your MP3 to ADPCM using: ffmpeg -i input.mp3 -ar 22050 -ac 1 -c:a adpcm_psx output.adpcm
         const TITLE_MUSIC_SAMPLE_RATE: u32 = 22050;
-        let addr_title = SpuAddr::new(next_addr);
-        if !TITLE_MUSIC_ADPCM.is_empty() {
-            spu::upload_adpcm(addr_title, TITLE_MUSIC_ADPCM);
-            VOICE_TITLE.configure_sample(addr_title, TITLE_MUSIC_SAMPLE_RATE, Volume::linear(3, 4), Adsr::default_tone());
-            VOICE_TITLE.set_loop_addr(addr_title);
-            next_addr += (TITLE_MUSIC_ADPCM.len() as u32 + 7) & !7;
-        }
+        let addr_title = if TITLE_MUSIC_ADPCM.is_empty() {
+            SpuAddr::new(SPU_SAMPLE_BASE)
+        } else {
+            match spu_reserve(TITLE_MUSIC_ADPCM.len()) {
+                Some((addr, _)) => {
+                    spu::upload_adpcm(addr, TITLE_MUSIC_ADPCM);
+                    VOICE_TITLE.configure_sample(addr, TITLE_MUSIC_SAMPLE_RATE, Volume::linear(3, 4), Adsr::default_tone());
+                    VOICE_TITLE.set_loop_addr(addr);
+                    addr
+                }
+                None => SpuAddr::new(SPU_SAMPLE_BASE),
+            }
+        };
 
         unsafe {
             ADDR_TITLE_MUSIC = addr_title;
         }
 
-        // Upload Intro Video audio sample (22050 Hz mono VAG)
+        // Upload Intro Video audio sample (22050 Hz mono VAG).
+        // A cinematic voice at unity gain sums with the BGM, the SFX bank and
+        // CD-DA past full scale, and the SPU saturates on the final sum.
+        const CINEMATIC_VOLUME: Volume = Volume::linear(2, 3);
         if INTRO_AUDIO_VAG.len() > 48 {
-            let addr_intro = SpuAddr::new(next_addr);
             let adpcm_data = &INTRO_AUDIO_VAG[48..];
-            spu::upload_adpcm(addr_intro, adpcm_data);
-            VOICE_INTRO.configure_sample(addr_intro, 22050, Volume::MAX, Adsr::sample());
-            next_addr += (adpcm_data.len() as u32 + 7) & !7;
+            if let Some((addr_intro, _)) = spu_reserve(adpcm_data.len()) {
+                spu::upload_adpcm(addr_intro, adpcm_data);
+                VOICE_INTRO.configure_sample(addr_intro, 22050, CINEMATIC_VOLUME, Adsr::sample());
+            }
         }
 
         // Upload Outro Video audio sample (22050 Hz mono VAG)
         if OUTRO_AUDIO_VAG.len() > 48 {
-            let addr_outro = SpuAddr::new(next_addr);
             let adpcm_data = &OUTRO_AUDIO_VAG[48..];
-            spu::upload_adpcm(addr_outro, adpcm_data);
-            VOICE_OUTRO.configure_sample(addr_outro, 22050, Volume::MAX, Adsr::sample());
-            next_addr += (adpcm_data.len() as u32 + 7) & !7;
+            if let Some((addr_outro, _)) = spu_reserve(adpcm_data.len()) {
+                spu::upload_adpcm(addr_outro, adpcm_data);
+                VOICE_OUTRO.configure_sample(addr_outro, 22050, CINEMATIC_VOLUME, Adsr::sample());
+            }
         }
 
         // Upload built-in continuous waveform tones for music synthesizer
-        let addr_tri = SpuAddr::new(next_addr);
+        let addr_tri = spu_reserve(16).map(|(a, _)| a).unwrap_or(SpuAddr::new(SPU_SAMPLE_BASE));
         spu::upload_adpcm(addr_tri, tones::TRIANGLE);
-        next_addr += 16;
 
-        let addr_saw = SpuAddr::new(next_addr);
+        let addr_saw = spu_reserve(16).map(|(a, _)| a).unwrap_or(addr_tri);
         spu::upload_adpcm(addr_saw, tones::SAWTOOTH);
-        next_addr += 16;
 
-        let addr_sqr = SpuAddr::new(next_addr);
+        let addr_sqr = spu_reserve(16).map(|(a, _)| a).unwrap_or(addr_tri);
         spu::upload_adpcm(addr_sqr, tones::SQUARE);
-        next_addr += 16;
 
-        let addr_sin = SpuAddr::new(next_addr);
+        let addr_sin = spu_reserve(16).map(|(a, _)| a).unwrap_or(addr_tri);
         spu::upload_adpcm(addr_sin, tones::SINE);
 
         unsafe {
