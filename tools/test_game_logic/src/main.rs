@@ -470,6 +470,114 @@ impl CellType {
     }
 }
 
+// -------------------------------------------------------------------------
+// HUD TEXT FITTING (UX-3) -- mirrors game/src/renderer.rs
+// -------------------------------------------------------------------------
+//
+// The BASIC font is a fixed 8 px cell and `draw_text` has no bounds check, so
+// every user-facing string has to be measured. These mirror the pure helpers
+// so the policy can be exercised on the host.
+
+/// Screen width in pixels, mirroring `renderer::SCREEN_W`.
+const SCREEN_W: i16 = 320;
+/// Font advance in pixels, mirroring `psx_font::fonts::BASIC`.
+const ADVANCE: u16 = 8;
+/// Tightest inter-glyph gap the fitter will use.
+const MAX_TIGHTENING: i8 = -1;
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub struct TextFit {
+    pub x: i16,
+    pub spacing: i8,
+}
+
+const fn fitted_width(width: u16, chars: u16, spacing: i8) -> i32 {
+    let gaps = if chars > 0 { chars as i32 - 1 } else { 0 };
+    (width as i32) + (spacing as i32) * gaps
+}
+
+const fn fit_text(x: i16, width: u16, chars: u16) -> TextFit {
+    if x >= 0 && (x as i32) + (width as i32) <= SCREEN_W as i32 {
+        return TextFit { x, spacing: 0 };
+    }
+    if (width as i32) <= SCREEN_W as i32 {
+        return TextFit {
+            x: (SCREEN_W as i32 - width as i32) as i16,
+            spacing: 0,
+        };
+    }
+    let mut spacing = 0i8;
+    while spacing > MAX_TIGHTENING {
+        spacing -= 1;
+        if fitted_width(width, chars, spacing) <= SCREEN_W as i32 {
+            return TextFit { x: 0, spacing };
+        }
+    }
+    TextFit { x: 0, spacing }
+}
+
+const fn center_text(width: u16, chars: u16) -> TextFit {
+    let tight = fit_text(0, width, chars);
+    let w = fitted_width(width, chars, tight.spacing);
+    let left = (SCREEN_W as i32 - w) / 2;
+    TextFit {
+        x: if left > 0 { left as i16 } else { 0 },
+        spacing: tight.spacing,
+    }
+}
+
+/// Width of `s` and its glyph count, the two numbers the fitter consumes.
+fn measure(s: &str) -> (u16, u16) {
+    (s.chars().count() as u16 * ADVANCE, s.chars().count() as u16)
+}
+
+/// Right edge the fitter chose, for the "does it stay on screen" assertions.
+fn right_edge(s: &str, fit: TextFit) -> i32 {
+    let (width, chars) = measure(s);
+    fit.x as i32 + fitted_width(width, chars, fit.spacing)
+}
+
+// -------------------------------------------------------------------------
+// BACKFACE CULLING (SE-3) -- mirrors game/src/renderer.rs
+// -------------------------------------------------------------------------
+
+const NEAR_SZ: u16 = 20;
+const SZ_SATURATED: u16 = 4_096;
+const WINDING_CLAMP: i32 = 0x400;
+
+const fn sz_in_front(sz: u16) -> bool {
+    sz > NEAR_SZ && sz < SZ_SATURATED
+}
+
+const fn clamp_coord(v: i16) -> i32 {
+    let w = v as i32;
+    if w > WINDING_CLAMP {
+        WINDING_CLAMP
+    } else if w < -WINDING_CLAMP {
+        -WINDING_CLAMP
+    } else {
+        w
+    }
+}
+
+const fn winding_cross(a: (i16, i16), b: (i16, i16), c: (i16, i16)) -> i32 {
+    let ax = clamp_coord(b.0) - clamp_coord(a.0);
+    let ay = clamp_coord(b.1) - clamp_coord(a.1);
+    let bx = clamp_coord(c.0) - clamp_coord(a.0);
+    let by = clamp_coord(c.1) - clamp_coord(a.1);
+    ax * by - ay * bx
+}
+
+/// The unclamped i64 reference the clamp is allowed to agree with whenever
+/// every coordinate is already on screen.
+fn winding_cross_i64(a: (i16, i16), b: (i16, i16), c: (i16, i16)) -> i64 {
+    let ax = b.0 as i64 - a.0 as i64;
+    let ay = b.1 as i64 - a.1 as i64;
+    let bx = c.0 as i64 - a.0 as i64;
+    let by = c.1 as i64 - a.1 as i64;
+    ax * by - ay * bx
+}
+
 fn main() {
     println!("=== RUNNING PLATTYPUS GAME LOGIC TESTS ===");
 
@@ -874,5 +982,148 @@ fn main() {
     assert_eq!(time_s_pal(3000), 60);
     println!("✓ PAL 50Hz vs NTSC 60Hz time scaling test (QA-8) PASSED");
 
-    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (15/15 test suites)");
+    // 12. HUD Text Fitting: over-long, exactly-fitting and short runs (UX-3)
+    //
+    // A short run keeps the caller's x; an exactly-fitting run is not moved;
+    // a run that overshoots slides left; a run wider than the screen tightens
+    // its inter-glyph gap; nothing is ever truncated.
+    let short = "LIFE";
+    assert_eq!(fit_text(14, measure(short).0, measure(short).1), TextFit { x: 14, spacing: 0 });
+    let exact = "A".repeat(20); // 20 * 8 = 160 px
+    assert_eq!(fit_text(160, measure(&exact).0, measure(&exact).1), TextFit { x: 160, spacing: 0 });
+    assert_eq!(right_edge(&exact, fit_text(160, measure(&exact).0, measure(&exact).1)), 320);
+    assert_eq!(right_edge(&exact, fit_text(161, measure(&exact).0, measure(&exact).1)), 320);
+
+    // "OPERATION DUCK-BILL : MISSION DEBRIEFING" is 40 glyphs = 320 px: it
+    // fits the screen exactly, but only from x = 0.
+    let slide = "OPERATION DUCK-BILL : MISSION DEBRIEFING";
+    let (w, c) = measure(slide);
+    assert_eq!(w, SCREEN_W as u16, "fixture must be exactly one screen wide");
+    let fit = fit_text(28, w, c);
+    assert_eq!(fit, TextFit { x: 0, spacing: 0 }, "an over-long run slides, it does not tighten");
+    assert_eq!(right_edge(slide, fit), 320, "An over-long run must land on the right margin");
+
+    // Wider than the screen: tighten, then pin to the left edge. This is the
+    // longest stage title, "ACT 4-2: PIER UNDERSTRUCTURE (SHARK TRENCH)".
+    let very_long = "ACT 4-2: PIER UNDERSTRUCTURE (SHARK TRENCH)";
+    let (w, c) = measure(very_long);
+    assert!(w > SCREEN_W as u16, "fixture must start out wider than the screen");
+    let fit = fit_text(40, w, c);
+    assert_eq!(fit.x, 0);
+    assert_eq!(fit.spacing, -1, "Tightening is the second step, after sliding left");
+    assert!(right_edge(very_long, fit) <= SCREEN_W as i32, "43 glyphs at -1 tracking must fit");
+
+    // Longer than tightening can save: drawn from x=0 and allowed to clip,
+    // because dropping characters is worse than a clipped tail.
+    let hopeless = "Z".repeat(60);
+    let fit = fit_text(0, measure(&hopeless).0, measure(&hopeless).1);
+    assert_eq!(fit, TextFit { x: 0, spacing: MAX_TIGHTENING });
+    assert!(right_edge(&hopeless, fit) > SCREEN_W as i32);
+
+    // A negative x (world-space labels can project off the left edge) is
+    // pulled back onto the screen rather than trusted.
+    assert_eq!(fit_text(-40, 48, 6), TextFit { x: 272, spacing: 0 });
+
+    // Centring uses the tightened width, so a long run stays symmetric.
+    let (w, c) = measure("PRESS CROSS TO PROCEED TO EPILOGUE");
+    let fit = center_text(w, c);
+    assert_eq!(fit.spacing, 0);
+    assert_eq!(right_edge("PRESS CROSS TO PROCEED TO EPILOGUE", fit), 320 - fit.x as i32, "centred runs must have equal margins");
+    let (w, c) = measure(very_long);
+    let fit = center_text(w, c);
+    assert_eq!(right_edge(very_long, fit), 320 - fit.x as i32, "a tightened run must still be centred");
+
+    // Every string the game draws, at the x it draws it at, must end on or
+    // before the right margin. Mirrors the call sites changed in UX-3.
+    let offenders: [(&str, i16); 14] = [
+        ("PLATTYPUS : TACTICAL ESPIONAGE", 40),
+        ("PROJECT PSOXIDE 3D", 84),
+        ("DPAD: SELECT  |  START / CROSS: CONFIRM", 8),
+        ("SYSTEM CONFIGURATION & GEAR", 34),
+        ("Tuxedo wins. Camo is rank S.", 26),
+        ("Early 90s PS1 vector Plattypus.", 26),
+        ("Choose the menu language.", 26),
+        ("Forced 60Hz NTSC or 50Hz PAL.", 26),
+        ("Shift the picture vertically.", 26),
+        ("SAVE CORRUPT - WILL BE OVERWRITTEN", 26),
+        ("OPERATION DUCK-BILL : MISSION DEBRIEFING", 0),
+        ("PRESS CROSS TO PROCEED TO EPILOGUE", 24),
+        ("ACT 4-2: PIER UNDERSTRUCTURE (SHARK TRENCH)", 9),
+        ("THANKS: PS1 HOMEBREW & RUST COMMUNITIES", 8),
+    ];
+    for (text, x) in offenders.iter() {
+        let (w, c) = measure(text);
+        let edge = right_edge(text, fit_text(*x, w, c));
+        assert!(
+            edge <= SCREEN_W as i32,
+            "\"{}\" ends at {} px, past the 320 px screen",
+            text,
+            edge
+        );
+    }
+    println!("✓ HUD text fitting & centring test (UX-3) PASSED");
+
+    // 13. Behind-camera rejection and winding overflow safety (SE-3)
+    //
+    // `SZ` is a u16 read of a value the GTE clamps into 0..=0x7FFFF, so a
+    // vertex behind the camera arrives as a *large* number. The old `sz < 20`
+    // test let it through; the saturation bound culls it.
+    assert!(!sz_in_front(0), "on the lens is not in front of it");
+    assert!(!sz_in_front(NEAR_SZ), "the near plane itself is culled");
+    assert!(sz_in_front(NEAR_SZ + 1));
+    assert!(sz_in_front(1_500), "a far but real vertex stays");
+    assert!(!sz_in_front(SZ_SATURATED), "saturation starts at the bound");
+    assert!(!sz_in_front(0xFFFF), "a saturated SZ reads back as 0xFFFF");
+    // 4 096 corresponds to a view-space Z of ~84 000; the level is under
+    // 1 500 units, so no real vertex can reach it.
+    assert!(sz_in_front(SZ_SATURATED - 1));
+
+    // Winding: for on-screen triangles the clamp is a no-op, so the result
+    // must match an exact i64 cross product -- including degenerate slivers.
+    let mut checked = 0;
+    for a in -8..=8i16 {
+        for b in -8..=8i16 {
+            for c in -8..=8i16 {
+                let p = (a, b);
+                let q = (c, a);
+                let r = (b, c);
+                assert_eq!(
+                    winding_cross(p, q, r),
+                    winding_cross_i64(p, q, r) as i32,
+                    "clamping must not move an on-screen winding"
+                );
+                assert_eq!(
+                    winding_cross(p, r, q),
+                    -winding_cross(p, q, r),
+                    "reversing two vertices must flip the winding"
+                );
+                checked += 1;
+            }
+        }
+    }
+    assert_eq!(checked, 17 * 17 * 17, "exhaustive small sweep must actually run");
+    assert!(winding_cross((0, 0), (10, 0), (0, 10)) > 0, "counter-clockwise is front-facing");
+    assert!(winding_cross((0, 0), (0, 10), (10, 0)) < 0, "clockwise is a back face");
+    assert_eq!(winding_cross((0, 0), (10, 0), (20, 0)), 0, "collinear points are degenerate");
+
+    // The defect: raw i16 GTE output 65 535 apart in both axes. Unclamped,
+    // ax * by is 4.29e9 and the difference 3.22e9, past i32::MAX; with
+    // release overflow checks off that wraps to -1.07e9, i.e. the *opposite*
+    // sign, so a front face is culled and a back face drawn.
+    let overflow_case = ((i16::MIN, i16::MIN), (i16::MAX, 0i16), (0i16, i16::MAX));
+    let exact = winding_cross_i64(overflow_case.0, overflow_case.1, overflow_case.2);
+    assert!(exact > i32::MAX as i64, "fixture must overflow a naive i32 product");
+    let wrapped = exact as i32;
+    assert!(wrapped < 0, "the wrapped i32 value must be the sign flip SE-3 describes");
+    let cross = winding_cross(overflow_case.0, overflow_case.1, overflow_case.2);
+    assert!(cross > 0, "the clamped result keeps the true winding sign, so the test cannot invert");
+    assert_eq!(cross, 3 * 1_048_576, "clamped operands give the documented clamped product");
+    assert!(cross.abs() <= 2 * (2 * WINDING_CLAMP) * (2 * WINDING_CLAMP));
+    // Whatever the input, the clamped product is bounded by the clamp.
+    let extreme = ((i16::MIN, i16::MIN), (i16::MAX, i16::MAX), (i16::MIN, i16::MAX));
+    let cross = winding_cross(extreme.0, extreme.1, extreme.2);
+    assert!(cross.abs() <= 2 * (2 * WINDING_CLAMP) * (2 * WINDING_CLAMP));
+    println!("✓ Backface winding overflow & behind-camera cull test (SE-3) PASSED");
+
+    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (17/17 test suites)");
 }

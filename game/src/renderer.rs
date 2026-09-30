@@ -21,6 +21,8 @@ use crate::platypus::{PlayerState, Platypus};
 
 use crate::texture::{FaceDirection, TextureAtlasManager, TextureId, gouraud_face_colors};
 
+use core::cell::Cell;
+
 use psx_font::{fonts::BASIC, FontAtlas};
 use psx_gpu::{
     self as gpu,
@@ -31,7 +33,7 @@ use psx_gpu::{
 use psx_gte::math::{Mat3I16, Vec3I16, Vec3I32};
 use psx_gte::scene;
 use psx_gte_core::transform::{cos_1_3_12, sin_1_3_12};
-use psx_vram::{Clut, TexDepth, Tpage};
+use psx_vram::{Clut, TexDepth, Tpage, VramRect};
 
 pub const SCREEN_W: i16 = 320;
 pub const SCREEN_H: i16 = 240;
@@ -41,6 +43,177 @@ const FONT_CLUT: Clut = Clut::new(320, 256);
 
 /// Camera pitch angle: ~48 degrees downward (34 in 256-per-revolution units)
 const CAM_PITCH: u16 = 34;
+
+// -------------------------------------------------------------------------
+// TEXT FITTING
+// -------------------------------------------------------------------------
+//
+// `FontAtlas::draw_text` has no bounds check and the BASIC font is a fixed
+// 8 px cell, so `x + 8 * len` past 320 runs off the right edge of the screen.
+// The longest strings in the game are 50 characters, so the fix is a policy
+// rather than a per-string patch: measure, then slide left; if the run is
+// wider than the screen itself, tighten the inter-glyph gap by a pixel before
+// accepting a clip. Nothing is ever truncated -- the atlas is ASCII-only and
+// has no ellipsis glyph, and a half-sentence in German is worse than tight
+// tracking.
+
+/// Tightest inter-glyph gap the fitter will use, in pixels per gap. One pixel
+/// off an 8 px cell is the most that still reads as a font.
+const MAX_TIGHTENING: i8 = -1;
+
+/// Where to draw a text run, and how tight.
+///
+/// [`spacing`] is the signed gap inserted between adjacent glyphs; 0 is the
+/// font's natural advance.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub struct TextFit {
+    /// Left edge to draw at.
+    pub x: i16,
+    /// Signed pixels between adjacent glyphs.
+    pub spacing: i8,
+}
+
+/// Width of a run once [`TextFit::spacing`] is applied. Exact for any font:
+/// the atlas sums per-glyph advances and inserts the gap between them, so the
+/// gap contributes `spacing * (chars - 1)`.
+const fn fitted_width(width: u16, chars: u16, spacing: i8) -> i32 {
+    let gaps = if chars > 0 { chars as i32 - 1 } else { 0 };
+    (width as i32) + (spacing as i32) * gaps
+}
+
+/// Fit a run of `chars` glyphs measuring `width` px at the font's natural
+/// advance, preferring the caller's `x`.
+///
+/// Order: keep `x` if the run already fits; otherwise slide left until the
+/// right edge is on screen; otherwise tighten the gap (least first) and pin
+/// to the left edge. A run still too wide after [`MAX_TIGHTENING`] is drawn
+/// from x = 0 and clips -- the alternative would be dropping characters.
+pub const fn fit_text(x: i16, width: u16, chars: u16) -> TextFit {
+    if x >= 0 && (x as i32) + (width as i32) <= SCREEN_W as i32 {
+        return TextFit { x, spacing: 0 };
+    }
+    if (width as i32) <= SCREEN_W as i32 {
+        return TextFit {
+            x: (SCREEN_W as i32 - width as i32) as i16,
+            spacing: 0,
+        };
+    }
+    let mut spacing = 0i8;
+    while spacing > MAX_TIGHTENING {
+        spacing -= 1;
+        if fitted_width(width, chars, spacing) <= SCREEN_W as i32 {
+            return TextFit { x: 0, spacing };
+        }
+    }
+    TextFit { x: 0, spacing }
+}
+
+/// Centre a run: tighten as far as [`fit_text`] would, then centre *that*
+/// width, so a long run sits symmetrically instead of hanging off the left.
+pub const fn center_text(width: u16, chars: u16) -> TextFit {
+    let tight = fit_text(0, width, chars);
+    let w = fitted_width(width, chars, tight.spacing);
+    let left = (SCREEN_W as i32 - w) / 2;
+    TextFit {
+        x: if left > 0 { left as i16 } else { 0 },
+        spacing: tight.spacing,
+    }
+}
+
+/// Draw `s` at `x` with the run kept on screen (see [`fit_text`]).
+///
+/// Shared with the CODEC overlay, which renders from its own `&FontAtlas`
+/// rather than through [`Renderer`].
+pub fn draw_text_fitted(
+    font: &FontAtlas,
+    x: i16,
+    y: i16,
+    s: &str,
+    tint: (u8, u8, u8),
+) {
+    let fit = fit_text(x, font.text_width(s), s.chars().count() as u16);
+    font.draw_text_with_spacing(fit.x, y, s, fit.spacing, tint);
+}
+
+// -------------------------------------------------------------------------
+// BACKFACE CULLING
+// -------------------------------------------------------------------------
+
+/// Smallest projected `SZ` that is still in front of the lens.
+const NEAR_SZ: u16 = 20;
+
+/// `SZ` is `(H * view_z) >> 12` and the GTE clamps it into 0..=0x7FFFF, so a
+/// vertex at or behind the camera arrives as a *large* value, not a small one:
+/// a saturated `SZ` reads back as 0xFFFF in the u16 the SDK hands out. Hitting
+/// that bound needs a view-space Z of roughly 1.34 million units and the level
+/// is under 1 500, so anything past this is saturation -- geometry the old
+/// `sz < 20` test let through, which then drew as a smear from the saturated
+/// screen position. 4 096 corresponds to a view-space Z of about 84 000.
+const SZ_SATURATED: u16 = 4_096;
+
+/// Is this vertex in front of the lens? One predicate for every cull test, so
+/// the near plane and the saturation bound cannot drift apart again.
+pub const fn sz_in_front(sz: u16) -> bool {
+    sz > NEAR_SZ && sz < SZ_SATURATED
+}
+
+/// Screen coordinates are clamped to this range before the winding cross
+/// product. Raw GTE `SX`/`SY` are i16, so a delta can reach 65 535 and the
+/// product 4.29e9 -- past `i32::MAX`, and with overflow checks off in release
+/// that wraps and *flips the sign of the test*, drawing back faces and culling
+/// front ones. 0x400 is the bound the SDK's own `scene::screen_area_mac0`
+/// calls exact, and it caps each product at 2 048 * 2 048.
+const WINDING_CLAMP: i32 = 0x400;
+
+const fn clamp_coord(v: i16) -> i32 {
+    let w = v as i32;
+    if w > WINDING_CLAMP {
+        WINDING_CLAMP
+    } else if w < -WINDING_CLAMP {
+        -WINDING_CLAMP
+    } else {
+        w
+    }
+}
+
+/// Signed screen-space area of the triangle `a`,`b`,`c` (the value GTE
+/// `NCLIP` writes to MAC0, expanded to one 2D cross product).
+///
+/// Positive is front-facing, `<= 0` is a back face or a degenerate sliver.
+/// The operands are clamped first, so the i32 result cannot overflow.
+pub const fn winding_cross(a: (i16, i16), b: (i16, i16), c: (i16, i16)) -> i32 {
+    let ax = clamp_coord(b.0) - clamp_coord(a.0);
+    let ay = clamp_coord(b.1) - clamp_coord(a.1);
+    let bx = clamp_coord(c.0) - clamp_coord(a.0);
+    let by = clamp_coord(c.1) - clamp_coord(a.1);
+    ax * by - ay * bx
+}
+
+// -------------------------------------------------------------------------
+// FIXED VRAM MAP
+// -------------------------------------------------------------------------
+//
+// Every rectangle the game writes, in VRAM halfwords. A 15bpp texel is one
+// halfword, so a 320x240 framebuffer half is 320 halfwords wide -- the same
+// shape `video.rs` writes its MDEC slices in. `first_vram_overlap` is const,
+// so a collision is a build error rather than a picture that is wrong only on
+// the map that fills VRAM deepest.
+
+const FRAMEBUFFER_STRIDE: u16 = SCREEN_H as u16;
+
+const VRAM_LAYOUT: [VramRect; 6] = [
+    VramRect::new(0, 0, SCREEN_W as u16, FRAMEBUFFER_STRIDE),                        // framebuffer A
+    VramRect::new(0, FRAMEBUFFER_STRIDE, SCREEN_W as u16, FRAMEBUFFER_STRIDE),        // framebuffer B
+    VramRect::new(320, 0, 16, 128),   // font atlas (4bpp, 64x128 texels)
+    VramRect::new(320, 256, 2, 1),    // font CLUT
+    VramRect::new(384, 0, 16, 80),    // texture atlas (4bpp, 64x80 texels)
+    VramRect::new(384, 256, 80, 1),   // five 16-entry atlas CLUT banks
+];
+
+const _: () = assert!(
+    psx_vram::first_vram_overlap(&VRAM_LAYOUT).is_none(),
+    "VRAM layout overlaps"
+);
 
 pub struct Renderer {
     pub fb: FrameBuffer,
@@ -56,6 +229,10 @@ pub struct Renderer {
     pub video_mode: psx_gpu::VideoMode,
     pub screen_offset_x: i8,
     pub screen_offset_y: i8,
+    /// Frame counter of the last title-screen draw. The title background lives
+    /// in the framebuffer, so it is re-uploaded whenever this is not the
+    /// previous frame's counter -- see `draw_title_screen`.
+    title_bg_frame: Cell<u8>,
 }
 
 impl Renderer {
@@ -87,6 +264,10 @@ impl Renderer {
             video_mode: detected_mode,
             screen_offset_x: 0,
             screen_offset_y: 0,
+            // Boot already filled both framebuffer halves, so if the first
+            // title frame happens to match this, skipping the re-upload is
+            // still correct.
+            title_bg_frame: Cell::new(u8::MAX),
         }
     }
 
@@ -102,6 +283,19 @@ impl Renderer {
     pub fn begin_frame(&mut self) {
         psx_rt::interrupts::wait_vblank();
         self.fb.swap();
+    }
+
+    /// Draw `s` at `x`, keeping the run inside the screen. See [`fit_text`]
+    /// for the policy.
+    fn draw_text_clamped(&self, x: i16, y: i16, s: &str, tint: (u8, u8, u8)) {
+        draw_text_fitted(&self.font, x, y, s, tint);
+    }
+
+    /// Draw `s` horizontally centred on the screen. See [`center_text`].
+    fn draw_text_centered(&self, y: i16, s: &str, tint: (u8, u8, u8)) {
+        let fit = center_text(self.font.text_width(s), s.chars().count() as u16);
+        self.font
+            .draw_text_with_spacing(fit.x, y, s, fit.spacing, tint);
     }
 
     pub fn update_camera(&mut self, player_x: i32, player_y: i32, player_z: i32) {
@@ -299,7 +493,7 @@ impl Renderer {
                 let pulse = if (frame / 3) % 2 == 0 { (255, 50, 50) } else { (255, 200, 200) };
                 gpu::draw_rect_flat(p.sx - 2, p.sy - 4, 4, 4, pulse.0, pulse.1, pulse.2);
 
-                self.font.draw_text(p.sx - 16, p.sy - 26, "SENTRY", (60, 230, 255));
+                self.draw_text_clamped(p.sx - 16, p.sy - 26, "SENTRY", (60, 230, 255));
             }
         }
 
@@ -314,7 +508,7 @@ impl Renderer {
                 gpu::draw_rect_flat(p.sx - 8, p.sy + 6, 16, 2, 60, 230, 255);
                 gpu::draw_rect_flat(p.sx - 8, p.sy - 8, 2, 16, 60, 230, 255);
                 gpu::draw_rect_flat(p.sx + 6, p.sy - 8, 2, 16, 60, 230, 255);
-                self.font.draw_text(p.sx - 14, p.sy - 18, "DRONE", (60, 230, 255));
+                self.draw_text_clamped(p.sx - 14, p.sy - 18, "DRONE", (60, 230, 255));
             }
         }
 
@@ -334,7 +528,7 @@ impl Renderer {
                     CollectibleType::LetterPage => "INTEL",
                     _ => "YABBY",
                 };
-                self.font.draw_text(p.sx - 10, p.sy - 14, label, (255, 230, 80));
+                self.draw_text_clamped(p.sx - 10, p.sy - 14, label, (255, 230, 80));
             }
         }
 
@@ -355,7 +549,7 @@ impl Renderer {
                         gpu::draw_rect_flat(p.sx - 10, p.sy + 8, 20, 2, 80, 240, 255);
                         gpu::draw_rect_flat(p.sx - 10, p.sy - 10, 2, 20, 80, 240, 255);
                         gpu::draw_rect_flat(p.sx + 8, p.sy - 10, 2, 20, 80, 240, 255);
-                        self.font.draw_text(p.sx - 10, p.sy - 18, "VENT", (80, 240, 255));
+                        self.draw_text_clamped(p.sx - 10, p.sy - 18, "VENT", (80, 240, 255));
                     }
                 }
             }
@@ -773,7 +967,7 @@ impl Renderer {
             let lg = col.1.max(220);
             let lb = col.2.max(80);
             for &(a, b) in &EDGES {
-                if proj[a].sz >= 20 && proj[b].sz >= 20 {
+                if sz_in_front(proj[a].sz) && sz_in_front(proj[b].sz) {
                     gpu::draw_line_mono(proj[a].sx, proj[a].sy, proj[b].sx, proj[b].sy, lr, lg, lb);
                 }
             }
@@ -820,16 +1014,12 @@ impl Renderer {
         let p2 = scene::project_vertex(v2);
         let p3 = scene::project_vertex(v3);
 
-        if p0.sz < 20 || p1.sz < 20 || p2.sz < 20 || p3.sz < 20 {
+        if !sz_in_front(p0.sz) || !sz_in_front(p1.sz) || !sz_in_front(p2.sz) || !sz_in_front(p3.sz) {
             return;
         }
 
         // Screen-space backface culling check
-        let ax = p1.sx as i32 - p0.sx as i32;
-        let ay = p1.sy as i32 - p0.sy as i32;
-        let bx = p2.sx as i32 - p0.sx as i32;
-        let by = p2.sy as i32 - p0.sy as i32;
-        if ax * by - ay * bx <= 0 {
+        if winding_cross((p0.sx, p0.sy), (p1.sx, p1.sy), (p2.sx, p2.sy)) <= 0 {
             return;
         }
 
@@ -855,16 +1045,12 @@ impl Renderer {
         let p2 = scene::project_vertex(v2);
         let p3 = scene::project_vertex(v3);
 
-        if p0.sz < 20 || p1.sz < 20 || p2.sz < 20 || p3.sz < 20 {
+        if !sz_in_front(p0.sz) || !sz_in_front(p1.sz) || !sz_in_front(p2.sz) || !sz_in_front(p3.sz) {
             return;
         }
 
         // Screen-space backface culling check
-        let ax = p1.sx as i32 - p0.sx as i32;
-        let ay = p1.sy as i32 - p0.sy as i32;
-        let bx = p2.sx as i32 - p0.sx as i32;
-        let by = p2.sy as i32 - p0.sy as i32;
-        if ax * by - ay * bx <= 0 {
+        if winding_cross((p0.sx, p0.sy), (p1.sx, p1.sy), (p2.sx, p2.sy)) <= 0 {
             return;
         }
 
@@ -1905,8 +2091,8 @@ impl Renderer {
         }
 
         if let Some(msg) = prompt {
-            let msg_len = msg.len() as i16;
-            let bw = (msg_len * 8) + 16;
+            let msg_w = self.font.text_width(msg) as i16;
+            let bw = msg_w + 16;
             let bx = (SCREEN_W - bw) / 2;
             let by: i16 = 216;
 
@@ -1920,7 +2106,7 @@ impl Renderer {
             } else {
                 (180, 255, 140)
             };
-            self.font.draw_text(bx + 8, by + 4, msg, txt_col);
+            self.draw_text_clamped(bx + 8, by + 4, msg, txt_col);
         }
     }
 
@@ -1935,7 +2121,7 @@ impl Renderer {
 
         if let AlertState::Alert(timer) = entities.alert_state {
             gpu::draw_rect_flat(rx + 2, ry + 2, rw - 4, 14, 220, 30, 30);
-            self.font.draw_text(rx + 4, ry + 3, "ALERT 99.99", (255, 255, 255));
+            self.draw_text_clamped(rx + 4, ry + 3, "ALERT 99.99", (255, 255, 255));
             for i in 0..6 {
                 let sx = rx + 4 + ((timer as i16 * 17 + i * 23) % (rw as i16 - 12)).abs();
                 let sy = ry + 18 + ((timer as i16 * 11 + i * 31) % (rh as i16 - 24)).abs();
@@ -2032,13 +2218,24 @@ impl Renderer {
         selected_menu: usize,
         save_data: &crate::save::SaveData,
     ) {
-        // Draw full-screen title background texture (16-bit direct color at VRAM 640,0)
-        let tpage = crate::title_bg::title_bg_tpage();
-        let material = psx_gpu::material::TextureMaterial::opaque(0, tpage, (0x80, 0x80, 0x80));
-        psx_gpu::draw_sprite_material(0, 0, 320, 240, (0, 0), material);
+        // The background is the framebuffer's own content (see `title_bg`), so
+        // it is re-uploaded whenever the title screen was not the previous
+        // screen drawn. Gameplay, the cutscene cards and the video decoder all
+        // paint over the framebuffer and none of them can call back in here;
+        // the frame counter breaking is the only signal this module gets, and
+        // consecutive title frames skip the upload entirely.
+        if self.title_bg_frame.get() != frame.wrapping_sub(1) {
+            // SAFETY: GP0(0xA0) writes VRAM directly; the target is the
+            // framebuffer half `begin_frame` just selected as the draw target,
+            // so the half being scanned out is untouched.
+            unsafe {
+                crate::title_bg::upload_title_bg_to(self.fb.buffer_y(self.fb.drawing));
+            }
+        }
+        self.title_bg_frame.set(frame);
 
-        self.font.draw_text(60, 32, "PLATTYPUS : TACTICAL ESPIONAGE", (120, 255, 160));
-        self.font.draw_text(90, 48, "PROJECT PSOXIDE 3D", (220, 240, 255));
+        self.draw_text_centered(32, "PLATTYPUS : TACTICAL ESPIONAGE", (120, 255, 160));
+        self.draw_text_centered(48, "PROJECT PSOXIDE 3D", (220, 240, 255));
 
         // Animated Platty emblem box
         gpu::draw_rect_flat(120, 68, 80, 46, 20, 45, 35);
@@ -2073,14 +2270,14 @@ impl Renderer {
                     gpu::draw_rect_flat(46, y - 3, 228, 17, 25, 75, 50);
                     let pulse = if (frame / 12) % 2 == 0 { (255, 240, 100) } else { (180, 255, 140) };
                     self.font.draw_text(50, y, ">", pulse);
-                    self.font.draw_text(62, y, label, (255, 255, 255));
+                    self.draw_text_clamped(62, y, label, (255, 255, 255));
                     if i == 0 {
-                        self.font.draw_text(178, y, active_stage_label, (255, 235, 80));
+                        self.draw_text_clamped(178, y, active_stage_label, (255, 235, 80));
                     }
                 } else {
-                    self.font.draw_text(62, y, label, (130, 160, 175));
+                    self.draw_text_clamped(62, y, label, (130, 160, 175));
                     if i == 0 {
-                        self.font.draw_text(178, y, active_stage_label, (180, 200, 140));
+                        self.draw_text_clamped(178, y, active_stage_label, (180, 200, 140));
                     }
                 }
             }
@@ -2123,9 +2320,9 @@ impl Renderer {
                     gpu::draw_rect_flat(52, y - 3, 216, 16, 25, 75, 50);
                     let pulse = if (frame / 12) % 2 == 0 { (255, 240, 100) } else { (180, 255, 140) };
                     self.font.draw_text(56, y, ">", pulse);
-                    self.font.draw_text(70, y, label, (255, 255, 255));
+                    self.draw_text_clamped(70, y, label, (255, 255, 255));
                 } else {
-                    self.font.draw_text(70, y, label, (130, 160, 175));
+                    self.draw_text_clamped(70, y, label, (130, 160, 175));
                 }
             }
         }
@@ -2137,7 +2334,7 @@ impl Renderer {
             4 => "CROSS / START: KETTEI",
             _ => "DPAD: SELECT  |  START / CROSS: CONFIRM",
         };
-        self.font.draw_text(48, 216, footer_text, (100, 150, 160));
+        self.draw_text_centered(216, footer_text, (100, 150, 160));
     }
 
     pub fn draw_vr_menu(&self, selected_vr: usize, vr_cleared: u8) {
@@ -2155,7 +2352,7 @@ impl Renderer {
         // Header
         gpu::draw_rect_flat(20, 12, 280, 28, 12, 35, 50);
         gpu::draw_rect_flat(22, 14, 276, 24, 6, 20, 32);
-        self.font.draw_text(32, 20, "BURROW HQ - VR TRAINING SIMULATOR", (100, 240, 255));
+        self.draw_text_clamped(32, 20, "BURROW HQ - VR TRAINING SIMULATOR", (100, 240, 255));
 
         // 4 VR Simulations
         let vr_names = [
@@ -2180,26 +2377,26 @@ impl Renderer {
             }
 
             let name_col = if is_sel { (255, 255, 255) } else { (160, 190, 200) };
-            self.font.draw_text(38, y + 5, vr_names[i].0, name_col);
+            self.draw_text_clamped(38, y + 5, vr_names[i].0, name_col);
 
             let sub_col = if is_sel { (140, 220, 180) } else { (100, 130, 140) };
-            self.font.draw_text(38, y + 17, vr_names[i].1, sub_col);
+            self.draw_text_clamped(38, y + 17, vr_names[i].1, sub_col);
 
             if cleared {
-                self.font.draw_text(224, y + 9, "[CLEARED]", (100, 255, 140));
+                self.draw_text_clamped(224, y + 9, "[CLEARED]", (100, 255, 140));
             } else {
-                self.font.draw_text(236, y + 9, "[OPEN]", (255, 200, 80));
+                self.draw_text_clamped(236, y + 9, "[OPEN]", (255, 200, 80));
             }
         }
 
         // Footer hint
         gpu::draw_rect_flat(20, 192, 280, 36, 10, 18, 28);
-        self.font.draw_text(28, 198, "CROSS: ENGAGE SIMULATION", (255, 230, 80));
-        self.font.draw_text(28, 212, "CIRCLE: RETURN TO TITLE", (160, 180, 200));
+        self.draw_text_clamped(28, 198, "CROSS: ENGAGE SIMULATION", (255, 230, 80));
+        self.draw_text_clamped(28, 212, "CIRCLE: RETURN TO TITLE", (160, 180, 200));
 
         let cleared_count = (vr_cleared & 1) + ((vr_cleared >> 1) & 1) + ((vr_cleared >> 2) & 1) + ((vr_cleared >> 3) & 1);
         if cleared_count == 4 {
-            self.font.draw_text(188, 205, "ALL SIMS 100%!", (120, 255, 160));
+            self.draw_text_clamped(188, 205, "ALL SIMS 100%!", (120, 255, 160));
         }
     }
 
@@ -2215,20 +2412,22 @@ impl Renderer {
         // Header
         gpu::draw_rect_flat(20, 8, 280, 24, 25, 35, 45);
         gpu::draw_rect_flat(22, 10, 276, 20, 10, 16, 22);
-        self.font.draw_text(34, 14, "SYSTEM CONFIGURATION & GEAR", (255, 230, 80));
+        self.draw_text_clamped(34, 14, "SYSTEM CONFIGURATION & GEAR", (255, 230, 80));
 
+        // The label column starts at 34 and the value column at 180, so a
+        // label may be 18 characters and a value 14 before the two collide.
         let opt_labels = [
             "COSTUME / TENUE",
-            "1994 RETRO WIREFRAME",
+            "RETRO WIREFRAME",
             "LANGUAGE / LANGUE",
             "VIDEO STANDARD",
             "SCREEN V-CENTER",
         ];
 
         let costume_str = match save_data.selected_costume {
-            1 => "TUXEDO (CLASSIC BOND)",
-            2 => "STEALTH CAMO (SHIMMER)",
-            _ => "SNEAKING SUIT (DEFAULT)",
+            1 => "TUXEDO (BOND)",
+            2 => "STEALTH CAMO",
+            _ => "SNEAKING SUIT",
         };
 
         let wire_str = if save_data.wireframe_enabled != 0 { "< ENABLED >" } else { "< DISABLED >" };
@@ -2237,14 +2436,14 @@ impl Renderer {
             1 => "< FRANCAIS >",
             2 => "< DEUTSCH >",
             3 => "< ESPANOL >",
-            4 => "< NIHONGO (ROMAJI) >",
+            4 => "< NIHONGO >",
             _ => "< ENGLISH >",
         };
 
         let video_str = match save_data.pal_mode {
-            0 => "< NTSC 60Hz (FORCE) >",
-            1 => "< PAL 50Hz (FORCE) >",
-            _ => "< AUTO DETECT (BIOS) >",
+            0 => "< NTSC 60HZ >",
+            1 => "< PAL 50HZ >",
+            _ => "< AUTO (BIOS) >",
         };
 
         let opt_values = [
@@ -2264,7 +2463,7 @@ impl Renderer {
 
             let cursor = if is_sel { ">" } else { " " };
             self.font.draw_text(24, y + 5, cursor, (255, 235, 80));
-            self.font.draw_text(34, y + 5, opt_labels[i], if is_sel { (255, 255, 255) } else { (160, 180, 190) });
+            self.draw_text_clamped(34, y + 5, opt_labels[i], if is_sel { (255, 255, 255) } else { (160, 180, 190) });
 
             if i == 4 {
                 let off_y = save_data.screen_offset_y;
@@ -2275,10 +2474,10 @@ impl Renderer {
                 off_buf[3] = (abs_val / 10) as u8 + b'0';
                 off_buf[4] = (abs_val % 10) as u8 + b'0';
                 if let Ok(st) = core::str::from_utf8(&off_buf[..9]) {
-                    self.font.draw_text(190, y + 5, st, (100, 230, 255));
+                    self.draw_text_clamped(204, y + 5, st, (100, 230, 255));
                 }
             } else {
-                self.font.draw_text(168, y + 5, opt_values[i], (120, 255, 160));
+                self.draw_text_clamped(180, y + 5, opt_values[i], (120, 255, 160));
             }
         }
 
@@ -2291,32 +2490,32 @@ impl Renderer {
             crate::save::LoadOutcome::Corrupt | crate::save::LoadOutcome::CardError => (255, 140, 140),
         };
         gpu::draw_rect_flat(20, 168, 280, 18, 10, 16, 26);
-        self.font.draw_text(24, 172, "HARDWARE:", (140, 180, 220));
-        self.font.draw_text(80, 172, region_name, (255, 230, 80));
-        self.font.draw_text(180, 172, card_state.label(), card_color);
+        self.draw_text_clamped(24, 172, "HARDWARE:", (140, 180, 220));
+        self.draw_text_clamped(80, 172, region_name, (255, 230, 80));
+        self.draw_text_clamped(180, 172, card_state.label(), card_color);
 
         // Description box
         gpu::draw_rect_flat(20, 188, 280, 48, 8, 12, 16);
         match selected_opt {
             0 => {
-                self.font.draw_text(26, 192, "Tuxedo: Beat campaign. Camo: Rank S.", (180, 200, 220));
-                self.font.draw_text(26, 205, "DPAD LEFT/RIGHT: Switch costume", (255, 230, 80));
+                self.draw_text_clamped(26, 192, "Tuxedo wins. Camo is rank S.", (180, 200, 220));
+                self.draw_text_clamped(26, 205, "DPAD LEFT/RIGHT: Switch costume", (255, 230, 80));
             }
             1 => {
-                self.font.draw_text(26, 192, "Experience Plattypus in early 90s PS1 vectors.", (180, 200, 220));
-                self.font.draw_text(26, 205, "DPAD LEFT/RIGHT: Toggle Wireframe", (255, 230, 80));
+                self.draw_text_clamped(26, 192, "Early 90s PS1 vector Plattypus.", (180, 200, 220));
+                self.draw_text_clamped(26, 205, "DPAD LEFT/RIGHT: Toggle Wireframe", (255, 230, 80));
             }
             2 => {
-                self.font.draw_text(26, 192, "Select menu language / Choisir la langue.", (180, 200, 220));
-                self.font.draw_text(26, 205, "DPAD LEFT/RIGHT: Change Language", (255, 230, 80));
+                self.draw_text_clamped(26, 192, "Choose the menu language.", (180, 200, 220));
+                self.draw_text_clamped(26, 205, "DPAD LEFT/RIGHT: Change Language", (255, 230, 80));
             }
             3 => {
-                self.font.draw_text(26, 192, "Switch between 60Hz NTSC and 50Hz PAL modes.", (180, 200, 220));
-                self.font.draw_text(26, 205, "DPAD LEFT/RIGHT: Toggle Video Mode", (255, 230, 80));
+                self.draw_text_clamped(26, 192, "Forced 60Hz NTSC or 50Hz PAL.", (180, 200, 220));
+                self.draw_text_clamped(26, 205, "DPAD LEFT/RIGHT: Toggle Video Mode", (255, 230, 80));
             }
             _ => {
-                self.font.draw_text(26, 192, "Adjust vertical display centering on CRT.", (180, 200, 220));
-                self.font.draw_text(26, 205, "DPAD LEFT/RIGHT: Shift Scanlines", (255, 230, 80));
+                self.draw_text_clamped(26, 192, "Shift the picture vertically.", (180, 200, 220));
+                self.draw_text_clamped(26, 205, "DPAD LEFT/RIGHT: Shift Scanlines", (255, 230, 80));
             }
         }
         // A save the game could not read is still on the card, and the next
@@ -2328,9 +2527,9 @@ impl Renderer {
             _ => "",
         };
         if !warn.is_empty() {
-            self.font.draw_text(26, 213, warn, (255, 150, 100));
+            self.draw_text_clamped(26, 213, warn, (255, 150, 100));
         }
-        self.font.draw_text(26, 222, "CIRCLE: RETURN TO TITLE SCREEN", (130, 180, 210));
+        self.draw_text_clamped(26, 222, "CIRCLE: RETURN TO TITLE SCREEN", (130, 180, 210));
     }
 
     pub fn draw_debriefing_screen(
@@ -2348,7 +2547,7 @@ impl Renderer {
         // Header banner
         gpu::draw_rect_flat(20, 12, 280, 28, 18, 30, 42);
         gpu::draw_rect_flat(22, 14, 276, 24, 6, 12, 18);
-        self.font.draw_text(28, 20, "OPERATION DUCK-BILL : MISSION DEBRIEFING", (120, 255, 160));
+        self.draw_text_centered(20, "OPERATION DUCK-BILL : MISSION DEBRIEFING", (120, 255, 160));
 
         // Stats card box
         gpu::draw_rect_flat(20, 46, 280, 92, 14, 22, 30);
@@ -2402,11 +2601,11 @@ impl Renderer {
         gpu::draw_rect_flat(20, 144, 280, 56, 30, 45, 60);
         gpu::draw_rect_flat(22, 146, 276, 52, 12, 18, 26);
 
-        self.font.draw_text(30, 152, "FINAL OPERATIVE EVALUATION:", (255, 230, 80));
-        self.font.draw_text(30, 166, codename.name(), (255, 255, 255));
-        self.font.draw_text(30, 178, codename.title(), (120, 255, 160));
+        self.draw_text_clamped(30, 152, "FINAL OPERATIVE EVALUATION:", (255, 230, 80));
+        self.draw_text_clamped(30, 166, codename.name(), (255, 255, 255));
+        self.draw_text_clamped(30, 178, codename.title(), (120, 255, 160));
 
-        self.font.draw_text(45, 214, "PRESS CROSS TO PROCEED TO EPILOGUE", (255, 255, 255));
+        self.draw_text_centered(214, "PRESS CROSS TO PROCEED TO EPILOGUE", (255, 255, 255));
     }
 
     pub fn draw_stage_clear(
@@ -2420,8 +2619,8 @@ impl Renderer {
     ) {
         gpu::draw_rect_flat(0, 0, 320, 240, 6, 16, 14);
 
-        self.font.draw_text(95, 20, "STAGE COMPLETED!", (120, 255, 160));
-        self.font.draw_text(40, 36, act.title(), (255, 230, 80));
+        self.draw_text_centered(20, "STAGE COMPLETED!", (120, 255, 160));
+        self.draw_text_centered(36, act.title(), (255, 230, 80));
 
         // Tactical Mission Performance Card
         let card_x: i16 = 24;
@@ -2433,7 +2632,7 @@ impl Renderer {
 
         // Header bar in card
         gpu::draw_rect_flat(card_x + 4, card_y + 4, card_w - 8, 16, 14, 40, 30);
-        self.font.draw_text(card_x + 24, card_y + 8, "TACTICAL INFILTRATION REPORT", (140, 240, 200));
+        self.draw_text_clamped(card_x + 24, card_y + 8, "TACTICAL INFILTRATION REPORT", (140, 240, 200));
 
         // 1. Stage Time: MM:SS
         let mins = (time_s / 60).min(99);
@@ -2487,22 +2686,22 @@ impl Renderer {
             self.font.draw_text(card_x + 16, card_y + 100, st, (255, 255, 255));
         }
 
-        self.font.draw_text(45, 204, "PRESS CROSS FOR NEXT ACT BRIEFING", (255, 255, 255));
+        self.draw_text_centered(204, "PRESS CROSS FOR NEXT ACT BRIEFING", (255, 255, 255));
     }
 
     pub fn draw_ending(&self, frame: u8, codename: Option<crate::save::Codename>) {
         gpu::draw_rect_flat(0, 0, 320, 240, 30, 80, 140); // Sunset coastal sky
         gpu::draw_rect_flat(0, 142, 320, 98, 220, 190, 130); // Golden sand beach
 
-        self.font.draw_text(70, 14, "MISSION ACCOMPLISHED!", (255, 240, 120));
-        self.font.draw_text(50, 28, "WELCOME TO THE WORLD, BABY PIP!", (255, 255, 255));
+        self.draw_text_centered(14, "MISSION ACCOMPLISHED!", (255, 240, 120));
+        self.draw_text_centered(28, "WELCOME TO THE WORLD, BABY PIP!", (255, 255, 255));
 
         if let Some(c) = codename {
             gpu::draw_rect_flat(30, 44, 260, 34, 15, 30, 45);
             gpu::draw_rect_flat(32, 46, 256, 30, 10, 18, 28);
-            self.font.draw_text(40, 49, "OPERATIVE RANK:", (180, 220, 240));
-            self.font.draw_text(152, 49, c.name(), (255, 235, 80));
-            self.font.draw_text(40, 62, c.title(), (120, 255, 160));
+            self.draw_text_clamped(40, 49, "OPERATIVE RANK:", (180, 220, 240));
+            self.draw_text_clamped(152, 49, c.name(), (255, 235, 80));
+            self.draw_text_clamped(40, 62, c.title(), (120, 255, 160));
         }
 
         // Platty (big brother)
@@ -2520,20 +2719,20 @@ impl Renderer {
         gpu::draw_rect_flat(165, 138, 10, 8, 255, 240, 180);
         gpu::draw_rect_flat(210, 138, 8, 8, 255, 240, 180);
 
-        self.font.draw_text(60, 180, "BURROW COMMAND: WE'RE SO PROUD!", (100, 255, 160));
+        self.draw_text_centered(180, "BURROW COMMAND: WE'RE SO PROUD!", (100, 255, 160));
 
         // MK-6: Cycling credits tribute to open-source PS1 & Rust homebrew communities
         let credits = [
             "DIRECTED & PROGRAMMED BY: TONYM",
             "POWERED BY: PSOXIDE SDK & NO_STD RUST",
-            "TARGET HARDWARE: SONY PLAYSTATION 1 (MIPS R3000A)",
-            "THANKS TO: PS1 HOMEBREW & RUST EMBEDDED COMMUNITY",
-            "TACTICAL ESPIONAGE ACTION HOMAGE TO KOJIMA PRODUCTIONS",
+            "HARDWARE: SONY PLAYSTATION 1 (MIPS R3000A)",
+            "THANKS: PS1 HOMEBREW & RUST COMMUNITIES",
+            "A TACTICAL ESPIONAGE HOMAGE TO KOJIMA",
             "THANK YOU FOR PLAYING PLATTYPUS!",
         ];
         let credit_idx = ((frame as usize) / 75) % credits.len();
-        self.font.draw_text(24, 200, credits[credit_idx], (255, 240, 140));
-        self.font.draw_text(74, 220, "PRESS CROSS OR START TO FINISH", (200, 220, 240));
+        self.draw_text_centered(200, credits[credit_idx], (255, 240, 140));
+        self.draw_text_centered(220, "PRESS CROSS OR START TO FINISH", (200, 220, 240));
     }
 
     pub fn draw_cinematic_letterbox(&self) {
@@ -2586,12 +2785,12 @@ impl Renderer {
         gpu::draw_rect_flat(card_x + 2, card_y + 2, card_w - 4, card_h - 4, 6, 18, 14);
         gpu::draw_rect_flat(card_x, card_y, 4, card_h, 60, 220, 140); // Emerald green accent strip
 
-        self.font.draw_text(card_x + 12, card_y + 10, act_name, (255, 230, 80));
-        self.font.draw_text(card_x + 12, card_y + 28, op_name, (255, 255, 255));
-        self.font.draw_text(card_x + 12, card_y + 46, sub_name, (120, 240, 180));
+        self.draw_text_clamped(card_x + 12, card_y + 10, act_name, (255, 230, 80));
+        self.draw_text_clamped(card_x + 12, card_y + 28, op_name, (255, 255, 255));
+        self.draw_text_clamped(card_x + 12, card_y + 46, sub_name, (120, 240, 180));
 
         if timer > 45 && (timer / 15) % 2 == 0 {
-            self.font.draw_text(180, 222, "CROSS: SKIP", (160, 160, 160));
+            self.draw_text_clamped(180, 222, "CROSS: SKIP", (160, 160, 160));
         }
     }
 
@@ -2631,12 +2830,12 @@ impl Renderer {
         gpu::draw_rect_flat(card_x + 2, card_y + 2, card_w - 4, card_h - 4, 4, 8, 12);
         gpu::draw_rect_flat(card_x, card_y, 4, card_h, 255, 60, 60); // Red warning accent strip
 
-        self.font.draw_text(card_x + 12, card_y + 8, name, (255, 230, 80));
-        self.font.draw_text(card_x + 12, card_y + 24, codename, (120, 255, 160));
-        self.font.draw_text(card_x + 12, card_y + 40, specs, (200, 220, 240));
+        self.draw_text_clamped(card_x + 12, card_y + 8, name, (255, 230, 80));
+        self.draw_text_clamped(card_x + 12, card_y + 24, codename, (120, 255, 160));
+        self.draw_text_clamped(card_x + 12, card_y + 40, specs, (200, 220, 240));
 
         if timer > 60 && (timer / 15) % 2 == 0 {
-            self.font.draw_text(180, 222, "CROSS: SKIP", (160, 160, 160));
+            self.draw_text_clamped(180, 222, "CROSS: SKIP", (160, 160, 160));
         }
     }
 
@@ -2654,7 +2853,7 @@ impl Renderer {
         // Header
         gpu::draw_rect_flat(14, 10, 292, 24, 12, 35, 50);
         gpu::draw_rect_flat(16, 12, 288, 20, 6, 20, 32);
-        self.font.draw_text(34, 15, "BURROW HQ - MISSION STAGE SELECT", (100, 240, 255));
+        self.draw_text_clamped(34, 15, "BURROW HQ - MISSION STAGE SELECT", (100, 240, 255));
 
         // 12 Stages:
         // Left Column (0..5): Acts 1-1, 1-2, 1-3, 2-1, 2-2, 2-3
@@ -2691,20 +2890,22 @@ impl Renderer {
                 gpu::draw_rect_flat(col_x, row_y, w, h, border_col.0, border_col.1, border_col.2);
                 gpu::draw_rect_flat(col_x + 1, row_y + 1, w - 2, h - 2, bg_col.0, bg_col.1, bg_col.2);
                 self.font.draw_text(col_x + 4, row_y + 5, ">", (255, 235, 80));
-                self.font.draw_text(col_x + 14, row_y + 5, stage_names[i], (255, 255, 255));
+                self.draw_text_clamped(col_x + 14, row_y + 5, stage_names[i], (255, 255, 255));
             } else {
                 let border_col = if is_boss { (100, 30, 30) } else { (12, 35, 25) };
                 let bg_col = if is_boss { (30, 10, 10) } else { (6, 18, 14) };
                 gpu::draw_rect_flat(col_x, row_y, w, h, border_col.0, border_col.1, border_col.2);
                 gpu::draw_rect_flat(col_x + 1, row_y + 1, w - 2, h - 2, bg_col.0, bg_col.1, bg_col.2);
                 let text_col = if is_boss { (255, 140, 140) } else { (160, 190, 180) };
-                self.font.draw_text(col_x + 12, row_y + 5, stage_names[i], text_col);
+                self.draw_text_clamped(col_x + 12, row_y + 5, stage_names[i], text_col);
             }
         }
 
-        // Footer
+        // Footer. One row cannot hold all three control names inside a 292 px
+        // panel, so they are split rather than truncated or squeezed.
         gpu::draw_rect_flat(14, 208, 292, 22, 10, 25, 20);
         gpu::draw_rect_flat(16, 210, 288, 18, 5, 14, 10);
-        self.font.draw_text(22, 213, "DPAD: SELECT  |  CROSS: DEPLOY  |  CIRCLE: BACK", (120, 230, 180));
+        self.draw_text_centered(211, "DPAD: SELECT    CROSS: DEPLOY", (120, 230, 180));
+        self.draw_text_centered(220, "CIRCLE: BACK TO TITLE", (120, 230, 180));
     }
 }
