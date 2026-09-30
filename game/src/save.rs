@@ -7,7 +7,10 @@ pub const SAVE_FILENAME: &str = "BASLUS-00001PLATTY";
 pub const SAVE_TITLE: &str = "PLATTYPUS MGS";
 
 const SAVE_MAGIC: [u8; 4] = *b"PLTY";
-const SAVE_VERSION: u8 = 3;
+/// Bumped from 3: the checksum is no longer an additive sum, so a v3 card's
+/// stored sum cannot be verified by a v4 build. Those cards are reported as an
+/// incompatible save (never as a missing one) instead of failing as corruption.
+const SAVE_VERSION: u8 = 4;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Language {
@@ -40,18 +43,40 @@ impl Language {
     }
 }
 
+/// Address of the region character inside the BIOS version/date string.
+const BIOS_REGION_ADDR: usize = 0xBFC7FF52;
+
+/// Read the console's region character out of the BIOS version string.
+///
+/// `None` when the byte is not one of the known region characters, which is
+/// what an unmapped or differently-laid-out BIOS revision reads as. Callers
+/// must handle that instead of falling through a catch-all match arm and
+/// claiming a region the hardware never reported.
+pub fn detect_region_char() -> Option<u8> {
+    // SAFETY: the BIOS is memory-mapped on this hardware and the address is
+    // fixed for the console family. A revision without the string still reads
+    // a byte, which `is_region_char` rejects, so there is no panic path.
+    let raw = unsafe { core::ptr::read_volatile(BIOS_REGION_ADDR as *const u8) };
+    is_region_char(raw).then_some(raw)
+}
+
+fn is_region_char(c: u8) -> bool {
+    matches!(
+        c,
+        b'U' | b'E' | b'J' | b'P' | b'D' | b'I' | b'K' | b'C' | b'A' | b'S' | b'B' | b'N'
+    )
+}
+
 /// Auto-detect PlayStation hardware video standard (PAL 50Hz vs NTSC 60Hz)
 /// by inspecting the system ROM date string in the BIOS.
 pub fn detect_console_region() -> (psx_gpu::VideoMode, &'static str) {
-    let region_char = unsafe {
-        let ptr = 0xBFC7FF52 as *const u8;
-        *ptr
-    };
-    match region_char {
-        b'E' => (psx_gpu::VideoMode::Pal, "PAL (EUROPE / 50Hz)"),
-        b'J' => (psx_gpu::VideoMode::Ntsc, "NTSC-J (JAPAN / 60Hz)"),
-        b'A' => (psx_gpu::VideoMode::Ntsc, "NTSC-U/C (NORTH AMERICA / 60Hz)"),
-        _ => (psx_gpu::VideoMode::Ntsc, "NTSC (STANDARD / 60Hz)"),
+    match detect_region_char() {
+        Some(b'E') | Some(b'P') | Some(b'S') => (psx_gpu::VideoMode::Pal, "PAL 50HZ"),
+        Some(b'J') | Some(b'I') | Some(b'K') => (psx_gpu::VideoMode::Ntsc, "NTSC-J 60HZ"),
+        Some(_) => (psx_gpu::VideoMode::Ntsc, "NTSC-U 60HZ"),
+        // Unrecognised byte: NTSC is the conservative default, but say so
+        // rather than reporting a region the BIOS never claimed.
+        None => (psx_gpu::VideoMode::Ntsc, "BIOS UNKNOWN"),
     }
 }
 
@@ -135,6 +160,133 @@ impl Codename {
     }
 }
 
+// --------------------------------------------------------------------------
+// Wire format
+// --------------------------------------------------------------------------
+//
+// `SaveData` is `#[repr(C)]`, not packed, so it carries an alignment hole after
+// `unlocked_act` (see `STRUCT_PADDING` below). The struct is therefore *not* the
+// wire format and is never memcpy'd: the payload is assembled and parsed one
+// field at a time, which also makes the on-card bytes a pure function of the
+// values (the old struct-blob copy persisted 2 uninitialized stack bytes).
+
+const OFF_MAGIC: usize = 0;
+const OFF_VERSION: usize = OFF_MAGIC + 4;
+const OFF_UNLOCKED_ACT: usize = OFF_VERSION + 1;
+const OFF_HIGHEST_SCORE: usize = OFF_UNLOCKED_ACT + 1;
+const OFF_TOTAL_YABBIES: usize = OFF_HIGHEST_SCORE + 4;
+const OFF_ALERTS_COUNT: usize = OFF_TOTAL_YABBIES + 2;
+const OFF_BEST_TIME: usize = OFF_ALERTS_COUNT + 2;
+const OFF_BEST_CODENAME: usize = OFF_BEST_TIME + 4;
+const OFF_TUXEDO: usize = OFF_BEST_CODENAME + 16;
+const OFF_CAMO: usize = OFF_TUXEDO + 1;
+const OFF_WIREFRAME_UNLOCKED: usize = OFF_CAMO + 1;
+const OFF_VR_CLEARED: usize = OFF_WIREFRAME_UNLOCKED + 1;
+const OFF_SELECTED_COSTUME: usize = OFF_VR_CLEARED + 1;
+const OFF_WIREFRAME_ENABLED: usize = OFF_SELECTED_COSTUME + 1;
+const OFF_LANGUAGE: usize = OFF_WIREFRAME_ENABLED + 1;
+const OFF_SCREEN_OFFSET_X: usize = OFF_LANGUAGE + 1;
+const OFF_SCREEN_OFFSET_Y: usize = OFF_SCREEN_OFFSET_X + 1;
+const OFF_PAL_MODE: usize = OFF_SCREEN_OFFSET_Y + 1;
+const OFF_CHECKSUM: usize = OFF_PAL_MODE + 1;
+/// Bytes in the on-card payload.
+pub const SERIALIZED_SIZE: usize = OFF_CHECKSUM + 2;
+
+/// Byte length of each checksummed field, derived from the offsets above so the
+/// two cannot drift. The trailing `checksum` field is absent: it is the value
+/// being computed.
+const CHECKSUM_FIELD_SIZES: [u8; 18] = [
+    (OFF_VERSION - OFF_MAGIC) as u8,
+    (OFF_UNLOCKED_ACT - OFF_VERSION) as u8,
+    (OFF_HIGHEST_SCORE - OFF_UNLOCKED_ACT) as u8,
+    (OFF_TOTAL_YABBIES - OFF_HIGHEST_SCORE) as u8,
+    (OFF_ALERTS_COUNT - OFF_TOTAL_YABBIES) as u8,
+    (OFF_BEST_TIME - OFF_ALERTS_COUNT) as u8,
+    (OFF_BEST_CODENAME - OFF_BEST_TIME) as u8,
+    (OFF_TUXEDO - OFF_BEST_CODENAME) as u8,
+    (OFF_CAMO - OFF_TUXEDO) as u8,
+    (OFF_WIREFRAME_UNLOCKED - OFF_CAMO) as u8,
+    (OFF_VR_CLEARED - OFF_WIREFRAME_UNLOCKED) as u8,
+    (OFF_SELECTED_COSTUME - OFF_VR_CLEARED) as u8,
+    (OFF_WIREFRAME_ENABLED - OFF_SELECTED_COSTUME) as u8,
+    (OFF_LANGUAGE - OFF_WIREFRAME_ENABLED) as u8,
+    (OFF_SCREEN_OFFSET_X - OFF_LANGUAGE) as u8,
+    (OFF_SCREEN_OFFSET_Y - OFF_SCREEN_OFFSET_X) as u8,
+    (OFF_PAL_MODE - OFF_SCREEN_OFFSET_Y) as u8,
+    (OFF_CHECKSUM - OFF_PAL_MODE) as u8,
+];
+
+/// The `highest_score: u32` alignment hole between `unlocked_act` and
+/// `highest_score` in the struct. The wire format does not have it.
+const STRUCT_PADDING: usize = 2;
+
+/// Screen-offset clamp the options menu enforces on `screen_offset_x/y`.
+pub const SCREEN_OFFSET_LIMIT: i8 = 16;
+
+/// The checksummed fields must tile the payload exactly: contiguous, in
+/// serialization order, with nothing left over before the `checksum` field.
+const _: () = {
+    let mut total = 0usize;
+    let mut i = 0;
+    while i < CHECKSUM_FIELD_SIZES.len() {
+        total += CHECKSUM_FIELD_SIZES[i] as usize;
+        i += 1;
+    }
+    assert!(
+        total == OFF_CHECKSUM && OFF_CHECKSUM + 2 == SERIALIZED_SIZE,
+        "checksum field table does not tile the payload"
+    );
+};
+
+/// A field added, removed or retyped in `SaveData` without updating the wire
+/// format above breaks the struct/wire agreement (the struct is padded, the
+/// payload is not) and must fail to compile.
+const _: () = assert!(
+    core::mem::size_of::<SaveData>() == SERIALIZED_SIZE + STRUCT_PADDING,
+    "SaveData layout drifted from the wire format: update the offsets, to_bytes and from_bytes"
+);
+
+/// Initial checksum state.
+const CHECKSUM_INIT: u16 = 0x5A5A;
+
+/// Per-field seed derived from the field's position, so field order is part of
+/// the checksum even though the fold is already sequential. Forced odd so the
+/// `0x0101` multiply below stays a bijection.
+const fn field_seed(index: u8) -> u16 {
+    (index as u16)
+        .wrapping_mul(0x9E37)
+        .wrapping_add(0x5A5A)
+        | 1
+}
+
+/// Fold one field's bytes into the running checksum.
+///
+/// An additive sum was rejected: addition is commutative, so *any* permutation
+/// of the summed fields produced an identical checksum -- swapping
+/// `total_yabbies` with `alerts_count` was undetectable, and so was any pair of
+/// fields whose contributions cancelled. Each step here is a bijection on `h`
+/// (rotate, xor the byte, multiply by the odd 0x0101, xor the shift), so
+/// flipping any single bit of any byte of any field changes the result, and
+/// folding fields through `field_seed` makes their order significant.
+fn fold_field(mut h: u16, index: u8, bytes: &[u8]) -> u16 {
+    h ^= field_seed(index);
+    for &b in bytes {
+        h = h.rotate_left(5) ^ (b as u16);
+        h = h.wrapping_mul(0x0101) ^ (h >> 7);
+    }
+    h
+}
+
+fn put(buf: &mut [u8; SERIALIZED_SIZE], at: usize, src: &[u8]) {
+    buf[at..at + src.len()].copy_from_slice(src);
+}
+
+fn get<const N: usize>(buf: &[u8], at: usize) -> [u8; N] {
+    let mut tmp = [0u8; N];
+    tmp.copy_from_slice(&buf[at..at + N]);
+    tmp
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct SaveData {
@@ -186,33 +338,141 @@ impl SaveData {
         save
     }
 
-    pub fn compute_checksum(&self) -> u16 {
-        let mut sum: u16 = 0x5A5A;
-        sum = sum.wrapping_add(self.version as u16);
-        sum = sum.wrapping_add(self.unlocked_act as u16);
-        sum = sum.wrapping_add((self.highest_score & 0xFFFF) as u16);
-        sum = sum.wrapping_add((self.highest_score >> 16) as u16);
-        sum = sum.wrapping_add(self.total_yabbies);
-        sum = sum.wrapping_add(self.alerts_count);
-        sum = sum.wrapping_add((self.best_time_seconds & 0xFFFF) as u16);
-        for b in self.best_codename.iter() {
-            sum = sum.wrapping_add(*b as u16);
-        }
-        sum = sum.wrapping_add(self.tuxedo_unlocked as u16);
-        sum = sum.wrapping_add(self.camo_unlocked as u16);
-        sum = sum.wrapping_add(self.wireframe_unlocked as u16);
-        sum = sum.wrapping_add(self.vr_cleared as u16);
-        sum = sum.wrapping_add(self.selected_costume as u16);
-        sum = sum.wrapping_add(self.wireframe_enabled as u16);
-        sum = sum.wrapping_add(self.language as u16);
-        sum = sum.wrapping_add(self.screen_offset_x as u8 as u16);
-        sum = sum.wrapping_add(self.screen_offset_y as u8 as u16);
-        sum = sum.wrapping_add(self.pal_mode as u16);
-        sum
+    /// Serialize to the exact on-card payload: every field written explicitly
+    /// and little-endian, no padding, so identical values always produce
+    /// identical bytes and no uninitialized memory can reach the card.
+    pub fn to_bytes(&self) -> [u8; SERIALIZED_SIZE] {
+        let mut buf = [0u8; SERIALIZED_SIZE];
+        put(&mut buf, OFF_MAGIC, &self.magic);
+        put(&mut buf, OFF_VERSION, &[self.version]);
+        put(&mut buf, OFF_UNLOCKED_ACT, &[self.unlocked_act]);
+        put(&mut buf, OFF_HIGHEST_SCORE, &self.highest_score.to_le_bytes());
+        put(&mut buf, OFF_TOTAL_YABBIES, &self.total_yabbies.to_le_bytes());
+        put(&mut buf, OFF_ALERTS_COUNT, &self.alerts_count.to_le_bytes());
+        put(&mut buf, OFF_BEST_TIME, &self.best_time_seconds.to_le_bytes());
+        put(&mut buf, OFF_BEST_CODENAME, &self.best_codename);
+        put(&mut buf, OFF_TUXEDO, &[self.tuxedo_unlocked]);
+        put(&mut buf, OFF_CAMO, &[self.camo_unlocked]);
+        put(&mut buf, OFF_WIREFRAME_UNLOCKED, &[self.wireframe_unlocked]);
+        put(&mut buf, OFF_VR_CLEARED, &[self.vr_cleared]);
+        put(&mut buf, OFF_SELECTED_COSTUME, &[self.selected_costume]);
+        put(&mut buf, OFF_WIREFRAME_ENABLED, &[self.wireframe_enabled]);
+        put(&mut buf, OFF_LANGUAGE, &[self.language]);
+        put(&mut buf, OFF_SCREEN_OFFSET_X, &[self.screen_offset_x as u8]);
+        put(&mut buf, OFF_SCREEN_OFFSET_Y, &[self.screen_offset_y as u8]);
+        put(&mut buf, OFF_PAL_MODE, &[self.pal_mode]);
+        put(&mut buf, OFF_CHECKSUM, &self.checksum.to_le_bytes());
+        buf
     }
 
+    /// Parse a payload produced by [`SaveData::to_bytes`].
+    ///
+    /// The version is checked before any later field is interpreted: a payload
+    /// from another save version has a different field layout once the padding
+    /// hole is accounted for, and must be rejected rather than misread.
+    pub fn from_bytes(buf: &[u8]) -> Option<Self> {
+        if buf.len() < SERIALIZED_SIZE {
+            return None;
+        }
+        let magic: [u8; 4] = get(buf, OFF_MAGIC);
+        let version = buf[OFF_VERSION];
+        if magic != SAVE_MAGIC || version != SAVE_VERSION {
+            return None;
+        }
+        let mut best_codename = [0u8; 16];
+        best_codename.copy_from_slice(&buf[OFF_BEST_CODENAME..OFF_BEST_CODENAME + 16]);
+        Some(Self {
+            magic,
+            version,
+            unlocked_act: buf[OFF_UNLOCKED_ACT],
+            highest_score: u32::from_le_bytes(get(buf, OFF_HIGHEST_SCORE)),
+            total_yabbies: u16::from_le_bytes(get(buf, OFF_TOTAL_YABBIES)),
+            alerts_count: u16::from_le_bytes(get(buf, OFF_ALERTS_COUNT)),
+            best_time_seconds: u32::from_le_bytes(get(buf, OFF_BEST_TIME)),
+            best_codename,
+            tuxedo_unlocked: buf[OFF_TUXEDO],
+            camo_unlocked: buf[OFF_CAMO],
+            wireframe_unlocked: buf[OFF_WIREFRAME_UNLOCKED],
+            vr_cleared: buf[OFF_VR_CLEARED],
+            selected_costume: buf[OFF_SELECTED_COSTUME],
+            wireframe_enabled: buf[OFF_WIREFRAME_ENABLED],
+            language: buf[OFF_LANGUAGE],
+            screen_offset_x: buf[OFF_SCREEN_OFFSET_X] as i8,
+            screen_offset_y: buf[OFF_SCREEN_OFFSET_Y] as i8,
+            pal_mode: buf[OFF_PAL_MODE],
+            checksum: u16::from_le_bytes(get(buf, OFF_CHECKSUM)),
+        })
+    }
+
+    /// The save version byte of a stored payload, without parsing the rest, so
+    /// a caller can tell "save from another build" from "corrupt save".
+    pub fn peek_version(buf: &[u8]) -> Option<u8> {
+        if buf.len() < SERIALIZED_SIZE {
+            return None;
+        }
+        Some(buf[OFF_VERSION])
+    }
+
+    /// A copy with a freshly computed checksum. Callers mutate `SaveData` in
+    /// place and hand it straight to a save, so the stored checksum has to be
+    /// refreshed at the write, not only at construction.
+    pub fn with_checksum(mut self) -> Self {
+        self.checksum = self.compute_checksum();
+        self
+    }
+
+    /// Position-dependent checksum over every byte of every field except the
+    /// checksum itself. Folding the serialized payload (rather than summing
+    /// struct fields) means the checksum covers exactly the bytes on the card,
+    /// high halves of 32-bit fields included.
+    pub fn compute_checksum(&self) -> u16 {
+        let buf = self.to_bytes();
+        let mut h = CHECKSUM_INIT;
+        let mut at = 0usize;
+        let mut index = 0u8;
+        while (index as usize) < CHECKSUM_FIELD_SIZES.len() {
+            let end = at + CHECKSUM_FIELD_SIZES[index as usize] as usize;
+            h = fold_field(h, index, &buf[at..end]);
+            at = end;
+            index += 1;
+        }
+        h
+    }
+
+    /// Structural check: the magic, the version, and a checksum that matches
+    /// the bytes.
     pub fn is_valid(&self) -> bool {
         self.magic == SAVE_MAGIC && self.version == SAVE_VERSION && self.checksum == self.compute_checksum()
+    }
+
+    /// Field-range check for everything the game consumes as an enum index or a
+    /// display offset. `is_valid` only proves the bytes are the ones we wrote;
+    /// a self-consistent save can still carry `selected_costume = 200`, which
+    /// then lands in the 3-way costume cycle and the 5-way language match.
+    ///
+    /// Plain counters (`highest_score`, `total_yabbies`, `alerts_count`,
+    /// `best_time_seconds`) are deliberately not bounded: every site that shows
+    /// them saturates its own output.
+    pub fn is_sane(&self) -> bool {
+        // `unlocked_act` indexes `Act`, whose VR stages are 12..=15, so 16 is
+        // the bound; a campaign-only bound of 12 would reject a save written
+        // from the VR trainer.
+        self.unlocked_act < 16
+            && self.selected_costume < 3
+            && self.language < 5
+            && self.pal_mode < 3
+            // Four VR sims, one bit each.
+            && self.vr_cleared < 16
+            && self.tuxedo_unlocked <= 1
+            && self.camo_unlocked <= 1
+            && self.wireframe_unlocked <= 1
+            && self.wireframe_enabled <= 1
+            // Written as a range test, not `abs()`: `i8::abs` overflows on
+            // -128, which is exactly the value this check has to reject.
+            && self.screen_offset_x >= -SCREEN_OFFSET_LIMIT
+            && self.screen_offset_x <= SCREEN_OFFSET_LIMIT
+            && self.screen_offset_y >= -SCREEN_OFFSET_LIMIT
+            && self.screen_offset_y <= SCREEN_OFFSET_LIMIT
     }
 }
 
@@ -277,23 +537,84 @@ pub enum SaveStatus {
     SaveSuccess,
     SaveErrorNoCard,
     SaveErrorUnformatted,
+    /// A card answered but its directory could not be read or validated.
+    SaveErrorCorrupt,
     SaveErrorFailed,
     Loading,
     LoadSuccess,
     LoadNotFound,
+    /// A file was present and could not be read: bad magic, failed checksum, or
+    /// a field outside its range.
     LoadError,
+    /// A file from a different save version. Kept on the card, never reported
+    /// as a missing save.
+    LoadIncompatible,
+}
+
+/// Result of looking for this game's save on a memory card. Sticky (unlike
+/// `SaveStatus`, which clears itself after its timer) so menus can tell the
+/// player that a save file exists but was not loaded.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum LoadOutcome {
+    Loaded,
+    /// No file with our name on either slot. The only case that may be reported
+    /// to the player as "no save".
+    NotFound,
+    /// File present, but the magic, checksum or a field range rejected it.
+    Corrupt,
+    /// File present, written by a different save version.
+    Incompatible,
+    /// A card answered but a frame or the transport failed.
+    CardError,
+}
+
+impl LoadOutcome {
+    /// Short status line for the options screen's card banner.
+    pub fn label(&self) -> &'static str {
+        match self {
+            LoadOutcome::Loaded => "CARD: SAVE OK",
+            LoadOutcome::NotFound => "CARD: NO SAVE",
+            LoadOutcome::Incompatible => "CARD: TOO OLD",
+            LoadOutcome::Corrupt => "CARD: CORRUPT",
+            LoadOutcome::CardError => "CARD: ERROR",
+        }
+    }
+}
+
+/// Classify a payload that was read from under our own file name.
+///
+/// Absence is not decided here: the caller only reaches this with a file that
+/// exists, so a file this build cannot use is never reported as a missing one.
+pub fn classify_payload(payload: &[u8]) -> LoadOutcome {
+    match SaveData::peek_version(payload) {
+        None => LoadOutcome::Corrupt,
+        Some(v) if v != SAVE_VERSION => LoadOutcome::Incompatible,
+        Some(_) => match SaveData::from_bytes(payload) {
+            Some(save) if save.is_valid() && save.is_sane() => LoadOutcome::Loaded,
+            _ => LoadOutcome::Corrupt,
+        },
+    }
 }
 
 pub struct MemoryCardManager {
     pub status: SaveStatus,
     pub status_timer: u16,
+    /// Sticky state of this game's save file on the card, updated by both a load
+    /// and a successful write, for menus and diagnostics.
+    pub last_load: LoadOutcome,
 }
+
+/// Read buffer for a save payload. One card frame is 128 bytes, which also
+/// covers the 48-byte payload written by the previous save version so those
+/// cards can be identified rather than mis-sized.
+const SAVE_BUFFER_SIZE: usize = 128;
 
 impl MemoryCardManager {
     pub fn new() -> Self {
         Self {
             status: SaveStatus::Idle,
             status_timer: 0,
+            last_load: LoadOutcome::NotFound,
         }
     }
 
@@ -311,57 +632,73 @@ impl MemoryCardManager {
         self.save_game(data)
     }
 
+    /// Write the save to the first slot that is formatted *and* passes the
+    /// driver's strict directory validation.
+    ///
+    /// The already-probed `Card` is carried through to the write instead of
+    /// being rebuilt, and a card that answers but cannot be read is reported
+    /// apart from a card that is not there at all.
     pub fn save_game(&mut self, data: &SaveData) -> bool {
         self.status = SaveStatus::Saving;
-        let slots = [Slot::One, Slot::Two];
-        let mut target_slot = None;
+        let mut target: Option<Card<HardwareCard>> = None;
         let mut unformatted_found = false;
+        let mut unreadable_found = false;
 
-        for &slot in &slots {
+        for slot in [Slot::One, Slot::Two] {
             let mut card = Card::new(HardwareCard::new(slot));
             match card.is_formatted() {
-                Ok(true) => {
-                    target_slot = Some(slot);
-                    break;
-                }
+                Ok(true) => {}
+                // SE-2: Never auto-format silently without user prompt to protect unseated/virgin cards
                 Ok(false) => {
-                    // SE-2: Never auto-format silently without user prompt to protect unseated/virgin cards
                     unformatted_found = true;
-                }
-                Err(psx_mc::Error::NoCard) => {
                     continue;
                 }
+                Err(psx_mc::Error::NoCard) => continue,
+                // A protocol/transport fault is a hard error, not an absent
+                // card: it used to be swallowed here and the player was told
+                // "NO MEMORY CARD FOUND" about a card that was present.
                 Err(_) => {
+                    unreadable_found = true;
                     continue;
                 }
             }
+            // `is_formatted` only compares the two 'M'/'C' header bytes, so a
+            // card with a damaged directory or a broken link chain passes the
+            // probe and then fails mid-write. `validate_filesystem` is the
+            // driver's strictest reachable check (header, every directory
+            // checksum, allocation states, link chains, orphan blocks) and
+            // performs no writes. It also requires Sony's convention that a
+            // file's stored size equals its allocated blocks, so a card written
+            // by a foreign tool can be reported unreadable here.
+            if card.validate_filesystem().is_err() {
+                unreadable_found = true;
+                continue;
+            }
+            target = Some(card);
+            break;
         }
 
-        let slot = match target_slot {
-            Some(s) => s,
-            None => {
-                if unformatted_found {
-                    self.status = SaveStatus::SaveErrorUnformatted;
-                } else {
-                    self.status = SaveStatus::SaveErrorNoCard;
-                }
-                self.status_timer = 120;
-                return false;
-            }
+        let Some(mut card) = target else {
+            self.status = if unreadable_found {
+                SaveStatus::SaveErrorCorrupt
+            } else if unformatted_found {
+                SaveStatus::SaveErrorUnformatted
+            } else {
+                SaveStatus::SaveErrorNoCard
+            };
+            self.status_timer = 120;
+            return false;
         };
 
-        let mut card = Card::new(HardwareCard::new(slot));
         let icon = get_platty_save_icon();
-        let payload = unsafe {
-            core::slice::from_raw_parts(
-                data as *const SaveData as *const u8,
-                core::mem::size_of::<SaveData>(),
-            )
-        };
+        // Refresh the checksum here: the game mutates its `SaveData` in place
+        // between saves, so a checksum taken at construction is already stale.
+        let payload = data.with_checksum().to_bytes();
 
-        match card.write_with_icon(SAVE_FILENAME, SAVE_TITLE, payload, &icon) {
+        match card.write_with_icon(SAVE_FILENAME, SAVE_TITLE, &payload, &icon) {
             Ok(_) => {
                 self.status = SaveStatus::SaveSuccess;
+                self.last_load = LoadOutcome::Loaded;
                 self.status_timer = 120;
                 true
             }
@@ -383,27 +720,70 @@ impl MemoryCardManager {
         self.load_game()
     }
 
+    /// Load the save, distinguishing "no file", "file this build cannot use"
+    /// and success. A file that is present but rejected is recorded in
+    /// [`MemoryCardManager::last_load`] and reported as `LoadError` /
+    /// `LoadIncompatible` instead of `LoadNotFound`, so it is never mistaken
+    /// for an empty card and silently overwritten as a fresh campaign.
     pub fn load_game(&mut self) -> Option<SaveData> {
         self.status = SaveStatus::Loading;
-        let slots = [Slot::One, Slot::Two];
+        let mut rejected: Option<LoadOutcome> = None;
+        let mut card_error = false;
 
-        for &slot in &slots {
+        for slot in [Slot::One, Slot::Two] {
             let mut card = Card::new(HardwareCard::new(slot));
-            let mut buf = [0u8; 128];
-            match card.read(SAVE_FILENAME, &mut buf) {
-                Ok(len) if len >= core::mem::size_of::<SaveData>() => {
-                    let save = unsafe { core::ptr::read_unaligned(buf.as_ptr() as *const SaveData) };
-                    if save.is_valid() {
+            let mut buf = [0u8; SAVE_BUFFER_SIZE];
+            let outcome = match card.read(SAVE_FILENAME, &mut buf) {
+                Ok(len) => classify_payload(&buf[..len]),
+                // No file with our name here, or nothing in the port at all:
+                // keep looking in the other slot, and conclude absence later.
+                Err(psx_mc::Error::NotFound) | Err(psx_mc::Error::NoCard) => continue,
+                // A card answered but its frames or transport failed: the card
+                // is damaged, which is not the same as having no save.
+                Err(psx_mc::Error::BadChecksum) | Err(psx_mc::Error::Protocol) => {
+                    card_error = true;
+                    continue;
+                }
+                // A file under our name that cannot be parsed or whose link
+                // chain is broken: the file is unusable, not absent.
+                Err(_) => {
+                    rejected = Some(LoadOutcome::Corrupt);
+                    continue;
+                }
+            };
+            match outcome {
+                LoadOutcome::Loaded => match SaveData::from_bytes(&buf[..SERIALIZED_SIZE]) {
+                    Some(save) => {
+                        self.last_load = LoadOutcome::Loaded;
                         self.status = SaveStatus::LoadSuccess;
                         self.status_timer = 90;
                         return Some(save);
                     }
+                    // Cannot happen for a payload `classify_payload` accepted;
+                    // treated as corruption rather than as an empty card.
+                    None => rejected = Some(LoadOutcome::Corrupt),
+                },
+                other => {
+                    // Keep looking in the other slot, but remember the
+                    // rejection so a present file is never reported as absent.
+                    if rejected.is_none() || rejected == Some(LoadOutcome::Incompatible) {
+                        rejected = Some(other);
+                    }
                 }
-                _ => {}
             }
         }
 
-        self.status = SaveStatus::LoadNotFound;
+        let outcome = match rejected {
+            Some(o) => o,
+            None if card_error => LoadOutcome::CardError,
+            None => LoadOutcome::NotFound,
+        };
+        self.last_load = outcome;
+        self.status = match outcome {
+            LoadOutcome::Incompatible => SaveStatus::LoadIncompatible,
+            LoadOutcome::NotFound => SaveStatus::LoadNotFound,
+            _ => SaveStatus::LoadError,
+        };
         self.status_timer = 90;
         None
     }

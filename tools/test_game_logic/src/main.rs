@@ -3,7 +3,8 @@
 //! act progression, and cell collisions without requiring bare-metal MIPS hardware.
 
 const SAVE_MAGIC: [u8; 4] = *b"PLTY";
-const SAVE_VERSION: u8 = 3;
+/// Mirrors game/src/save.rs. Bumped 3 -> 4 with the checksum rewrite.
+const SAVE_VERSION: u8 = 4;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Codename {
@@ -85,6 +86,100 @@ impl Codename {
     }
 }
 
+// --------------------------------------------------------------------------
+// Wire format (mirror of game/src/save.rs)
+// --------------------------------------------------------------------------
+
+const OFF_MAGIC: usize = 0;
+const OFF_VERSION: usize = OFF_MAGIC + 4;
+const OFF_UNLOCKED_ACT: usize = OFF_VERSION + 1;
+const OFF_HIGHEST_SCORE: usize = OFF_UNLOCKED_ACT + 1;
+const OFF_TOTAL_YABBIES: usize = OFF_HIGHEST_SCORE + 4;
+const OFF_ALERTS_COUNT: usize = OFF_TOTAL_YABBIES + 2;
+const OFF_BEST_TIME: usize = OFF_ALERTS_COUNT + 2;
+const OFF_BEST_CODENAME: usize = OFF_BEST_TIME + 4;
+const OFF_TUXEDO: usize = OFF_BEST_CODENAME + 16;
+const OFF_CAMO: usize = OFF_TUXEDO + 1;
+const OFF_WIREFRAME_UNLOCKED: usize = OFF_CAMO + 1;
+const OFF_VR_CLEARED: usize = OFF_WIREFRAME_UNLOCKED + 1;
+const OFF_SELECTED_COSTUME: usize = OFF_VR_CLEARED + 1;
+const OFF_WIREFRAME_ENABLED: usize = OFF_SELECTED_COSTUME + 1;
+const OFF_LANGUAGE: usize = OFF_WIREFRAME_ENABLED + 1;
+const OFF_SCREEN_OFFSET_X: usize = OFF_LANGUAGE + 1;
+const OFF_SCREEN_OFFSET_Y: usize = OFF_SCREEN_OFFSET_X + 1;
+const OFF_PAL_MODE: usize = OFF_SCREEN_OFFSET_Y + 1;
+const OFF_CHECKSUM: usize = OFF_PAL_MODE + 1;
+pub const SERIALIZED_SIZE: usize = OFF_CHECKSUM + 2;
+
+const CHECKSUM_FIELD_SIZES: [u8; 18] = [
+    (OFF_VERSION - OFF_MAGIC) as u8,
+    (OFF_UNLOCKED_ACT - OFF_VERSION) as u8,
+    (OFF_HIGHEST_SCORE - OFF_UNLOCKED_ACT) as u8,
+    (OFF_TOTAL_YABBIES - OFF_HIGHEST_SCORE) as u8,
+    (OFF_ALERTS_COUNT - OFF_TOTAL_YABBIES) as u8,
+    (OFF_BEST_TIME - OFF_ALERTS_COUNT) as u8,
+    (OFF_BEST_CODENAME - OFF_BEST_TIME) as u8,
+    (OFF_TUXEDO - OFF_BEST_CODENAME) as u8,
+    (OFF_CAMO - OFF_TUXEDO) as u8,
+    (OFF_WIREFRAME_UNLOCKED - OFF_CAMO) as u8,
+    (OFF_VR_CLEARED - OFF_WIREFRAME_UNLOCKED) as u8,
+    (OFF_SELECTED_COSTUME - OFF_VR_CLEARED) as u8,
+    (OFF_WIREFRAME_ENABLED - OFF_SELECTED_COSTUME) as u8,
+    (OFF_LANGUAGE - OFF_WIREFRAME_ENABLED) as u8,
+    (OFF_SCREEN_OFFSET_X - OFF_LANGUAGE) as u8,
+    (OFF_SCREEN_OFFSET_Y - OFF_SCREEN_OFFSET_X) as u8,
+    (OFF_PAL_MODE - OFF_SCREEN_OFFSET_Y) as u8,
+    (OFF_CHECKSUM - OFF_PAL_MODE) as u8,
+];
+
+const STRUCT_PADDING: usize = 2;
+pub const SCREEN_OFFSET_LIMIT: i8 = 16;
+const CHECKSUM_INIT: u16 = 0x5A5A;
+
+const _: () = {
+    let mut total = 0usize;
+    let mut i = 0;
+    while i < CHECKSUM_FIELD_SIZES.len() {
+        total += CHECKSUM_FIELD_SIZES[i] as usize;
+        i += 1;
+    }
+    assert!(
+        total == OFF_CHECKSUM && OFF_CHECKSUM + 2 == SERIALIZED_SIZE,
+        "checksum field table does not tile the payload"
+    );
+};
+
+const _: () = assert!(
+    core::mem::size_of::<SaveData>() == SERIALIZED_SIZE + STRUCT_PADDING,
+    "SaveData layout drifted from the wire format"
+);
+
+const fn field_seed(index: u8) -> u16 {
+    (index as u16)
+        .wrapping_mul(0x9E37)
+        .wrapping_add(0x5A5A)
+        | 1
+}
+
+fn fold_field(mut h: u16, index: u8, bytes: &[u8]) -> u16 {
+    h ^= field_seed(index);
+    for &b in bytes {
+        h = h.rotate_left(5) ^ (b as u16);
+        h = h.wrapping_mul(0x0101) ^ (h >> 7);
+    }
+    h
+}
+
+fn put(buf: &mut [u8; SERIALIZED_SIZE], at: usize, src: &[u8]) {
+    buf[at..at + src.len()].copy_from_slice(src);
+}
+
+fn get<const N: usize>(buf: &[u8], at: usize) -> [u8; N] {
+    let mut tmp = [0u8; N];
+    tmp.copy_from_slice(&buf[at..at + N]);
+    tmp
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct SaveData {
@@ -136,33 +231,134 @@ impl SaveData {
         save
     }
 
-    pub fn compute_checksum(&self) -> u16 {
-        let mut sum: u16 = 0x5A5A;
-        sum = sum.wrapping_add(self.version as u16);
-        sum = sum.wrapping_add(self.unlocked_act as u16);
-        sum = sum.wrapping_add((self.highest_score & 0xFFFF) as u16);
-        sum = sum.wrapping_add((self.highest_score >> 16) as u16);
-        sum = sum.wrapping_add(self.total_yabbies);
-        sum = sum.wrapping_add(self.alerts_count);
-        sum = sum.wrapping_add((self.best_time_seconds & 0xFFFF) as u16);
-        for b in self.best_codename.iter() {
-            sum = sum.wrapping_add(*b as u16);
+    pub fn to_bytes(&self) -> [u8; SERIALIZED_SIZE] {
+        let mut buf = [0u8; SERIALIZED_SIZE];
+        put(&mut buf, OFF_MAGIC, &self.magic);
+        put(&mut buf, OFF_VERSION, &[self.version]);
+        put(&mut buf, OFF_UNLOCKED_ACT, &[self.unlocked_act]);
+        put(&mut buf, OFF_HIGHEST_SCORE, &self.highest_score.to_le_bytes());
+        put(&mut buf, OFF_TOTAL_YABBIES, &self.total_yabbies.to_le_bytes());
+        put(&mut buf, OFF_ALERTS_COUNT, &self.alerts_count.to_le_bytes());
+        put(&mut buf, OFF_BEST_TIME, &self.best_time_seconds.to_le_bytes());
+        put(&mut buf, OFF_BEST_CODENAME, &self.best_codename);
+        put(&mut buf, OFF_TUXEDO, &[self.tuxedo_unlocked]);
+        put(&mut buf, OFF_CAMO, &[self.camo_unlocked]);
+        put(&mut buf, OFF_WIREFRAME_UNLOCKED, &[self.wireframe_unlocked]);
+        put(&mut buf, OFF_VR_CLEARED, &[self.vr_cleared]);
+        put(&mut buf, OFF_SELECTED_COSTUME, &[self.selected_costume]);
+        put(&mut buf, OFF_WIREFRAME_ENABLED, &[self.wireframe_enabled]);
+        put(&mut buf, OFF_LANGUAGE, &[self.language]);
+        put(&mut buf, OFF_SCREEN_OFFSET_X, &[self.screen_offset_x as u8]);
+        put(&mut buf, OFF_SCREEN_OFFSET_Y, &[self.screen_offset_y as u8]);
+        put(&mut buf, OFF_PAL_MODE, &[self.pal_mode]);
+        put(&mut buf, OFF_CHECKSUM, &self.checksum.to_le_bytes());
+        buf
+    }
+
+    pub fn from_bytes(buf: &[u8]) -> Option<Self> {
+        if buf.len() < SERIALIZED_SIZE {
+            return None;
         }
-        sum = sum.wrapping_add(self.tuxedo_unlocked as u16);
-        sum = sum.wrapping_add(self.camo_unlocked as u16);
-        sum = sum.wrapping_add(self.wireframe_unlocked as u16);
-        sum = sum.wrapping_add(self.vr_cleared as u16);
-        sum = sum.wrapping_add(self.selected_costume as u16);
-        sum = sum.wrapping_add(self.wireframe_enabled as u16);
-        sum = sum.wrapping_add(self.language as u16);
-        sum = sum.wrapping_add(self.screen_offset_x as u8 as u16);
-        sum = sum.wrapping_add(self.screen_offset_y as u8 as u16);
-        sum = sum.wrapping_add(self.pal_mode as u16);
-        sum
+        let magic: [u8; 4] = get(buf, OFF_MAGIC);
+        let version = buf[OFF_VERSION];
+        if magic != SAVE_MAGIC || version != SAVE_VERSION {
+            return None;
+        }
+        let mut best_codename = [0u8; 16];
+        best_codename.copy_from_slice(&buf[OFF_BEST_CODENAME..OFF_BEST_CODENAME + 16]);
+        Some(Self {
+            magic,
+            version,
+            unlocked_act: buf[OFF_UNLOCKED_ACT],
+            highest_score: u32::from_le_bytes(get(buf, OFF_HIGHEST_SCORE)),
+            total_yabbies: u16::from_le_bytes(get(buf, OFF_TOTAL_YABBIES)),
+            alerts_count: u16::from_le_bytes(get(buf, OFF_ALERTS_COUNT)),
+            best_time_seconds: u32::from_le_bytes(get(buf, OFF_BEST_TIME)),
+            best_codename,
+            tuxedo_unlocked: buf[OFF_TUXEDO],
+            camo_unlocked: buf[OFF_CAMO],
+            wireframe_unlocked: buf[OFF_WIREFRAME_UNLOCKED],
+            vr_cleared: buf[OFF_VR_CLEARED],
+            selected_costume: buf[OFF_SELECTED_COSTUME],
+            wireframe_enabled: buf[OFF_WIREFRAME_ENABLED],
+            language: buf[OFF_LANGUAGE],
+            screen_offset_x: buf[OFF_SCREEN_OFFSET_X] as i8,
+            screen_offset_y: buf[OFF_SCREEN_OFFSET_Y] as i8,
+            pal_mode: buf[OFF_PAL_MODE],
+            checksum: u16::from_le_bytes(get(buf, OFF_CHECKSUM)),
+        })
+    }
+
+    pub fn peek_version(buf: &[u8]) -> Option<u8> {
+        if buf.len() < SERIALIZED_SIZE {
+            return None;
+        }
+        Some(buf[OFF_VERSION])
+    }
+
+    pub fn with_checksum(mut self) -> Self {
+        self.checksum = self.compute_checksum();
+        self
+    }
+
+    pub fn compute_checksum(&self) -> u16 {
+        let buf = self.to_bytes();
+        let mut h = CHECKSUM_INIT;
+        let mut at = 0usize;
+        let mut index = 0u8;
+        while (index as usize) < CHECKSUM_FIELD_SIZES.len() {
+            let end = at + CHECKSUM_FIELD_SIZES[index as usize] as usize;
+            h = fold_field(h, index, &buf[at..end]);
+            at = end;
+            index += 1;
+        }
+        h
     }
 
     pub fn is_valid(&self) -> bool {
         self.magic == SAVE_MAGIC && self.version == SAVE_VERSION && self.checksum == self.compute_checksum()
+    }
+
+    pub fn is_sane(&self) -> bool {
+        self.unlocked_act < 16
+            && self.selected_costume < 3
+            && self.language < 5
+            && self.pal_mode < 3
+            && self.vr_cleared < 16
+            && self.tuxedo_unlocked <= 1
+            && self.camo_unlocked <= 1
+            && self.wireframe_unlocked <= 1
+            && self.wireframe_enabled <= 1
+            && self.screen_offset_x >= -SCREEN_OFFSET_LIMIT
+            && self.screen_offset_x <= SCREEN_OFFSET_LIMIT
+            && self.screen_offset_y >= -SCREEN_OFFSET_LIMIT
+            && self.screen_offset_y <= SCREEN_OFFSET_LIMIT
+    }
+}
+
+/// Mirror of game/src/save.rs's load classification.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum LoadOutcome {
+    Loaded,
+    NotFound,
+    Corrupt,
+    Incompatible,
+    CardError,
+}
+
+/// Mirror of game/src/save.rs's `classify_payload`, plus the `None` (no file)
+/// case the card read reports as `Error::NotFound`.
+pub fn load_outcome_for(file: Option<&[u8]>) -> LoadOutcome {
+    let Some(payload) = file else {
+        return LoadOutcome::NotFound;
+    };
+    match SaveData::peek_version(payload) {
+        None => LoadOutcome::Corrupt,
+        Some(v) if v != SAVE_VERSION => LoadOutcome::Incompatible,
+        Some(_) => match SaveData::from_bytes(payload) {
+            Some(save) if save.is_valid() && save.is_sane() => LoadOutcome::Loaded,
+            _ => LoadOutcome::Corrupt,
+        },
     }
 }
 
@@ -293,6 +489,147 @@ fn main() {
     save.magic[0] = b'X';
     assert!(!save.is_valid(), "Corrupted magic signature must be invalid");
     println!("✓ Save data checksum & validation test PASSED");
+
+    // 1b. Explicit no-padding serialization (PD-6)
+    assert_eq!(SERIALIZED_SIZE, 46, "Serialized payload must be 46 bytes with no padding");
+    assert_eq!(
+        core::mem::size_of::<SaveData>(),
+        SERIALIZED_SIZE + STRUCT_PADDING,
+        "The repr(C) struct must still carry the 2-byte alignment hole, proving it is not the wire format"
+    );
+    let sample = SaveData {
+        unlocked_act: 7,
+        highest_score: 0x00AB_CDEF,
+        total_yabbies: 0x1234,
+        alerts_count: 0x5678,
+        best_time_seconds: 0x0009_C1D0,
+        best_codename: *b"IRON BILL       ",
+        tuxedo_unlocked: 1,
+        camo_unlocked: 1,
+        wireframe_unlocked: 1,
+        vr_cleared: 0x0D,
+        selected_costume: 2,
+        wireframe_enabled: 1,
+        language: 4,
+        screen_offset_x: -16,
+        screen_offset_y: 16,
+        pal_mode: 1,
+        ..SaveData::new()
+    }
+    .with_checksum();
+
+    let bytes_a = sample.to_bytes();
+    let bytes_b = sample.to_bytes();
+    assert_eq!(bytes_a, bytes_b, "Serialization must be deterministic (PD-6: no uninitialized bytes)");
+    // The struct blob's bytes 6..8 are the alignment hole and used to leak
+    // stack residue; the payload has no such gap: `highest_score` follows
+    // `unlocked_act` directly and is written little-endian.
+    assert_eq!(bytes_a.len(), SERIALIZED_SIZE);
+    assert_eq!(&bytes_a[0..4], b"PLTY");
+    assert_eq!(bytes_a[OFF_VERSION], SAVE_VERSION);
+    assert_eq!(bytes_a[OFF_UNLOCKED_ACT], 7);
+    assert_eq!(
+        &bytes_a[OFF_HIGHEST_SCORE..OFF_HIGHEST_SCORE + 4],
+        &[0xEF, 0xCD, 0xAB, 0x00],
+        "No padding hole: highest_score must start at offset 6, right after unlocked_act"
+    );
+    assert_eq!(&bytes_a[OFF_TOTAL_YABBIES..OFF_TOTAL_YABBIES + 2], &[0x34, 0x12]);
+    assert_eq!(&bytes_a[OFF_ALERTS_COUNT..OFF_ALERTS_COUNT + 2], &[0x78, 0x56]);
+    assert_eq!(&bytes_a[OFF_BEST_TIME..OFF_BEST_TIME + 4], &[0xD0, 0xC1, 0x09, 0x00]);
+    assert_eq!(&bytes_a[OFF_CHECKSUM..OFF_CHECKSUM + 2], &sample.checksum.to_le_bytes());
+    assert_eq!(SaveData::from_bytes(&bytes_a), Some(sample), "from_bytes must invert to_bytes");
+    assert!(sample.is_valid() && sample.is_sane());
+    assert!(SaveData::from_bytes(&bytes_a[..SERIALIZED_SIZE - 1]).is_none(), "Truncated payload must be rejected");
+    println!("✓ Explicit no-padding serialization test (PD-6) PASSED");
+
+    // 1c. Position-dependent checksum (PD-9b / PD-9a)
+    let high_word_flip = SaveData { best_time_seconds: 0x0009_C1D0 ^ 0x0001_0000, ..sample };
+    assert_ne!(
+        sample.compute_checksum(),
+        high_word_flip.compute_checksum(),
+        "A single-bit flip in the HIGH word of best_time_seconds must change the checksum (PD-9a)"
+    );
+    let low_word_flip = SaveData { best_time_seconds: 0x0009_C1D0 ^ 0x0000_0001, ..sample };
+    assert_ne!(sample.compute_checksum(), low_word_flip.compute_checksum());
+
+    let swapped = SaveData {
+        total_yabbies: sample.alerts_count,
+        alerts_count: sample.total_yabbies,
+        ..sample
+    };
+    assert_ne!(
+        sample.compute_checksum(),
+        swapped.compute_checksum(),
+        "Swapping two same-typed fields must change the checksum (PD-9b: a sum is commutative)"
+    );
+    assert!(!swapped.is_valid(), "A swapped-field save must not validate against the original checksum");
+    // Every single bit of every field must be covered.
+    let mut undetected = 0;
+    for byte in 0..SERIALIZED_SIZE - 2 {
+        for bit in 0..8 {
+            let mut probe = bytes_a;
+            probe[byte] ^= 1 << bit;
+            match SaveData::from_bytes(&probe) {
+                Some(parsed) if parsed.compute_checksum() == sample.checksum => undetected += 1,
+                _ => {}
+            }
+        }
+    }
+    assert_eq!(undetected, 0, "Every single-bit flip in the payload must be detected");
+    println!("✓ Position-dependent checksum coverage test (PD-9a/PD-9b) PASSED");
+
+    // 1d. Field-range validation (PD-9d)
+    let out_of_range = [
+        ("selected_costume = 200", SaveData { selected_costume: 200, ..sample }),
+        ("language = 255", SaveData { language: 255, ..sample }),
+        ("pal_mode = 200", SaveData { pal_mode: 200, ..sample }),
+        ("screen_offset_x = -128", SaveData { screen_offset_x: -128, ..sample }),
+        ("screen_offset_y = 127", SaveData { screen_offset_y: 127, ..sample }),
+        ("screen_offset_y = 17", SaveData { screen_offset_y: 17, ..sample }),
+        ("unlocked_act = 16", SaveData { unlocked_act: 16, ..sample }),
+        ("vr_cleared = 200", SaveData { vr_cleared: 200, ..sample }),
+        ("tuxedo_unlocked = 7", SaveData { tuxedo_unlocked: 7, ..sample }),
+    ];
+    for (label, bad) in out_of_range {
+        // A valid checksum must not buy an out-of-range field a pass.
+        let bad = bad.with_checksum();
+        assert!(bad.is_valid(), "{label} must still be structurally valid");
+        assert!(!bad.is_sane(), "{label} must fail the sanity check (PD-9d)");
+    }
+    let edge = SaveData { screen_offset_x: -16, screen_offset_y: 16, ..sample }.with_checksum();
+    assert!(edge.is_sane(), "The options menu's +/-16 clamp is the accepted boundary");
+    // VR act indices are legitimate progress, not corruption.
+    let vr_progress = SaveData { unlocked_act: 15, ..sample }.with_checksum();
+    assert!(vr_progress.is_sane(), "A save written from the VR trainer (act 12..=15) must stay valid");
+    println!("✓ Save field-range validation test (PD-9d) PASSED");
+
+    // 1e. Load classification: absent vs incompatible vs corrupt (PD-9c / 2.7)
+    assert_eq!(load_outcome_for(None), LoadOutcome::NotFound, "No file at all");
+    let mut old_version = sample.to_bytes();
+    old_version[OFF_VERSION] = 3;
+    assert_eq!(
+        load_outcome_for(Some(&old_version)),
+        LoadOutcome::Incompatible,
+        "A v3 card must be reported as an incompatible save, never as a missing one"
+    );
+    assert_ne!(load_outcome_for(Some(&old_version)), load_outcome_for(None));
+    let mut flipped = sample.to_bytes();
+    flipped[OFF_ALERTS_COUNT] ^= 0x20;
+    assert_eq!(load_outcome_for(Some(&flipped)), LoadOutcome::Corrupt, "A bad checksum must be Corrupt");
+    let mut short = [0u8; 12];
+    short[..4].copy_from_slice(&SAVE_MAGIC);
+    assert_eq!(load_outcome_for(Some(&short)), LoadOutcome::Corrupt, "A truncated payload must be Corrupt");
+    let insane = SaveData { selected_costume: 200, ..sample }.with_checksum();
+    assert_eq!(
+        load_outcome_for(Some(&insane.to_bytes())),
+        LoadOutcome::Corrupt,
+        "A save with a valid checksum but an out-of-range field must be treated as corrupt"
+    );
+    assert_eq!(load_outcome_for(Some(&sample.to_bytes())), LoadOutcome::Loaded);
+    // The rejected file stays on the card, and the next save overwrites it with
+    // a fresh checksum: the game must know it happened.
+    assert_eq!(SaveData::new().with_checksum().is_valid(), true, "A rewritten save must validate");
+    println!("✓ Load outcome classification test (PD-9c) PASSED");
 
     // 2. Codename Evaluation Tests (12 Ranks)
     assert_eq!(Codename::evaluate(0, 0, 300, 2), Codename::BigPlatypus, "0 alerts + 0 damage + fast time awards Big Platypus");
@@ -537,5 +874,5 @@ fn main() {
     assert_eq!(time_s_pal(3000), 60);
     println!("✓ PAL 50Hz vs NTSC 60Hz time scaling test (QA-8) PASSED");
 
-    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (11/11 test suites)");
+    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (15/15 test suites)");
 }
