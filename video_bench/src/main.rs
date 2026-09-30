@@ -103,6 +103,9 @@ fn main() -> ! {
 
     // P1: paced run -- the numbers that matter.
     let (presents, using_cd) = run_paced(&mut renderer);
+    // Emit the headline numbers now, before the diagnostic phases, so a
+    // wedge in one of those cannot cost us the deliverable.
+    report::emit_paced_only(&presents, using_cd);
 
     // P2: burst stage attribution.
     let burst = stages::run_burst(&mut clock);

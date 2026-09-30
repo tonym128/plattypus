@@ -18,8 +18,15 @@ pub const VIDEO_W: u16 = 320;
 pub const VIDEO_H: u16 = 240;
 pub const TOTAL_FRAMES: u16 = 150;
 pub const EMBEDDED_FRAME_COUNT: u16 = 16;
-pub const SECTORS_PER_FRAME: usize = 8;
-pub const WORDS_PER_FRAME: usize = 4096; // 16,384 bytes = 8 sectors
+/// CD sectors per compressed frame, and so the stride into the .VID file.
+///
+/// This is the bandwidth dial. The drive has to deliver this many sectors
+/// inside one 4-display-period frame window while the MDEC holds the DMA
+/// controller, so it decides whether 15 fps is reachable. Reduced from the
+/// original 8 sectors after measuring that the worst frame in the video
+/// needs only 7; see `docs/perf/why-6fps.md`.
+pub const SECTORS_PER_FRAME: usize = 7;
+pub const WORDS_PER_FRAME: usize = 3584; // 14,336 bytes = 7 sectors
 pub const WORDS_PER_SLICE: usize = 1920; // 16 * 240 / 2 = 1,920 u32 words
 // Keep several compressed frames in RAM so CD reads can be done as one
 // sequential burst instead of seeking once for every frame.
@@ -27,9 +34,9 @@ const PREFETCH_FRAMES: usize = 4;
 
 /// BSS-resident storage for MDEC bitstream, slice buffer, and CD reading
 struct VideoStorage {
-    /// 4,096 u32 words (16 KiB) holding the active frame payload
+    /// One frame payload, sized for the largest frame in the video.
     frame_words: [u32; WORDS_PER_FRAME],
-    /// Read-ahead batch: 64 KiB of compressed video, four frames at a time.
+    /// Read-ahead batch: four frames at a time (56 sectors).
     frame_cache: [[u32; WORDS_PER_FRAME]; PREFETCH_FRAMES],
     /// 1,920 u32 words (7.68 KiB) holding one decoded 16x240 slice
     slice_words: [u32; WORDS_PER_SLICE],
@@ -175,8 +182,8 @@ impl VideoPlayer {
             for sector in 0..SECTORS_PER_FRAME {
                 let offset = sector * SECTOR_WORDS;
                 let sector_buf: &mut [u32; SECTOR_WORDS] = unsafe {
-                    &mut *(&mut storage.frame_cache[frame][offset..offset + SECTOR_WORDS]
-                        as *mut [u32] as *mut [u32; SECTOR_WORDS])
+                    &mut *(storage.frame_cache[frame][offset..offset + SECTOR_WORDS]
+                        .as_mut_ptr() as *mut [u32; SECTOR_WORDS])
                 };
                 if !unsafe { self.cd_reader.read_sector(sector_buf) } {
                     psx_rt::tty::print("[VIDEO] CD batch read failed at frame ");
@@ -190,9 +197,7 @@ impl VideoPlayer {
             }
         }
 
-        // Stop ReadN after the batch. This avoids missed sector IRQs during
-        // MDEC decoding; the next batch resumes sequentially after one seek.
-        unsafe { self.cd_reader.stop(); }
+        unsafe { self.cd_reader.stop() };
 
         if ok {
             self.cache_start_frame = batch_start;
@@ -252,7 +257,9 @@ impl VideoPlayer {
                 self.cd_start_lba = lba;
                 // ReadN bursts fill the four-frame cache; the reader pauses
                 // between batches so MDEC work cannot overrun the CD FIFO.
-                psx_rt::tty::println("[VIDEO] Target video located; using four-frame read-ahead");
+                psx_rt::tty::print("[VIDEO] Target video located; 7-sector read-ahead, total ");
+                psx_rt::tty::print_hex_u32((TOTAL_FRAMES as u32) * SECTORS_PER_FRAME as u32);
+                psx_rt::tty::print(" sectors\n");
                 self.using_cd = true;
                 let _ = self.prefetch_cd_batch(0, storage);
             }

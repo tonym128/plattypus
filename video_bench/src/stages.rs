@@ -361,10 +361,10 @@ pub fn measure_cd_rate(clock: &mut Clock) -> CdRate {
     let batched = 32u32;
     clock.start();
     for b in 0..4u16 {
-        let lba = video_lba.wrapping_add(b as u32 * 8);
+        let lba = video_lba.wrapping_add(b as u32 * SECTORS_PER_FRAME as u32);
         if unsafe { reader.start_read(lba) } {
-            for i in 0..8usize {
-                let offset = i * SECTOR_WORDS;
+            for i in 0..SECTORS_PER_FRAME {
+                let offset = (i % SECTORS_PER_FRAME) * SECTOR_WORDS;
                 let buf: &mut [u32; SECTOR_WORDS] = unsafe {
                     &mut *(s.frame_cache[i % PREFETCH_FRAMES as usize][offset..offset + SECTOR_WORDS]
                         .as_mut_ptr() as *mut [u32; SECTOR_WORDS])

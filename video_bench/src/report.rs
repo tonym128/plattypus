@@ -427,3 +427,47 @@ pub fn draw_on_screen(
     l.clear().text(verdict);
     font.draw_text(8, y, l.as_str(), colour);
 }
+
+/// Emit just the paced metrics, immediately after the paced phase.
+///
+/// The paced numbers are the deliverable; the later stage-attribution
+/// phases are diagnostics. If one of those wedges (the CD read path has
+/// several emulator-timing-sensitive spots), this still gets the frame
+/// rate, interval distribution, stutter count and average frame time to
+/// the host rather than losing the whole run.
+pub fn emit_paced_only(presents: &Presents, using_cd: bool) {
+    let items = presents.as_slice();
+    let presented = items.len() as u32;
+    let mut iv_sum = 0u64;
+    let mut iv_min = u32::MAX;
+    let mut iv_max = 0u32;
+    let mut stutters = 0u32;
+    let mut measured = 0u32;
+    for p in items {
+        if p.interval == 0 { continue; }
+        measured += 1;
+        iv_sum += p.interval as u64;
+        if p.interval < iv_min { iv_min = p.interval; }
+        if p.interval > iv_max { iv_max = p.interval; }
+        if p.interval != VBLANKS_PER_VIDEO_FRAME { stutters += 1; }
+    }
+    if measured == 0 { iv_min = 0; }
+    let iv_mean = if measured > 0 { (iv_sum / measured as u64) as u32 } else { VBLANKS_PER_VIDEO_FRAME };
+    let fps_x1000 = if iv_mean > 0 { 60_000 / iv_mean } else { 0 };
+    let avg_us = iv_mean * crate::timing::US_PER_VBLANK;
+    let kv = |tag: &str, name: &str, value: u32| {
+        tty::print("@@VB1 "); tty::print(tag); tty::print(" ");
+        tty::print(name); tty::print("=");
+        tty::print_hex_u32(value); tty::print("\n");
+    };
+    tty::println("@@VB1 PACED_ONLY 1");
+    kv("paced_only", "using_cd", using_cd as u32);
+    kv("paced_only", "presented", presented);
+    kv("paced_only", "fps_x1000", fps_x1000);
+    kv("paced_only", "interval_min", iv_min);
+    kv("paced_only", "interval_mean", iv_mean);
+    kv("paced_only", "interval_max", iv_max);
+    kv("paced_only", "stutters", stutters);
+    kv("paced_only", "avg_frame_time_us", avg_us);
+    tty::println("@@VB1 PACED_ONLY 0");
+}

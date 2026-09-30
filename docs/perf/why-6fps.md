@@ -146,3 +146,69 @@ before touching the video assets. If the contention turns out to be real
 silicon behaviour rather than an emulator artefact, B is the remaining
 route and it is a content decision, not an engineering one -- so it
 should be made deliberately, with the frames eyeballed.
+
+
+## Appendix: the bitrate cut was tried, and it did not work
+
+Option B was implemented and measured rather than assumed.
+
+**A variable-length container was built first**, because a fixed frame
+slot caps the cut far lower than 30%. Measuring the floor payload of every
+frame (coarsest legal quantisation) gave mean 8,731 B but max 12,548 B, so:
+
+- fixed 7-sector slot: 87.5% of the original (a 12.5% cut) -- works,
+- fixed 6-sector slot: frame 77 does not fit at all,
+- variable container: 62.7% of the original (a 37% cut).
+
+The encoder gained `--variable-sectors` (a 1-sector header of per-frame
+counts) and `--target-words` (a typical-frame budget with overflow allowed),
+and its adaptive quantiser search became a bisection, since payload is
+monotonic in scale -- the linear scan re-encoded each frame up to 25 times
+and made a 150-frame video take 15+ minutes; the bisection does it in about
+a minute. The bisection picks the same scale as the linear scan except
+where it can find a *finer* scale that still fits, which is an improvement.
+
+**The variable container works and decodes all 150 frames** (756 data
+sectors, mean 5.04/frame, max 7), but its per-frame read count made the
+paced run wedge intermittently in the CD reader: a batch read of a
+variable number of sectors, with the drive paused at the end, does not
+always drain before the next command, and DuckStation then reports
+"Interrupt not processed in time, missed sectors" and the reader hangs.
+The fixed-stride reader has no such failure mode, so the measurement below
+uses the fixed 7-sector slot.
+
+**Result, fixed 7 sectors/frame, 1050 sectors vs 1200 (12.5% cut):**
+
+Measured with the shipped `PREFETCH_FRAMES=4`, the only change being the
+bitrate:
+
+| | baseline (8 sectors) | after (7 sectors) |
+| --- | --- | --- |
+| presented fps | 6.00 | **6.67** |
+| interval mean | 10 vb | **9 vb** |
+| stutters | 149/150 | 149/150 |
+| avg frame time | 166.7 ms | **150.0 ms** |
+
+A real but small improvement: 6.00 -> 6.67 fps, the mean interval drops from
+10 to 9 display periods. Far short of the 15 fps target, and the arithmetic
+says why it could not have been otherwise. With read and decode *serialised*
+-- which is the shipped architecture, since the MDEC contention that would
+let them overlap is unresolved -- the frame cost is `read + compute`. Twelve
+percent off the read is ~7 ms off a ~97 ms total, and the drive must still
+deliver its sectors inside the one display period the decode has. Cutting
+data does not touch the term that is actually binding, which is the
+serialisation itself.
+
+(A `PREFETCH_FRAMES=1` variant measured 5.00 fps -- worse. That is the
+per-batch seek and burst overhead growing relative to the smaller frame, not
+the bitrate, and is why the committed value is back at the shipped 4.)
+
+So option B on its own is worth about 0.7 fps. It is not the fix; the fix is
+still to let the read and the decode overlap, which needs the MDEC/CD
+contention resolved. This commit keeps the 7-sector encoding only because it
+is a strict improvement over the 8-sector baseline at no code risk -- not
+because it changes the picture.
+
+The bench now emits the paced metrics immediately after the paced phase
+(`@@VB1 paced_only ...`), so a wedge in a later diagnostic phase cannot cost
+us the headline numbers.
