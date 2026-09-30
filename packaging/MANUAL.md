@@ -177,7 +177,11 @@ Ground surfaces transmit acoustic vibrations based on material density:
 * **Chapter 1 Boss: Perimeter Walker Mk-I**: Dual searchlight combat mech with ground-stomp shockwaves.
 * **Chapter 2 Boss: Park Ranger Jet Ski**: Fast patrol cutter dropping rotary river mines and wake turbulences.
 * **Chapter 3 Boss: Sniper Kooky**: High-rise cyborg hunter utilizing broadcast lasers and flash grenades.
-* **Chapter 4 Final Boss: Dr. Cane Toad's Excavator**: Heavy dual-treaded excavator with hydraulic smashing claws and toxic mud mortar cannons.
+* **Chapter 4 Final Boss: Dr. Cane Toad's Excavator**: Heavy dual-treaded excavator with hydraulic smashing claws and a toxic mud mortar.
+  * **Three engines**: the machine's hull is shielded, so the only way in is to destroy its three exposed engines. Each takes two strikes.
+  * **Venting window**: the strike that kills an engine forces the machine to vent for 2.5 seconds. The claw stops and the mortar pauses — that is your window to hit the hull.
+  * **All engines down**: once the third engine falls the shields stay down permanently and the hull is open for the rest of the fight.
+  * The hull takes four hits, so the boss is six engine strikes followed by four hull strikes. The ENGINES gauge and the SHIELDS UP / VENTING - HIT NOW readout on the HUD track all of it.
 
 ---
 
