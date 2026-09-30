@@ -144,7 +144,25 @@ A single sample at the segment midpoint. Where a wall row has a one-tile gap (as
 - `SaveStatus::LoadError` is declared (`save.rs:284`) and **never constructed**. A corrupt save is reported to the player as `LoadNotFound` — silently starting a fresh campaign that overwrites it on first save.
 - `Err(_) => { continue; }` (`save.rs:331-337`) swallows `NotFormatted`/`Corrupt`/`Protocol` identically to `NoCard`, so the player is told "NO MEMORY CARD FOUND" for a corrupt card.
 
-### PD-10 — Three protective anti-patterns 🟢
+### PD-11 — 🔴 Every save after boot was written with a stale checksum 🔴 **(found during remediation)**
+
+Not in the original pass — discovered while implementing PD-6/PD-9.
+`compute_checksum()` was called in exactly one place, `SaveData::new()`.
+`game.rs` then mutates `save_data` **in place** and calls `save_to_slot1` at
+every stage clear (`game.rs:785`), every VR clear, and all five options-menu
+rows (`game.rs:359,367,379,392,404`) — none of which recompute the checksum.
+
+Consequence: every save written after boot failed `is_valid()` on the next
+load, so **the campaign silently reset to a fresh state on every reboot**. The
+memory card feature appeared to work — it reported success and wrote a file —
+but nothing ever persisted.
+
+This is more severe than the padding leak it was found alongside, and it means
+the old checksum's weaknesses (PD-9) were largely moot: the value was stale in
+the common path. Fixed by computing the checksum at the write boundary
+(`with_checksum()`) rather than trusting callers to have done it. Any future
+save-field mutation is now safe by construction, which is what makes the
+stronger position-dependent checksum meaningful for the first time.
 
 **`#![allow(dead_code)]` at `main.rs:8`.** Crate-wide, on a binary with no external consumers. It hides ~12 confirmed write-only fields (`entities.rs` `angle`, four `max_health`s, `target_lane`, `spark_timer`, `river_distance`; `save.rs` `highest_score`, `total_yabbies`, `alerts_count`, `best_time_seconds`, `best_codename`). Remove it and work the warnings.
 
@@ -158,18 +176,46 @@ A single sample at the segment midpoint. Where a wall row has a one-tile gap (as
 
 *Focus: GTE/GPU correctness, RAM/VRAM/SPU budgets, CD/MDEC streaming, DualShock, draw budget.*
 
-### SE-1 — DualShock rumble is inert: wrong `0x4D` payload 🔴
+### SE-1 — ⚠️ WITHDRAWN — the `0x4D` payload was already correct
 
-```rust
-// dualshock.rs:101-105
-// Byte 2 = 0x00 (map small motor to byte index 0 of poll payload)
-// Byte 3 = 0x01 (map large motor to byte index 1 of poll payload)
-transaction(port2, [0x4D, 0x00, 0x00, 0x01, 0xFF, 0xFF, 0xFF, 0xFF]);
-```
+**This finding was wrong and has been withdrawn.** It claimed that
+`[0x4D, 0x00, 0x00, 0x01, 0xFF, 0xFF, 0xFF, 0xFF]` was malformed because byte 2
+was read as a "motor byte count".
 
-Per the PSX pad spec, `0x4D` takes `[0x4D, 0x00, num_motor_bytes, on_off_flags, …]` — **byte 2 is the *count* of motor bytes to read from the poll stream**, and byte 3 is their on/off mask. Writing `num = 0x00` tells the pad "there are no motor bytes", so the motor bytes faithfully transmitted at `dualshock.rs:172-174` are discarded. The correct payload is `[0x4D, 0x00, 0x02, 0x03, 0xFF, 0xFF, 0xFF, 0xFF]`.
+Verification against the nocash PSX-SPX reference and an independent hardware
+packet capture shows command `4Dh` ("Set RumbleProtocol", Sony's `PadSetActAlign`)
+takes `[01h 4Dh 00h aa bb cc dd ee ff]` where **bytes aa..ff are one mapping
+selector per `42h` poll byte**, not a count and not a flag word:
 
-The in-code comment asserts a mapping semantic the command does not have. **The entire rumble subsystem is currently non-functional**, and the README advertises "dual-motor vibration feedback".
+- `00h` = map the right/small motor to bit 0 of that poll byte
+- `01h` = map the left/large motor to bits 0-7 of that poll byte
+- `FFh` = map nothing
+- `02h..FEh` = undefined, possibly for extra motors
+
+So the existing payload is the **canonical two-motor enable** and the "fix" this
+review originally proposed (`[0x4D, 0x00, 0x02, 0x03, …]`) would have set both
+selectors to undefined values and **unmapped both motors**. The original
+in-code comment was accurate; it was this review that misread the command.
+
+The adjacent genuine defect is narrower: the small-motor data byte was `0x01`.
+The reference gives two readings — `xx.bit0 = small motor` (nocash) and
+"must be `0xFF`" (scanlime capture). `0xFF` satisfies both, `0x01` only one, so
+the small-motor byte is now `0xFF`. **Rumble is functional.**
+
+Also corrected: the SDK's `psx-pad` contains no `0x4D` handling at all
+(`enable_analog` sends only `0x43`/`0x44`/`0x43`), so there is no upstream
+implementation to mirror.
+
+Two driver weaknesses remain open and are **not** covered by SE-11/SE-12 above:
+
+- `get_rumble_state()` (`platypus.rs:161-168`) passes large-motor intensity
+  straight through with no floor. The reference notes the large motor does not
+  spin below roughly `0x50..0x60`, so a future low-intensity call site would be
+  silently inert. Current call sites use 160-255, so it works today.
+- `init()` (`game.rs:139-141`) runs the full 4-transaction config sequence on
+  **both** ports speculatively. The reference documents a ~1 s config-mode
+  watchdog, so the port-2 attempt after a port-1 failure is the riskiest
+  sequence in the driver.
 
 ### SE-2 — Title background wraps: right 64 columns are a duplicate of the left 64 🔴
 
@@ -296,15 +342,29 @@ Today it lands at ~`0x5DE08` — it fits by coincidence. Separately, `Audio::fro
 ### SE-10 — Row-bucket depth sorting is not a depth sort 🟠
 
 The module header (`renderer.rs:7`) and inline comments claim painter's-algorithm correctness. A `gz` bucket spans 64 world units (`TILE_SZ`), and within a bucket everything is emitted tiles-first — so an entity at the *near* edge of row N draws over a wall at the *far* edge of the same row. Separately, `draw_model_box_textured` (`renderer.rs:783-789`) emits faces in hardcoded order Top, Front, Back, Left, Right, Bottom with no per-face depth test; for any `rotate_y`-transformed box, Back is drawn before Left and Right, so the back face overwrites the side faces on roughly half of all rotations. Nothing writes a depth buffer as a backstop.
-
-### SE-11 — Empty controller port costs ~918 K spin iterations per frame 🟠
+### SE-11 — Empty controller port burns excessive spin iterations per frame 🟠
 
 ```rust
 // dualshock.rs:10, 233-241
 const EXCHANGE_WAIT_SPINS: u32 = 32_768;
 ```
 
-With no pad in a port, `poll_port_rumble` returns after one attempt — but each of ~7 `exchange` calls still spins the full 32,768 iterations on both the TX-ready and RX-not-empty waits, each an **uncached** SIO `STAT` read. Two ports × 7 bytes × 2 waits ≈ 918 K iterations/frame, on the order of 200 ms/frame. `game.rs:146-153` polls every frame including while paused, so **unplugging the pad mid-game hard-freezes the console**. Drop the spin count by an order of magnitude, or break early after a few hundred cycles.
+With no pad in a port, `poll_port_rumble` returns after one attempt — but each
+`exchange` still spins the full 32,768 iterations on both the TX-ready and
+RX-not-empty waits, each an **uncached** SIO `STAT` read. `game.rs:146-153`
+polls every frame including while paused.
+
+**Corrected estimate.** The code bails after the `id_low` byte, so an empty port
+burns 2 spins, not 7 exchanges × 2 waits — real worst case ≈ **131 K
+iterations/frame, not 918 K**. The original estimate was roughly 7× high.
+Furthermore, on real silicon `/CS` low with nothing attached floats high, so
+`RX_NOT_EMPTY` *does* assert and the loop exits immediately — an empty port was
+probably never a 200 ms stall. The bound is still worth having for a dead or
+shorting port.
+
+**Fixed:** the spin budget is now split into a small budget for the existence
+probe and a larger one for a committed transfer, cutting the empty-port path to
+~4 K spins/frame.
 
 ### SE-12 — Port failover leaves the old pad's motors running 🟠
 
@@ -317,8 +377,11 @@ if alt_s.is_connected() {
 }
 ```
 
-A pad mid-rumble on the abandoned port keeps spinning at the last commanded intensity for the rest of the session. `init_dualshock_actuators` sends the `0x4D` config but that maps motors, it does not stop them. Send `poll_port_rumble(!alt_port, false, 0)` before switching.
-
+A pad mid-rumble on the abandoned port keeps spinning at the last commanded
+intensity for the rest of the session. `init_dualshock_actuators` sends the
+`0x4D` config but that maps motors, it does not stop them. Fixed: both motors
+are commanded off on the abandoned port before switching, and both ports are
+re-zeroed on the neither-connected path.
 ### SE-13 — `Game` on the stack against a 32 KiB reserve 🟠
 
 ```rust
@@ -785,18 +848,23 @@ These are cheap to add once the real modules are importable, and each one is cur
 
 ## P0 — Ship blockers (fix before anyone plays a build)
 
-| ID | Issue | Why P0 |
-|---|---|---|
-| SE-1 | Rumble never actuates (`0x4D` payload) | An advertised hardware feature is 100% non-functional |
-| SE-2 | Title bg UV wraps at 256 | Corrupt art on the **first frame the player sees** |
-| UX-1 | Rank S unreachable → Camo unobtainable | Advertised reward can never be earned; options screen says how |
-| QA-1/PD-1 | `unlocked_act` unclamped on the CODEC path | Corrupts the save; on a fresh card, one VR sim + a CODEC save falsely marks the campaign complete |
-| SE-6 | `VOICE_SELECT` never configured | 13 sites play uninitialized SPU RAM — on most stage clears |
-| UX-3 | 19 strings overflow 320 px | Visible defect on title, stage clear, credits, stage select, VR menu, and all 5 languages |
-| MK-1/MK-2 | Two product names; README links to gitignored files | Broken identity + every README artifact link is dead on clone |
-| MK-4 | Manual documents the wrong buttons and the wrong ranks | Player follows the manual, presses the wrong button |
-| MK-6 | `.gitmodules` `url = ./psoxide` | **A fresh clone cannot build the project** |
-| PD-6 | Uninitialized padding bytes written to the memory card | Non-deterministic saves + stack residue on cartridge media |
+Status legend: ✅ merged to master · 🔄 in progress · ⬜ open · ⚠️ withdrawn
+
+| ID | Issue | Why P0 | Status |
+|---|---|---|---|
+| **PD-11** | **Every save after boot written with a stale checksum → campaign resets on every reboot** | Found during remediation; outranks everything below. Save feature appeared to work but never persisted. | ✅ |
+| PD-6 | Uninitialized padding bytes written to the memory card | Non-deterministic saves + stack residue on cartridge media | ✅ |
+| PD-9 | No save field validation; commutative checksum; `LoadError` never constructed | Corrupt saves silently overwritten; valid-checksum garbage trusted | ✅ |
+| SE-1 | ~~DualShock rumble inert (`0x4D`)~~ | **Withdrawn** — payload was already canonical; rumble works. Narrower small-motor byte corrected. | ⚠️ |
+| SE-2 | Title bg UV wraps at 256 texels | Corrupt art on the **first frame the player sees** | ⬜ |
+| UX-1 | Rank S unreachable → Camo unobtainable | Advertised reward can never be earned; options screen says how | ⬜ |
+| QA-1/PD-1 | `unlocked_act` unclamped on the CODEC path | Corrupts the save; on a fresh card, one VR sim + a CODEC save falsely marks the campaign complete | ⬜ |
+| SE-6 | `VOICE_SELECT` never configured | 13 sites play uninitialized SPU RAM — on most stage clears | ⬜ |
+| UX-3 | 19 strings overflow 320 px | Visible defect on title, stage clear, credits, stage select, VR menu, and all 5 languages | ⬜ |
+| MK-1/MK-2 | Two product names; README links to gitignored files | Broken identity + every README artifact link is dead on clone | ⬜ |
+| MK-4 | Manual documents the wrong buttons and the wrong ranks | Player follows the manual, presses the wrong button | ⬜ |
+| MK-6 | `.gitmodules` `url = ./psoxide` | **A fresh clone cannot build the project** | ⬜ |
+| SE-11/SE-12 | SIO spin bound; motors left running on port switch | Hard-freeze risk on a dead port; abandoned pad spins forever | ✅ |
 
 ## P1 — Quality-gate issues (fix before external review)
 
