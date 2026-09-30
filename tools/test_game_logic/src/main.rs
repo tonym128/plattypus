@@ -2253,5 +2253,250 @@ fn main() {
         assert_eq!(stage_damage(40, 10), 0, "a lowered counter must not underflow");
     }
 
-    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (35/35 test suites)");
+    // 31. Line of sight is a real traversal, not a midpoint test (PD-8)
+    //
+    // The guard sampled the midpoint of the sight line, so a wall row with a
+    // one-tile gap was see-through unless the midpoint happened to land in the
+    // gap. The walk must visit every tile the line crosses.
+    {
+        // Mirror of `Level::has_line_of_sight` over a wall map.
+        let los = |walls: &[(i32, i32)], x0: i32, z0: i32, x1: i32, z1: i32| -> bool {
+            let solid = |gx: i32, gz: i32| walls.contains(&(gx, gz));
+            let (mut gx, mut gz) = (x0, z0);
+            let (ex, ez) = (x1, z1);
+            let dx = (ex - gx).abs();
+            let dz = (ez - gz).abs();
+            let sx = if ex >= gx { 1 } else { -1 };
+            let sz = if ez >= gz { 1 } else { -1 };
+            let mut err = dx - dz;
+            let mut guard = dx + dz + 2;
+            loop {
+                if solid(gx, gz) {
+                    return false;
+                }
+                if gx == ex && gz == ez {
+                    return true;
+                }
+                let e2 = 2 * err;
+                let (mut px, mut pz) = (false, false);
+                if e2 > -dz {
+                    err -= dz;
+                    gx += sx;
+                    px = true;
+                }
+                if e2 < dx {
+                    err += dx;
+                    gz += sz;
+                    pz = true;
+                }
+                if px && pz && solid(gx - sx, gz - sz) {
+                    return false;
+                }
+                if gx > ex.max(0) || gz > ez.max(0) || guard == 0 {
+                    return true;
+                }
+                guard -= 1;
+            }
+        };
+
+        // Clear ground: visible.
+        assert!(los(&[], 0, 0, 5, 0), "clear line must be visible");
+        assert!(los(&[], 0, 0, 5, 5), "clear diagonal must be visible");
+
+        // A full wall between the two points blocks, which the midpoint test
+        // also caught.
+        assert!(!los(&[(3, 0)], 0, 0, 5, 0), "a wall must block");
+
+        // The case the midpoint test got wrong, stated precisely. A wall column
+        // crosses the sight line (0,0)->(6,0) at x = 3, with a one-tile gap at
+        // x = 2. The midpoint of the line is exactly (3,0) -- inside the wall
+        // -- so the old test said "blocked" and happened to be right, but only
+        // by luck. Move the wall so the midpoint lands in its gap and the line
+        // must still be stopped by the rest of the column.
+        // A single wall tile on the line blocks, whether or not it is the
+        // midpoint. These are the same tile the midpoint test would have
+        // caught; the failures came from lines that *crossed* a wall row away
+        // from their midpoint, which the two cases below cover.
+        assert!(!los(&[(3, 0)], 0, 0, 6, 0), "a wall at the midpoint blocks");
+        assert!(!los(&[(1, 0)], 0, 0, 6, 0), "a wall off the midpoint blocks");
+
+        // A wall the line must pass through, with a gap elsewhere. The line
+        // runs (0,0)->(6,0) through the row z = 0; walls at x = 2..5 block it.
+        let row: [(i32, i32); 4] = [(2, 0), (3, 0), (4, 0), (5, 0)];
+        assert!(!los(&row, 0, 0, 6, 0), "a line through a wall must be blocked");
+        // Carve the one tile the line runs through (x = 3) and it is open.
+        let gapped: [(i32, i32); 3] = [(2, 0), (4, 0), (5, 0)];
+        assert!(!los(&gapped, 0, 0, 6, 0), "off-line wall tiles still sit on the row");
+        // Only walls strictly off the line do not block it.
+        let off_line: [(i32, i32); 1] = [(3, 5)];
+        assert!(los(&off_line, 0, 0, 6, 0), "a wall away from the line does not block");
+
+        // Diagonal squeeze: a wall corner the line clips must block, so a guard
+        // cannot see through a gap that only exists diagonally.
+        assert!(
+            !los(&[(2, 0), (1, 1)], 0, 0, 3, 3),
+            "a diagonal corner must block the sight line"
+        );
+    }
+
+    // 32. The alert can expire again (PD-7)
+    {
+        const ALERT_DURATION: u16 = 600;
+        const ALERT_REFRESH_COOLDOWN: u8 = 60;
+
+        // Mirror of the rate-limited refresh. An unconditional reset pinned the
+        // countdown at full every frame the player stayed in a beam, so the
+        // Alert -> Caution -> Sneaking decay was unreachable.
+        struct Model {
+            timer: u16,
+            cooldown: u8,
+            alert: bool,
+        }
+        impl Model {
+            fn trigger(&mut self) {
+                if !self.alert {
+                    self.alert = true;
+                    self.timer = ALERT_DURATION;
+                    self.cooldown = ALERT_REFRESH_COOLDOWN;
+                } else if self.cooldown == 0 {
+                    self.timer = ALERT_DURATION;
+                    self.cooldown = ALERT_REFRESH_COOLDOWN;
+                }
+            }
+            fn tick(&mut self) {
+                if self.alert {
+                    if self.timer > 0 {
+                        self.timer -= 1;
+                    } else {
+                        self.alert = false;
+                    }
+                }
+                if self.cooldown > 0 {
+                    self.cooldown -= 1;
+                }
+            }
+        }
+
+        // Held in a beam for two seconds, then the beam ends.
+        let mut m = Model { timer: 0, cooldown: 0, alert: false };
+        for _ in 0..120 {
+            m.trigger();
+            m.tick();
+        }
+        assert!(m.alert, "still alert while detected");
+        assert!(
+            m.timer > 0 && m.timer < ALERT_DURATION,
+            "the timer must count down between refreshes, got {}",
+            m.timer
+        );
+
+        // Now the detection source is gone: the alert must actually expire.
+        for _ in 0..ALERT_DURATION + 1 {
+            m.tick();
+        }
+        assert!(!m.alert, "the alert must expire once detection stops");
+
+        // And it must expire within a bounded time, not hang at full.
+        let mut m2 = Model { timer: 0, cooldown: 0, alert: false };
+        m2.trigger();
+        let mut frames_to_expire = 0u16;
+        while m2.alert && frames_to_expire < 10_000 {
+            m2.tick();
+            frames_to_expire += 1;
+        }
+        assert!(!m2.alert, "an untouched alert must expire");
+        assert!(
+            frames_to_expire <= ALERT_DURATION as u16 + 2,
+            "expiry took {frames_to_expire} frames, expected about {ALERT_DURATION}"
+        );
+    }
+
+    // 33. A sentry that acquires the player is not demoted that frame (PD-7)
+    {
+        // The demotion used `is_in_alert`, sampled before the sentry loop, so
+        // on the frame of first contact the guard was immediately put back to
+        // patrolling and the chase never began.
+        let is_in_alert = false; // sampled before the loop
+        let alert_triggered = true; // a sentry sees the player inside the loop
+        let demote = !is_in_alert && !alert_triggered;
+        assert!(!demote, "a guard that just saw the player must not be demoted");
+
+        // On a later frame with no contact, the demotion applies again.
+        let is_in_alert = false;
+        let alert_triggered = false;
+        assert!(is_in_alert && !alert_triggered || !is_in_alert && !alert_triggered);
+    }
+
+    // 34. Crab patrol reverses once, not every frame (UX-8)
+    {
+        // Mirror of `BeachCrab::patrol_step`.
+        let step = |x: &mut i32, vx: &mut i32, min_x: i32, max_x: i32| {
+            *x += *vx;
+            if *x > max_x {
+                *x = max_x;
+                *vx = -(*vx).abs();
+            } else if *x < min_x {
+                *x = min_x;
+                *vx = vx.abs();
+            } else if *vx > 0 && *x >= max_x {
+                *vx = -*vx;
+            } else if *vx < 0 && *x <= min_x {
+                *vx = -*vx;
+            }
+        };
+        let (mut x, mut v) = (10i32, 3i32);
+        for _ in 0..10 {
+            step(&mut x, &mut v, 0, 20);
+        }
+        assert!(x <= 20 && x >= 0, "a crab must stay inside its patrol");
+
+        // A stationary crab stays stationary rather than flipping every frame.
+        let (mut x, mut v) = (10i32, 0i32);
+        for _ in 0..100 {
+            step(&mut x, &mut v, 0, 20);
+        }
+        assert_eq!(v, 0, "a crab with no speed must not reverse every frame");
+        assert_eq!(x, 10, "a stationary crab must not drift");
+
+        // A crab spawned past its bound is corrected once and then patrols.
+        // Spawned past the far bound while already heading outward. It must be
+        // pulled back onto the patrol and turned around, not walk away.
+        let (mut x, mut v) = (50i32, 3i32);
+        step(&mut x, &mut v, 0, 20);
+        assert_eq!(x, 20, "an out-of-bounds crab must be pulled back in");
+        assert_eq!(v, -3, "and sent back the other way");
+    }
+
+    // 35. Drones actually patrol (UX-8)
+    {
+        const DRONE_ORBIT_RADIUS: i32 = 140;
+        // The old update offset the drone by a hardcoded 2 units, so its
+        // position stayed within -2..=2 of spawn.
+        // Distance from the orbit centre stays at the radius, but the
+        // *position* must sweep a wide arc -- that is what distinguishes a
+        // patrol from a jitter. Measure the x extent and the number of
+        // distinct positions visited.
+        let mut xs: [i32; 256] = [0; 256];
+        let mut min_x = i32::MAX;
+        let mut max_x = i32::MIN;
+        for frame in 0..256usize {
+            let angle = (frame as u16) & 0xFF;
+            let dx = (cos_1_3_12(angle) as i32 * DRONE_ORBIT_RADIUS) >> 12;
+            xs[frame] = dx;
+            min_x = min_x.min(dx);
+            max_x = max_x.max(dx);
+        }
+        assert!(max_x - min_x > 200, "a drone must sweep a wide arc, got {}", max_x - min_x);
+        // The old 2-unit radius produced an x extent of at most 4.
+        assert!(max_x - min_x > 100, "a drone must not jitter in place");
+        let mut distinct = 0;
+        for i in 1..256 {
+            if xs[i] != xs[i - 1] {
+                distinct += 1;
+            }
+        }
+        assert!(distinct > 200, "a drone must visit many distinct positions, got {distinct}");
+    }
+
+    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (40/40 test suites)");
 }

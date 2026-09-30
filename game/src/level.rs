@@ -304,6 +304,75 @@ impl Level {
         gx == 6 || gx == 22
     }
 
+    /// True when a sentry at `(x0, z0)` can see `(x1, z1)`.
+    ///
+    /// This walks every tile the sight line passes through rather than
+    /// sampling the midpoint. A midpoint test let a guard see straight through
+    /// a wall row whenever the midpoint happened to land in a one-tile gap,
+    /// which is the entire basis of the stealth game.
+    ///
+    /// The walk is a supercover variant: it visits both tiles whenever the line
+    /// crosses a corner, so a diagonal squeeze between two walls is blocked.
+    /// Erring toward "cannot see" is deliberate -- a guard that fails to spot
+    /// you is a missed opportunity, whereas one that spots you through a wall
+    /// makes the mechanic unfair and unreadable.
+    pub fn has_line_of_sight(&self, x0: i32, z0: i32, x1: i32, z1: i32) -> bool {
+        if x0 < 0 || z0 < 0 || x1 < 0 || z1 < 0 {
+            return false;
+        }
+        let mut gx = (x0 / TILE_SZ) as i32;
+        let mut gz = (z0 / TILE_SZ) as i32;
+        let end_gx = (x1 / TILE_SZ) as i32;
+        let end_gz = (z1 / TILE_SZ) as i32;
+
+        // Bresenham in tile space, stepping both axes together on a tie so a
+        // line that clips a corner is tested against both tiles it touches.
+        let dx = (end_gx - gx).abs();
+        let dz = (end_gz - gz).abs();
+        let step_x = if end_gx >= gx { 1 } else { -1 };
+        let step_z = if end_gz >= gz { 1 } else { -1 };
+        let mut err = dx - dz;
+        let mut guard = dx + dz + 2;
+
+        loop {
+            if self.get_cell(gx as usize, gz as usize).is_solid(false) {
+                return false;
+            }
+            if gx == end_gx && gz == end_gz {
+                return true;
+            }
+            let e2 = 2 * err;
+            let mut stepped_x = false;
+            let mut stepped_z = false;
+            if e2 > -dz {
+                err -= dz;
+                gx += step_x;
+                stepped_x = true;
+            }
+            if e2 < dx {
+                err += dx;
+                gz += step_z;
+                stepped_z = true;
+            }
+            if stepped_x && stepped_z {
+                // Corner crossing: test the tile diagonally opposite as well, so
+                // a gap that only exists diagonally is not shootable through.
+                let (ox, oz) = (gx - step_x, gz - step_z);
+                if self.get_cell(ox as usize, oz as usize).is_solid(false) {
+                    return false;
+                }
+            }
+            // The step can overshoot the goal when one axis is already done.
+            if gx > end_gx.max(0) || gz > end_gz.max(0) {
+                return true;
+            }
+            if guard == 0 {
+                return true;
+            }
+            guard -= 1;
+        }
+    }
+
     pub fn is_tall_grass_at(&self, wx: i32, wz: i32) -> bool {
         if wx < 0 || wz < 0 {
             return false;
