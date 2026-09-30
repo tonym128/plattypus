@@ -417,21 +417,12 @@ impl VideoPlayer {
 
         let storage = unsafe { &mut *core::ptr::addr_of_mut!(STORAGE) };
 
-        // Top up the read-ahead cache if the current batch is spent. This
-        // is the only place the CD is touched during playback.
-        let cache_end = self.cache_start_frame.saturating_add(self.cached_frames as u16);
-        if self.using_cd && (self.frame_idx < self.cache_start_frame || self.frame_idx >= cache_end)
-        {
-            if !self.prefetch_cd_batch(self.frame_idx, storage) {
-                self.using_cd = false;
-            }
-        }
-
         psx_rt::interrupts::wait_vblank();
         let now = psx_rt::interrupts::vblank_count();
 
-        // Present a frame decoded on an earlier call, but no sooner than
-        // its dwell time.
+        // 1. Show a frame that is already decoded and has served its dwell
+        //    time. This costs one register write and must not be delayed by
+        //    anything, least of all a CD read.
         if self.frame_unpresented
             && now != self.last_swap_vblank
             && now.wrapping_sub(self.last_swap_vblank) >= VBLANKS_PER_VIDEO_FRAME
@@ -446,13 +437,39 @@ impl VideoPlayer {
             return;
         }
 
-        // The back buffer is free, so start the next frame immediately; it
-        // will be presented on a later call whenever it is ready.
+        // 2. The back buffer is free: it needs the next frame. If the cache
+        //    cannot supply it, the read is unavoidable here -- but only now,
+        //    never before a ready frame has been shown.
         if !self.frame_unpresented && self.frame_idx < self.total_frames {
+            if !self.cache_has(self.frame_idx) {
+                if !self.prefetch_cd_batch(self.frame_idx, storage) {
+                    self.using_cd = false;
+                }
+            }
             if self.decode_and_upload(renderer, storage) {
                 self.frame_unpresented = true;
             }
+            return;
         }
+
+        // 3. A decoded frame is sitting in the back buffer waiting out its
+        //    dwell time. That wait is idle CPU time, so spend it loading
+        //    the frames that come after it. This is the stagger: read while
+        //    a ready frame waits, decode once its window opens, and the CD
+        //    is only ever touched when nothing needs presenting.
+        if self.frame_unpresented && !self.cache_has(self.frame_idx) {
+            if !self.prefetch_cd_batch(self.frame_idx, storage) {
+                self.using_cd = false;
+            }
+        }
+    }
+
+    /// True when frame `frame` is already sitting in the read-ahead cache.
+    #[inline]
+    fn cache_has(&self, frame: u16) -> bool {
+        self.using_cd
+            && frame >= self.cache_start_frame
+            && frame < self.cache_start_frame.saturating_add(self.cached_frames as u16)
     }
 
     /// Decode the next video frame into the back buffer. Returns false when

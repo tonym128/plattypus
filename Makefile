@@ -5,6 +5,23 @@ DIST     := $(ROOT)/dist
 GAME_EXE := $(GAME_DIR)/target/$(TARGET)/release/plattypus.exe
 MKISOPSX := $(ROOT)/psoxide/tools/mkisopsx
 
+# --- emulator discovery for `make run` ---------------------------------------
+# Directories a libretro PS1 core is commonly installed in, searched in order.
+# Note RetroArch's own `libretro_directory` setting is not consulted: this
+# build of RetroArch is for dynamic cores and refuses to start without an
+# explicit -L, so we have to hand it a path ourselves.
+RETROARCH_CORE_DIRS ?= $(HOME)/.config/retroarch/cores /usr/lib/libretro \
+                       /usr/lib/$(shell uname -m)-linux-gnu/libretro \
+                       /usr/local/lib/libretro
+# PS1 libretro cores, in preference order.
+RETROARCH_PS1_CORES ?= pcsx_rearmed_libretro.so mednafen_psx_libretro.so \
+                       swanstation_libretro.so beetle_psx_hw_libretro.so
+# DuckStation AppImages, searched in order. Set DUCKSTATION_APPIMAGE to
+# override, or point EMULATOR at a native build.
+DUCKSTATION_APPIMAGES ?= $(DUCKSTATION_APPIMAGE) \
+                         $(HOME)/Downloads/DuckStation-x64.AppImage \
+                         $(HOME)/Applications/DuckStation.AppImage
+
 .PHONY: all exe disc clean run test help check-media video-bench video-bench-build
 
 all: disc
@@ -15,6 +32,11 @@ help:
 	@echo "  make disc        - Master bootable PS1 disc image (dist/plattypus.{bin,cue})"
 	@echo "  make test        - Run automated host-side game logic test suite"
 	@echo "  make run         - Run disc in DuckStation, RetroArch, or EMULATOR=... emulator"
+	@echo ""
+	@echo "Emulator selection for 'make run' (first match wins):"
+	@echo "  EMULATOR=/path/to/emulator        - use this binary directly"
+	@echo "  DUCKSTATION_APPIMAGE=/path/...    - use this DuckStation AppImage"
+	@echo "  RETROARCH_CORE=/path/to/core.so   - use this libretro core for RetroArch"
 	@echo "  make check-media - Verify the disc image is well formed"
 	@echo "  make video-bench - Measure intro-video playback performance (needs an emulator)"
 	@echo "  make clean       - Clean build artifacts"
@@ -79,24 +101,55 @@ check-media:
 	fi
 
 run: disc
-	@if [ -n "$$EMULATOR" ]; then \
-		"$$EMULATOR" "$(DIST)/plattypus.cue"; \
-	elif [ -f "$$DUCKSTATION_APPIMAGE" ] && [ -n "$$DUCKSTATION_APPIMAGE" ]; then \
-		echo "Launching $(DIST)/plattypus.cue in DuckStation AppImage..."; \
-		APPIMAGE_EXTRACT_AND_RUN=1 "$$DUCKSTATION_APPIMAGE" "$(DIST)/plattypus.cue"; \
-	elif command -v duckstation >/dev/null 2>&1; then \
-		echo "Launching $(DIST)/plattypus.cue in DuckStation..."; \
-		duckstation "$(DIST)/plattypus.cue"; \
-	elif command -v duckstation-qt >/dev/null 2>&1; then \
-		echo "Launching $(DIST)/plattypus.cue in DuckStation (Qt)..."; \
-		duckstation-qt "$(DIST)/plattypus.cue"; \
-	elif command -v retroarch >/dev/null 2>&1; then \
-		echo "Launching $(DIST)/plattypus.cue in RetroArch..."; \
-		retroarch "$(DIST)/plattypus.cue"; \
-	else \
-		echo "Please open $(DIST)/plattypus.cue in your PS1 emulator (DuckStation, RetroArch, etc.)."; \
-		echo "Set EMULATOR=/path/to/emulator to launch one directly."; \
-	fi
+	@cue="$(DIST)/plattypus.cue"; \
+	if [ -n "$(EMULATOR)" ]; then \
+		echo "Launching $$cue with EMULATOR=$(EMULATOR)..."; \
+		"$(EMULATOR)" "$$cue"; \
+		exit $$?; \
+	fi; \
+	appimage=""; \
+	for a in $(DUCKSTATION_APPIMAGES); do \
+		if [ -f "$$a" ]; then appimage="$$a"; break; fi; \
+	done; \
+	if [ -n "$$appimage" ]; then \
+		echo "Launching $$cue in DuckStation ($$appimage)..."; \
+		APPIMAGE_EXTRACT_AND_RUN=1 "$$appimage" "$$cue"; \
+		exit $$?; \
+	fi; \
+	if command -v duckstation-qt >/dev/null 2>&1; then \
+		echo "Launching $$cue in DuckStation (Qt)..."; \
+		duckstation-qt "$$cue"; exit $$?; \
+	fi; \
+	if command -v duckstation >/dev/null 2>&1; then \
+		echo "Launching $$cue in DuckStation..."; \
+		duckstation "$$cue"; exit $$?; \
+	fi; \
+	if command -v retroarch >/dev/null 2>&1; then \
+		core="$(RETROARCH_CORE)"; \
+		if [ -z "$$core" ]; then \
+			for d in $(RETROARCH_CORE_DIRS); do \
+				for c in $(RETROARCH_PS1_CORES); do \
+					if [ -f "$$d/$$c" ]; then core="$$d/$$c"; break; fi; \
+				done; \
+				[ -n "$$core" ] && break; \
+			done; \
+		fi; \
+		if [ -z "$$core" ]; then \
+			echo "ERROR: retroarch is installed but no PS1 libretro core was found."; \
+			echo "  RetroArch here is built for dynamic cores and will not start"; \
+			echo "  without an explicit -L, so one has to be located by hand."; \
+			echo "  Searched: $(RETROARCH_CORE_DIRS)"; \
+			echo "  Install a core (e.g. pcsx_rearmed) or set RETROARCH_CORE=/path/to/core.so,"; \
+			echo "  or set EMULATOR=/path/to/emulator to use something else."; \
+			exit 1; \
+		fi; \
+		echo "Launching $$cue in RetroArch (core: $$core)..."; \
+		retroarch -L "$$core" "$$cue"; \
+		exit $$?; \
+	fi; \
+	echo "No PS1 emulator found. Open $$cue in DuckStation, RetroArch, or similar."; \
+	echo "Set EMULATOR=/path/to/emulator, DUCKSTATION_APPIMAGE=/path/to/AppImage,"; \
+	echo "or RETROARCH_CORE=/path/to/core.so to point this at your install."
 
 clean:
 	cd $(GAME_DIR) && cargo clean

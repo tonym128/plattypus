@@ -360,3 +360,73 @@ In order of leverage:
 Not shipped: 10.00 fps with 37 late presents is a real improvement over
 the 6.00 fps baseline and is committed, but it does not meet the "smooth
 playback" bar, and presenting it as shipped would be overclaiming.
+
+
+## Staggering the load against the decode: measured
+
+The proposal was to interleave the stages -- load x frames from the disc
+into an in-memory cache, present a frame that is already ready, decode the
+next, present again -- rather than serialising them.
+
+**That structure is now in place, and it is not enough on its own.** The
+scheduler in `present()` now runs in three phases per display period:
+
+1. present a decoded frame that has served its dwell time (one register
+   write, never delayed);
+2. if the back buffer is free, decode into it -- reading first only if the
+   cache cannot supply the frame;
+3. if a decoded frame is waiting out its dwell, spend that idle time
+   reading the frames after it.
+
+Phase 3 is the stagger proper: the CD is touched when nothing needs
+presenting, so a ready frame is never held up by a read.
+
+### The finding: the totals fit, the burst shape does not
+
+```
+per-frame read cost        54.89 ms = 3.29 vb
+decode + upload + copy     27.99 ms = 1.68 vb
+                           -----------
+amortised per frame        82.88 ms = 4.97 vb
+dwell window at 10 fps                 6.00 vb   -> 1.03 vb spare
+```
+
+So on average a frame needs 4.97 of its 6 display periods. But the read is
+not spread: it arrives as one synchronous burst of `PREFETCH_FRAMES`
+frames, and during a burst the CPU cannot present at all. So the *burst*
+has to fit the window, not the average:
+
+| PREFETCH | burst | fps | mean interval | on-time |
+| --- | --- | --- | --- | --- |
+| 1 | 3.3 vb | 6.00 | 10 vb | 0/150 |
+| 2 | 6.6 vb | 6.67 | 9 vb | 75/150 |
+| 4 | 13.2 vb | **7.50** | **8 vb** | **112/150** |
+
+The on-time fraction is exactly `(P-1)/P`: **one frame per burst is late,
+whatever the batch size**, because the burst is atomic from the CPU's point
+of view. Small batches fit the window but pay a seek every frame, which is
+worse; large batches amortise the seek but overrun the window. Four is the
+measured optimum, and 4 is what ships.
+
+The 37 late presents at P=4 are those burst frames: 150/4 = 37.5 bursts,
+37 late frames.
+
+### What the stagger is actually waiting on
+
+Phase 3 only works if the drive can stream *while a frame sits decoded*,
+without a seek per frame -- which means keeping the `ReadN` live across
+calls. That is the same live-ReadN condition the MDEC cannot decode
+against, so phase 3 currently has to re-seek per batch, and that seek is
+precisely what makes small batches expensive.
+
+So the stagger is blocked by the same single thing as everything else:
+
+- a live `ReadN` in phase 3 (no per-frame seek, burst spread over the
+  dwell) needs the MDEC to tolerate a live drive, which it does not;
+- without phase 3, the read must be a synchronous burst, and a burst
+  longer than the dwell window costs one late frame per burst.
+
+Removing the seek (phase 3 working) would take the read from 3.29 vb of
+atomic burst to a trickle inside the dwell, and 150/150 on time at 10 fps
+follows directly. That is the same MDEC/CD contention, now with the
+scheduler drawn around it.
