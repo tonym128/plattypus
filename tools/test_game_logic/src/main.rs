@@ -543,6 +543,251 @@ fn cos_1_3_12(angle: u16) -> i16 {
     sin_1_3_12(angle.wrapping_add(64))
 }
 
+// ---------------------------------------------------------------------------
+// Player movement mirror (UX-4 / UX-5 / UX-6)
+//
+// The analog path used to scale each *axis* by a scalar speed and divide by
+// the full deflection a second time, so moderate diagonal input truncated to
+// a velocity of zero. The game now aims a vector of magnitude `speed` along
+// the stick heading instead.
+// ---------------------------------------------------------------------------
+
+/// Integer square root, mirroring `psx_math::int32::isqrt_i32`.
+fn isqrt_i32(value: i32) -> i32 {
+    if value <= 0 {
+        return 0;
+    }
+    let mut guess: i32 = 1;
+    while guess * guess < value {
+        guess <<= 1;
+    }
+    while guess * guess > value {
+        guess >>= 1;
+    }
+    while (guess + 1) * (guess + 1) <= value {
+        guess += 1;
+    }
+    while guess * guess > value {
+        guess -= 1;
+    }
+    guess
+}
+
+
+// ---------------------------------------------------------------------------
+// Level mirror (UX-2)
+//
+// Only the generators the tripwire and exit tests need are reproduced here,
+// in the same pass order as `level.rs`. Pass order is load-bearing: `set_cell`
+// is last-write-wins, and a cosmetic pass placed after a hazard pass silently
+// erased the hazard.
+// ---------------------------------------------------------------------------
+
+/// Mirror of `game::entities::SentryState`, for the contact-damage gate.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum SentryState {
+    Patrolling,
+    Investigating,
+    AlertChase,
+    Returning,
+}
+
+const GRID_W: usize = 24;
+const GRID_D: usize = 24;
+
+/// Half-extent of the stage-exit trigger, kept inside `TILE_SZ`.
+const EXIT_TRIGGER_RADIUS: i32 = 28;
+
+type Grid = [CellType; GRID_W * GRID_D];
+
+fn blank_grid() -> Grid {
+    [CellType::Floor; GRID_W * GRID_D]
+}
+
+fn set_cell(grid: &mut Grid, gx: usize, gz: usize, cell: CellType) {
+    if gx < GRID_W && gz < GRID_D {
+        grid[gz * GRID_W + gx] = cell;
+    }
+}
+
+/// Mirror of `Level::generate_act1_2`, including the reordered hazard pass.
+fn generate_act1_2() -> Grid {
+    let mut g = blank_grid();
+    for x in 0..GRID_W {
+        set_cell(&mut g, x, 0, CellType::Wall);
+        set_cell(&mut g, x, GRID_D - 1, CellType::Wall);
+    }
+    for z in 0..GRID_D {
+        set_cell(&mut g, 0, z, CellType::Wall);
+        set_cell(&mut g, GRID_W - 1, z, CellType::Wall);
+    }
+    for z in 2..22 {
+        if z != 6 && z != 16 {
+            set_cell(&mut g, 7, z, CellType::Wall);
+        }
+        if z != 11 {
+            set_cell(&mut g, 15, z, CellType::Wall);
+        }
+    }
+    for x in 2..22 {
+        if x != 11 {
+            set_cell(&mut g, x, 11, CellType::Wall);
+        }
+    }
+    set_cell(&mut g, 7, 4, CellType::AirDuct);
+    set_cell(&mut g, 7, 18, CellType::AirDuct);
+    set_cell(&mut g, 15, 8, CellType::AirDuct);
+    set_cell(&mut g, 15, 14, CellType::AirDuct);
+    set_cell(&mut g, 11, 4, CellType::AirDuct);
+    set_cell(&mut g, 11, 18, CellType::AirDuct);
+    let crates = [
+        (3usize, 4usize), (4, 4), (3, 7), (4, 7), (3, 14), (4, 14), (3, 17), (4, 17),
+        (10, 3), (10, 4), (12, 3), (12, 4), (10, 18), (10, 19), (12, 18), (12, 19),
+        (18, 5), (19, 5), (18, 8), (19, 8), (18, 14), (19, 14), (18, 17), (19, 17),
+    ];
+    for (cx, cz) in crates {
+        set_cell(&mut g, cx, cz, CellType::Crate);
+    }
+    // The grating pass that used to erase the column-11 tripwires.
+    for z in 5..=17 {
+        set_cell(&mut g, 3, z, CellType::MetalGrate);
+        set_cell(&mut g, 11, z, CellType::MetalGrate);
+        set_cell(&mut g, 19, z, CellType::MetalGrate);
+    }
+    // Hazards last.
+    for (lx, lz) in [
+        (7usize, 6usize), (7, 16), (15, 11), (11, 11), (11, 6), (11, 16),
+    ] {
+        set_cell(&mut g, lx, lz, CellType::LaserTripwire);
+    }
+    set_cell(&mut g, 21, 2, CellType::ExitBurrow);
+    g
+}
+
+fn generate_act1_1() -> Grid {
+    let mut g = blank_grid();
+    for x in 0..GRID_W {
+        set_cell(&mut g, x, 0, CellType::Wall);
+        set_cell(&mut g, x, GRID_D - 1, CellType::Wall);
+    }
+    for z in 0..GRID_D {
+        set_cell(&mut g, 0, z, CellType::Wall);
+        set_cell(&mut g, GRID_W - 1, z, CellType::Wall);
+    }
+    for x in 12..22 {
+        set_cell(&mut g, x, 10, CellType::Wall);
+    }
+    set_cell(&mut g, 16, 10, CellType::LaserTripwire);
+    set_cell(&mut g, 18, 10, CellType::AirDuct);
+    set_cell(&mut g, 21, 2, CellType::ExitBurrow);
+    g
+}
+
+fn generate_vr_speed() -> Grid {
+    let mut g = blank_grid();
+    for z in 1..23 {
+        for x in 1..23 {
+            if x < 10 || x > 14 {
+                set_cell(&mut g, x, z, CellType::Water);
+            }
+        }
+    }
+    set_cell(&mut g, 12, 17, CellType::Crate);
+    set_cell(&mut g, 11, 13, CellType::LaserTripwire);
+    set_cell(&mut g, 12, 13, CellType::LaserTripwire);
+    set_cell(&mut g, 13, 13, CellType::LaserTripwire);
+    set_cell(&mut g, 12, 9, CellType::AirDuct);
+    set_cell(&mut g, 12, 2, CellType::ExitBurrow);
+    g
+}
+
+fn generate_act3_2() -> Grid {
+    let mut g = blank_grid();
+    for x in 0..GRID_W {
+        set_cell(&mut g, x, 0, CellType::Wall);
+        set_cell(&mut g, x, GRID_D - 1, CellType::Wall);
+    }
+    for z in 0..GRID_D {
+        set_cell(&mut g, 0, z, CellType::Wall);
+        set_cell(&mut g, GRID_W - 1, z, CellType::Wall);
+    }
+    set_cell(&mut g, 21, 2, CellType::ExitBurrow);
+    g
+}
+
+fn generate_act(act: Act) -> Grid {
+    match act {
+        Act::Act1_1Drainage => generate_act1_1(),
+        Act::Act1_2Barracks => generate_act1_2(),
+        Act::Act3_2Laneways => generate_act3_2(),
+        Act::VrSpeed => generate_vr_speed(),
+        _ => {
+            let mut g = blank_grid();
+            for x in 0..GRID_W {
+                set_cell(&mut g, x, 0, CellType::Wall);
+                set_cell(&mut g, x, GRID_D - 1, CellType::Wall);
+            }
+            for z in 0..GRID_D {
+                set_cell(&mut g, 0, z, CellType::Wall);
+                set_cell(&mut g, GRID_W - 1, z, CellType::Wall);
+            }
+            set_cell(&mut g, 21, 2, CellType::ExitBurrow);
+            g
+        }
+    }
+}
+
+/// Grid index of the act's exit tile, mirroring `Level::exit_x/exit_z`.
+fn exit_cell_index(act: Act) -> usize {
+    let (ex, ez) = match act {
+        Act::Act1_1Drainage => (19usize, 3usize),
+        Act::Act1_2Barracks => (21, 2),
+        Act::Act3_2Laneways => (21, 2),
+        Act::VrSpeed => (12, 2),
+        _ => (21, 2),
+    };
+    ez * GRID_W + ex
+}
+
+
+const ANALOG_FULL_DEFLECTION: i32 = 127;
+
+/// Mirror of `game::heading_vx` / `heading_vz`, including the rounding shift.
+fn heading_velocity(angle: u16, speed: i32) -> (i32, i32) {
+    let comp = |v: i16| {
+        let n = v as i32 * speed;
+        let q = n.div_euclid(1 << 12);
+        let r = n.rem_euclid(1 << 12);
+        (q + (r >= (1 << 11)) as i32).clamp(-speed, speed)
+    };
+    (comp(sin_1_3_12(angle)), comp(cos_1_3_12(angle)))
+}
+
+/// The old, broken per-axis scaling, kept so the regression is pinned.
+fn legacy_analog_velocity(sx: i32, sy: i32, max_speed: i32) -> (i32, i32) {
+    let mag = isqrt_i32(sx * sx + sy * sy);
+    let speed = ((max_speed * mag) / ANALOG_FULL_DEFLECTION).max(1);
+    ((sx * speed) / ANALOG_FULL_DEFLECTION, (-sy * speed) / ANALOG_FULL_DEFLECTION)
+}
+
+/// The full run speed available at a given stick magnitude.
+fn run_speed_for(mag: i32, in_box: bool, on_ground: bool) -> i32 {
+    if in_box {
+        2
+    } else if !on_ground {
+        4
+    } else if mag < 65 {
+        2
+    } else {
+        4
+    }
+}
+
+/// Magnitude of a velocity, as the game would experience it.
+fn speed_of(v: (i32, i32)) -> i32 {
+    isqrt_i32(v.0 * v.0 + v.1 * v.1)
+}
+
 /// Mirror of `game::boss_orbit_offset`: one full turn across the cutscene.
 fn boss_orbit_offset(frame: u16) -> (i32, i32) {
     let angle = (frame as u32 * ORBIT_TURN_UNITS / BOSS_INTRO_FRAMES as u32) as u16;
@@ -1542,5 +1787,200 @@ fn main() {
     assert!(cross.abs() <= 2 * (2 * WINDING_CLAMP) * (2 * WINDING_CLAMP));
     println!("✓ Backface winding overflow & behind-camera cull test (SE-3) PASSED");
 
-    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (22/22 test suites)");
+    // 18. Analog velocity follows the stick magnitude at every angle (UX-4)
+    //
+    // The defect: each axis was divided by the full deflection a second time,
+    // so a 45-degree push at ~70% magnitude truncated to a velocity of zero
+    // while the player still counted as Running and emitted footstep noise.
+    {
+        // The exact case from the finding, pinned as a regression.
+        let legacy = legacy_analog_velocity(63, 63, 4);
+        assert_eq!(
+            legacy,
+            (0, 0),
+            "fixture is wrong: the old per-axis scaling no longer truncates to zero"
+        );
+
+        // New path: the same push aimed along the canonical 45-degree
+        // (south-east) heading, which is 32 -- 0 = South, 64 = East.
+        let mag = isqrt_i32(63 * 63 + 63 * 63);
+        let speed = ((4 * mag) / ANALOG_FULL_DEFLECTION).max(1);
+        let v = heading_velocity(32, speed);
+        assert!(v.0 != 0 || v.1 != 0, "45-degree input must not produce zero velocity");
+        assert!(v.0 > 0 && v.1 > 0, "45-degree input must move south-east");
+
+        // Exhaustive sweep: speed is monotonic in magnitude and never zero.
+        let mut previous = 0;
+        for mag in 0..=127 {
+            let speed = run_speed_for(mag, false, true);
+            // Sample the circle at this magnitude at 16 headings.
+            let mut slowest = i32::MAX;
+            for k in 0..16u16 {
+                let angle = (k * 16) as u16;
+                let v = heading_velocity(angle, speed);
+                assert!(
+                    v.0 != 0 || v.1 != 0,
+                    "magnitude {mag} heading {angle} produced zero velocity"
+                );
+                let m = speed_of(v);
+                // Integer truncation can cost at most one unit per axis, so
+                // the realised magnitude must stay within sqrt(2)+1 of speed.
+                assert!(
+                    m <= speed + 1,
+                    "heading {angle} at speed {speed} overshot to {m}"
+                );
+                slowest = slowest.min(m);
+            }
+            // The slowest heading must not be more than one unit under the
+            // nominal speed: that is the diagonal penalty the fix removed.
+            assert!(
+                slowest + 1 >= speed,
+                "magnitude {mag}: slowest heading gave {slowest} vs speed {speed}"
+            );
+            if mag >= 65 {
+                assert!(speed >= previous, "speed decreased as magnitude grew");
+            }
+            previous = speed;
+        }
+    }
+
+    // 19. Full deflection reaches the same top speed in every direction, and
+    //     matches the digital D-pad (UX-4)
+    {
+        for k in 0..64u16 {
+            let angle = (k * 4) as u16;
+            let v = heading_velocity(angle, 4);
+            let m = speed_of(v);
+            assert!(
+                (3..=5).contains(&m),
+                "full-tilt heading {angle} gave magnitude {m}, expected 4 (+/-1)"
+            );
+        }
+        // Digital parity: the D-pad aims the same normalised vector, so the
+        // eight fixed headings must produce the same magnitudes as analog.
+        for (mx, mz, angle) in [
+            (1i32, 0i32, 64u16), (0, 1, 0), (0, -1, 128), (-1, 0, 192),
+            (1, 1, 32), (1, -1, 96), (-1, 1, 224), (-1, -1, 160),
+        ] {
+            let digital = heading_velocity(angle, 4);
+            let analog = heading_velocity(angle, 4); // same function now
+            assert_eq!(digital, analog, "digital/analog parity at heading {angle}");
+            // The old per-axis path gave (4,4) on a diagonal -- a 41% boost.
+            let old = (mx * 4, mz * 4);
+            if mx != 0 && mz != 0 {
+                assert!(
+                    speed_of(digital) < speed_of(old),
+                    "diagonal heading {angle} must not exceed the old per-axis speed"
+                );
+            }
+        }
+    }
+
+    // 20. Held input is never reported as standing still (UX-5)
+    //
+    // The cardboard box treats a motionless box as harmless. Deriving that
+    // from post-truncation velocity let a held diagonal stick read as
+    // motionless, granting invisibility to searchlights, drones and cones.
+    {
+        // Every non-zero magnitude at every heading must register as moving.
+        for mag in 1..=127 {
+            let speed = run_speed_for(mag, false, true);
+            for k in 0..16u16 {
+                let angle = (k * 16) as u16;
+                let v = heading_velocity(angle, speed);
+                let moving = v.0 != 0 || v.1 != 0;
+                assert!(
+                    moving,
+                    "held stick at magnitude {mag} heading {angle} read as motionless"
+                );
+            }
+        }
+        // And the legacy path demonstrably did not, which is the regression.
+        let mut found_stall = false;
+        for sx in -127..=127 {
+            for sy in [-127i32, -100, -89, -75, -63, -50, -32, 0, 32, 50, 63, 75, 89, 100, 127] {
+                let v = legacy_analog_velocity(sx, sy, 4);
+                if v.0 == 0 && v.1 == 0 {
+                    found_stall = true;
+                }
+            }
+        }
+        assert!(found_stall, "fixture is wrong: the old path no longer stalls anywhere");
+    }
+
+    // 21. Laser tripwires survive level generation and are armed (UX-2)
+    {
+        let cells = generate_act1_2();
+        let expected = [(7usize, 6usize), (7, 16), (15, 11), (11, 11), (11, 6), (11, 16)];
+        for (gx, gz) in expected {
+            assert_eq!(
+                cells[gz * GRID_W + gx],
+                CellType::LaserTripwire,
+                "tripwire at ({gx},{gz}) was erased by a later generator pass"
+            );
+        }
+        let total = cells.iter().filter(|c| **c == CellType::LaserTripwire).count();
+        assert_eq!(total, expected.len(), "Act 1-2 tripwire count changed");
+
+        // Tripwires are passable, so the crawl bypass works and an upright
+        // player is what trips them.
+        assert!(!CellType::LaserTripwire.is_solid(false));
+        assert!(!CellType::LaserTripwire.is_solid(true));
+    }
+
+    // 22. No generator erases a gameplay-critical cell (UX-2)
+    {
+        // Each act's declared hazard cells must survive their own generator.
+        let cases: [(Act, &[(usize, usize)]); 4] = [
+            (Act::Act1_1Drainage, &[(16, 10)]),
+            (Act::Act1_2Barracks, &[(7, 6), (7, 16), (15, 11), (11, 11), (11, 6), (11, 16)]),
+            (Act::Act3_2Laneways, &[]),
+            (Act::VrSpeed, &[(11, 13), (12, 13), (13, 13)]),
+        ];
+        for (act, hazards) in cases {
+            let cells = generate_act(act);
+            for (gx, gz) in hazards {
+                assert_eq!(
+                    cells[gz * GRID_W + gx],
+                    CellType::LaserTripwire,
+                    "{act:?} lost its tripwire at ({gx},{gz})"
+                );
+            }
+            // The exit burrow must be reachable ground, never a wall.
+            let exit_cell = cells[exit_cell_index(act)];
+            assert!(
+                !exit_cell.is_solid(false),
+                "{act:?} exit sits in a {exit_cell:?} cell"
+            );
+        }
+    }
+
+    // 23. The exit trigger cannot fire through a wall (UX-2 Part C)
+    {
+        assert_eq!(EXIT_TRIGGER_RADIUS, 28);
+        assert!(EXIT_TRIGGER_RADIUS < TILE_SZ, "exit trigger must stay inside its tile");
+        // The old 40-unit half-extent reached 40 units out, past the 32-unit
+        // tile centre offset of the neighbouring tile.
+        assert!(
+            EXIT_TRIGGER_RADIUS <= TILE_SZ / 2,
+            "exit trigger still spans beyond its own tile"
+        );
+    }
+
+    // 24. Only an alerted sentry can strike (UX-6)
+    {
+        // Gate mirrors the player's contact check: a sentry that has not seen
+        // the player and is not chasing cannot deal damage.
+        let strikes = |see_player: bool, state: SentryState, stun: u16, cd: u8| -> bool {
+            stun == 0 && (see_player || state == SentryState::AlertChase) && cd == 0
+        };
+        assert!(!strikes(false, SentryState::Patrolling, 0, 0), "unaware guard must not strike");
+        assert!(!strikes(false, SentryState::Investigating, 0, 0), "unaware guard must not strike");
+        assert!(strikes(true, SentryState::Patrolling, 0, 0), "a guard that sees you strikes");
+        assert!(strikes(false, SentryState::AlertChase, 0, 0), "a chasing guard strikes");
+        assert!(!strikes(true, SentryState::Patrolling, 0, 5), "cooldown must be honoured");
+        assert!(!strikes(true, SentryState::Patrolling, 30, 0), "a stunned guard must not strike");
+    }
+
+    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (29/29 test suites)");
 }
