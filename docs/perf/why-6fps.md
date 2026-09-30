@@ -45,52 +45,93 @@ change (6.00 fps).
 path.** Intended to let the drive stream while the MDEC works. **This is
 where it stops, and the reason is not a performance problem.**
 
-## The blocker: the MDEC cannot decode while a ReadN is live
+## The MDEC failure: corrected mechanism
 
-With a CD `ReadN` running, the MDEC's block-mode input DMA (channel 0)
-stops partway through a frame and the decode dies at about **slice 12-14
-of 20**. Register trace of the failing frame:
+The earlier version of this section was wrong, and the correction is the
+useful part. Two things were misread:
+
+- **`0x9604FFFF` is not a failure.** Decoded against `psx_hw::mdec::status`
+  it is `DATA_OUT_EMPTY`(31) set, `DATA_IN_FULL`(30) clear, `BUSY`(29)
+  clear, `DATA_IN_REQ`(28) clear. It is the normal idle state after a
+  frame has been fully drained. The whole "MDEC is backed up" reading was
+  built on that.
+- **"The MDEC cannot decode while a ReadN is live" is not true.** A probe
+  (`stages::probe_mdec_contention`) decodes one real frame under six
+  different ways of parking the drive -- live, `pause_read`,
+  `pause_read`+`ack_all`, full `stop()`, ack+quiesce, and quiesce -- with a
+  genuine `ReadN` running and a sector already in the FIFO:
+
+  ```
+  case=live         slices=20/20
+  case=pause        slices=20/20
+  case=pause+ack    slices=20/20
+  case=stop         slices=20/20
+  case=ack+quiesce  slices=20/20
+  case=quiesce      slices=20/20
+  ```
+
+  All six succeed. The drive's state during a decode is irrelevant.
+
+### What actually happens
+
+The failure is cumulative, and it needs the CD to be *active across*
+frames rather than merely live. `stages::probe_mdec_repeat` reads a frame
+from a running stream and decodes it, over and over:
 
 ```
-f=8 col=11 pre=2E0402D4 inb=1     <- input DMA still running at slice 11
-f=8 col=13 post=9604FFFF          <- dead
-"no more pixels f=8 col=11 stat=9604FFFF w0=38000DC0 avail=8"
+iter 0  slices=20/20  settle=0      busyafter=0
+iter 1  slices=20/20  settle=2000000 busyafter=1   <- MDEC wedged BUSY
+iter 2  slices=18/20                             <- and now it fails
 ```
 
-`0x9604FFFF` decoded against `psx_hw::mdec::status` is **not** what it
-first appears: `DATA_OUT_EMPTY`(31)=1, `DATA_IN_FULL`(30)=**0**,
-`BUSY`(29)=**0**, `DATA_IN_REQ`(28)=**1**. The MDEC is not backed up, it
-is *starving* -- actively requesting input while the input channel is
-idle. The DMA under-delivered. An earlier reading of this word as
-"DATA_IN_FULL set" sent the investigation down the wrong path; the
-corrected decode is what redirected it.
+The settle counter is a spin budget spent waiting for the MDEC to go idle
+after the 20th slice. On iteration 1 it exhausts 2,000,000 spins with the
+MDEC still BUSY. The end-of-frame status there is `0x3E040082`:
+`BUSY` + `DATA_IN_REQ` + `DATA_OUT_REQ` -- the MDEC is **waiting for input
+that never arrives**, with its input channel (ch0) already idle. Draining
+more does not help (`extra=0`: no output is pending, 20 slices really is
+the whole frame), and `mdec::init()` before every frame does not prevent
+it.
 
-The sharpest single piece of evidence: **frames 0-7 always decode, frame 8
-always fails.** Frames 0-7 come from the blocking prime at startup, read
-back to back with no decode in between. Frame 8 is the first frame read by
-the non-blocking `service_cd` path, i.e. the first one that arrives after
-the ring has filled and the drive's data FIFO has backed up. So the
-trigger is *CD state during the decode*, not DMA arbitration.
+And the control: `stages::probe_mdec_nocd` decodes the same frame 40 times
+with the drive stopped throughout:
 
-### What was tried, and what each one ruled out
+```
+iter 0..39  slices=20/20  settle=0  busyafter=0   stat=9604FFFF
+```
 
-| Attempt | Result | Ruled out |
-| --- | --- | --- |
-| Feed the MDEC via its data port from the drain's service callback | 150/150 frames fail (callback fires every 1024 spins, cannot keep the input FIFO full) | Not a ch0-DMA problem |
-| `CHCR` mode sweep against a zeroed buffer | "20 slices" was a false positive: ch1 completes trivially with no input | The shipped `0x01000201` SyncBlock mode is fine; a SyncRequest "fix" was a red herring |
-| `mdec::init()` before every frame | No change on its own | Not MDEC latch state |
-| Mask the idle CD DMA channel (DPCR bit 27) | No change | Not DMA channel arbitration |
-| Clear the drive's interrupt-enable mask, keep streaming | 0 failures, but the run then **stalls** -- the ring-full path set `stream_closed` and never resumed, so no further reads happened and it fell back to the old behaviour | Not (only) drive interrupts |
-| `pause_read` around each decode | Still fails at frame 8, with the drive confirmed paused (`pause ok=1`) | **`pause` is not enough; `stop` is** |
-| `psx_io::irq::ack(CDROM)` before the decode | Still frame 8 | Not the outstanding CPU `I_STAT` bit alone |
+Perfect. The MDEC is entirely happy to decode back-to-back frames.
 
-`SectorReader::stop` is `pause_read` **plus** `ack_all()` plus clearing the
-deferred-sector state, and only `stop` is known to make the decode work.
-So the requirement is narrow and precise: the decode needs the reader in
-its fully-stopped state, and `pause_read` does not reach it. Finding what
-in that delta the MDEC is actually sensitive to is the remaining work, and
-it is a small, well-posed question -- but it is in the SDK's CD path, not
-in the video player.
+### The mechanism, and why the old code survived
+
+So the wedge requires **sustained CD activity overlapping the decode**, and
+it presents as the MDEC's input DMA failing to deliver the frame. A single
+overlapped frame has enough slack for ch0 to finish; sustained overlap
+starves it.
+
+The old batched reader never hit this because it **stopped the drive around
+every decode**, and the ~200 ms read burst between decodes gave the MDEC
+time to go idle on its own. The wedge was masked by timing, not prevented.
+The new staggered scheduler reads during the gaps, so the decode no longer
+has that quiet window, and the latent problem surfaces.
+
+This is a better-defined problem than "the MDEC and the CD conflict": it is
+the MDEC input DMA not completing under sustained bus activity, and it is
+reproducible in a 3-iteration loop with no game code involved.
+
+What would fix it, in the order I would try:
+
+1. **Give the decode a quiet bus again, but keep the stagger.** Present the
+   frame that is already decoded, then read, and only decode once the read
+   for the *next* frame is finished. That serialises read-then-decode per
+   frame but no longer blocks a ready present, which is the part that
+   actually costs frames. It should recover most of the 37 late presents
+   without needing the MDEC to tolerate the drive.
+2. **Pace the input explicitly**: after `start_decode_frame`, wait for ch0
+   to go idle before draining, so the MDEC is never asked to output while
+   its input is still arriving. Cheap to try, and it is the direct
+   counterpart of the observed `DATA_IN_REQ`.
+3. Only then, the bitrate and the channel-2 upload already in place.
 
 ## What the arithmetic says is actually required
 

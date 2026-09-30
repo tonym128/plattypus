@@ -437,14 +437,25 @@ impl VideoPlayer {
             return;
         }
 
-        // 2. The back buffer is free: it needs the next frame. If the cache
-        //    cannot supply it, the read is unavoidable here -- but only now,
-        //    never before a ready frame has been shown.
+        // 2. The back buffer is free and the next frame is in RAM, so
+        //    decode it. The cache is checked first and the read, if one is
+        //    needed, completes *before* the decode rather than overlapping
+        //    it.
+        //
+        //    Not overlapping is deliberate. The MDEC's input DMA does not
+        //    deliver a frame when the drive is kept busy underneath it: it
+        //    stops mid-frame, leaves the MDEC BUSY and waiting for input
+        //    that never arrives, and the *next* frame then dies partway
+        //    through. The old batched reader never saw this because its
+        //    long read burst left the MDEC time to go idle between frames.
+        //    Doing the read first costs nothing extra -- both are on the
+        //    same thread either way -- and it keeps the decode on a quiet
+        //    bus. The stagger that matters is the one in phase 1: a frame
+        //    that is already decoded is always shown before any read.
         if !self.frame_unpresented && self.frame_idx < self.total_frames {
-            if !self.cache_has(self.frame_idx) {
-                if !self.prefetch_cd_batch(self.frame_idx, storage) {
-                    self.using_cd = false;
-                }
+            if !self.cache_has(self.frame_idx) && !self.prefetch_cd_batch(self.frame_idx, storage)
+            {
+                self.using_cd = false;
             }
             if self.decode_and_upload(renderer, storage) {
                 self.frame_unpresented = true;
@@ -453,10 +464,10 @@ impl VideoPlayer {
         }
 
         // 3. A decoded frame is sitting in the back buffer waiting out its
-        //    dwell time. That wait is idle CPU time, so spend it loading
-        //    the frames that come after it. This is the stagger: read while
-        //    a ready frame waits, decode once its window opens, and the CD
-        //    is only ever touched when nothing needs presenting.
+        //    dwell time, and there is nothing to decode this period, so
+        //    the wait is idle CPU time. Spend it reading the frames that
+        //    come after. Nothing is being decoded concurrently with this,
+        //    so the MDEC is not disturbed.
         if self.frame_unpresented && !self.cache_has(self.frame_idx) {
             if !self.prefetch_cd_batch(self.frame_idx, storage) {
                 self.using_cd = false;

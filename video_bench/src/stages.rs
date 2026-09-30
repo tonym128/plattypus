@@ -18,6 +18,9 @@ use crate::video::{
 };
 
 use crate::timing::{Clock, Span};
+use psx_hw::mdec::status as mdec_status;
+use psx_io::dma;
+use psx_rt::tty;
 
 pub const FRAMES: usize = TOTAL_FRAMES as usize;
 /// Compressed frames pulled per CD command, matching `VideoPlayer`.
@@ -455,4 +458,372 @@ pub fn measure_upload_paths(clock: &mut Clock) -> (u32, u32, bool) {
         (span.vblanks as u64 * crate::timing::US_PER_VBLANK as u64 / REPS as u64) as u32
     };
     (per_frame(fifo), per_frame(dma), ok)
+}
+
+// ---------------------------------------------------------------------------
+// MDEC / CD contention probe
+// ---------------------------------------------------------------------------
+
+/// CD-ROM controller ports, for reproducing `SectorReader`'s private ack
+/// helpers from outside the crate.
+const CD_STATUS: u32 = 0x1F80_1800;
+const CD_PARAM: u32 = 0x1F80_1802;
+const CD_IRQ: u32 = 0x1F80_1803;
+
+#[inline]
+fn cd_wr_index(i: u8) {
+    unsafe { psx_io::write8(CD_STATUS, i & 0x03) };
+}
+
+/// `SectorReader::ack_all`, replicated: select the interrupt-enable
+/// register, clear all five CD interrupt flags, and release the CPU-level
+/// CDROM source.
+fn ack_all_cd() {
+    cd_wr_index(1);
+    unsafe { psx_io::write8(CD_IRQ, 0x5F) };
+    psx_io::irq::ack(1 << psx_io::irq::source::CDROM);
+    cd_wr_index(0);
+}
+
+/// Zero the drive's interrupt-enable mask, leaving the ReadN running.
+fn quiesce_cd() {
+    cd_wr_index(1);
+    unsafe { psx_io::write8(CD_PARAM, 0x00) };
+    cd_wr_index(0);
+}
+
+/// How the drive is left while the MDEC decodes.
+#[derive(Copy, Clone)]
+pub enum ContentionCase {
+    /// Nothing: a live ReadN, which is the condition that breaks the decode.
+    Live,
+    /// `pause_read` alone.
+    Pause,
+    /// `pause_read` then `ack_all`.
+    PauseAck,
+    /// The full `stop()`: pause, ack, and drop any deferred sector.
+    Stop,
+    /// Ack and quiesce the drive, but leave the ReadN running.
+    AckQuiesce,
+    /// Quiesce the drive only, ReadN still running.
+    Quiesce,
+}
+
+impl ContentionCase {
+    const ALL: [(ContentionCase, u8); 6] = [
+        (ContentionCase::Live, 0),
+        (ContentionCase::Pause, 1),
+        (ContentionCase::PauseAck, 2),
+        (ContentionCase::Stop, 3),
+        (ContentionCase::AckQuiesce, 4),
+        (ContentionCase::Quiesce, 5),
+    ];
+
+    const fn name(self) -> &'static str {
+        match self {
+            ContentionCase::Live => "live",
+            ContentionCase::Pause => "pause",
+            ContentionCase::PauseAck => "pause+ack",
+            ContentionCase::Stop => "stop",
+            ContentionCase::AckQuiesce => "ack+quiesce",
+            ContentionCase::Quiesce => "quiesce",
+        }
+    }
+}
+
+/// Decode one real frame under each way of parking the drive, and report
+/// how many of its 20 slices came out.
+///
+/// The frame is read once and reused: the MDEC does not modify its input,
+/// so every case decodes identical data. The drive is re-armed before each
+/// case so each one genuinely starts from a streaming state.
+pub fn probe_mdec_contention() {
+    let s = storage();
+    let mut reader = SectorReader::new();
+    let Some(video_lba) = open_video(b"INTRO.VID", &mut reader) else {
+        tty::println("@@VB1 CONTENTION skipped (no video)");
+        return;
+    };
+    if !unsafe { reader.prepare() } {
+        tty::println("@@VB1 CONTENTION skipped (no CD)");
+        return;
+    }
+
+    // Pull frame 0 into RAM while the drive streams, so the buffer holds
+    // real MDEC data and the drive is left running.
+    if !unsafe { reader.start_read(video_lba) } {
+        tty::println("@@VB1 CONTENTION skipped (no ReadN)");
+        return;
+    }
+    for sector in 0..SECTORS_PER_FRAME {
+        let offset = sector * SECTOR_WORDS;
+        let buf: &mut [u32; SECTOR_WORDS] = unsafe {
+            &mut *(s.frame_words[offset..offset + SECTOR_WORDS].as_mut_ptr()
+                as *mut [u32; SECTOR_WORDS])
+        };
+        unsafe { reader.read_sector(buf) };
+    }
+    let data_words = (s.frame_words[0] & 0xFFFF) as usize;
+    if data_words == 0 || data_words >= WORDS_PER_FRAME {
+        tty::println("@@VB1 CONTENTION bad frame cmd");
+        unsafe { reader.stop() };
+        return;
+    }
+
+    tty::print("@@VB1 contention frame_cmd=");
+    tty::print_hex_u32(s.frame_words[0]);
+    tty::print(" data_words=");
+    tty::print_hex_u32(data_words as u32);
+    tty::print("\n");
+
+    for (case, id) in ContentionCase::ALL {
+        // Re-arm a live stream from the *next* frame, so the drive is
+        // genuinely delivering into the FIFO during the decode.
+        let lba = video_lba.wrapping_add(SECTORS_PER_FRAME as u32);
+        let streaming = unsafe { reader.start_read(lba) };
+        // Take one sector so the FIFO is non-empty, exactly as it would be
+        // mid-playback.
+        if streaming {
+            let offset = SECTOR_WORDS;
+            let buf: &mut [u32; SECTOR_WORDS] = unsafe {
+                &mut *(s.frame_cache[0][offset..offset + SECTOR_WORDS].as_mut_ptr()
+                    as *mut [u32; SECTOR_WORDS])
+            };
+            unsafe { reader.read_sector(buf) };
+        }
+
+        match case {
+            ContentionCase::Live => {}
+            ContentionCase::Pause => {
+                unsafe { reader.pause_read() };
+            }
+            ContentionCase::PauseAck => {
+                unsafe { reader.pause_read() };
+                ack_all_cd();
+            }
+            ContentionCase::Stop => {
+                unsafe { reader.stop() };
+            }
+            ContentionCase::AckQuiesce => {
+                ack_all_cd();
+                quiesce_cd();
+            }
+            ContentionCase::Quiesce => {
+                quiesce_cd();
+            }
+        }
+
+        mdec::init();
+        mdec::init();
+        mdec::start_decode_frame(&s.frame_words);
+        let mut slices = 0u32;
+        for _col in 0..SLICE_COLUMNS {
+            if mdec::drain_slice_dma(&mut s.slice_words) {
+                slices += 1;
+            } else {
+                break;
+            }
+        }
+        let stat = mdec::read_stat();
+        let in_busy = dma::is_busy(dma::Channel::MdecIn) as u32;
+
+        tty::print("@@VB1 contention id=");
+        tty::print_hex_u32(id as u32);
+        tty::print(" case=");
+        tty::print(case.name());
+        tty::print(" slices=");
+        tty::print_hex_u32(slices);
+        tty::print("/");
+        tty::print_hex_u32(SLICE_COLUMNS as u32);
+        tty::print(" stat=");
+        tty::print_hex_u32(stat);
+        tty::print(" inbusy=");
+        tty::print_hex_u32(in_busy);
+        tty::print("\n");
+
+        // Leave the drive quiet before re-arming for the next case.
+        unsafe { reader.stop() };
+    }
+
+    tty::println("@@VB1 contention done");
+}
+
+/// Repeat "read one frame from a live stream, then decode it" and report
+/// the slice count for each repetition.
+///
+/// A single decode against a live `ReadN` succeeds for every way of
+/// parking the drive, so the failure is not per-decode: it accumulates.
+/// This walks the repetition count until the decode stops producing and
+/// prints the iteration it died on, which is the first hard number for
+/// what the accumulation actually is.
+pub fn probe_mdec_repeat(iterations: u32) {
+    let s = storage();
+    let mut reader = SectorReader::new();
+    let Some(video_lba) = open_video(b"INTRO.VID", &mut reader) else {
+        tty::println("@@VB1 REPEAT skipped (no video)");
+        return;
+    };
+    if !unsafe { reader.prepare() } {
+        tty::println("@@VB1 REPEAT skipped (no CD)");
+        return;
+    }
+
+    tty::println("@@VB1 REPEAT begin");
+
+    // Start at frame 0 and never stop the stream, so every iteration is
+    // read-then-decode against a live drive, exactly as playback does.
+    if !unsafe { reader.start_read(video_lba) } {
+        tty::println("@@VB1 REPEAT skipped (no ReadN)");
+        return;
+    }
+
+    for iter in 0..iterations {
+        // Read the next frame's sectors into slot (iter % PREFETCH_FRAMES).
+        let slot = (iter as usize) % PREFETCH_FRAMES as usize;
+        let mut read_ok = true;
+        for sector in 0..SECTORS_PER_FRAME {
+            let offset = sector * SECTOR_WORDS;
+            let buf: &mut [u32; SECTOR_WORDS] = unsafe {
+                &mut *(s.frame_cache[slot][offset..offset + SECTOR_WORDS].as_mut_ptr()
+                    as *mut [u32; SECTOR_WORDS])
+            };
+            if !unsafe { reader.read_sector(buf) } {
+                read_ok = false;
+                break;
+            }
+        }
+        if !read_ok {
+            tty::print("@@VB1 REPEAT iter=");
+            tty::print_hex_u32(iter);
+            tty::print(" readfail=1 slices=0/");
+            tty::print_hex_u32(SLICE_COLUMNS as u32);
+            tty::print("\n");
+            break;
+        }
+        s.frame_words.copy_from_slice(&s.frame_cache[slot]);
+
+        mdec::start_decode_frame(&s.frame_words);
+        let mut slices = 0u32;
+        for _ in 0..SLICE_COLUMNS {
+            if mdec::drain_slice_dma(&mut s.slice_words) {
+                slices += 1;
+            } else {
+                break;
+            }
+        }
+        // 20 slices is the display geometry, not the frame. Keep draining
+        // while the MDEC still has output pending, so the frame actually
+        // ends instead of being abandoned mid-frame.
+        let mut extra = 0u32;
+        while mdec::read_stat() & mdec_status::DATA_OUT_REQ != 0 && extra < 8 {
+            if !mdec::drain_slice_dma(&mut s.slice_words) {
+                break;
+            }
+            extra += 1;
+        }
+        let mut settle = 0u32;
+        while mdec::is_busy() && settle < 2_000_000 {
+            settle += 1;
+        }
+        let busy_after_settle = mdec::is_busy();
+
+        tty::print("@@VB1 REPEAT iter=");
+        tty::print_hex_u32(iter);
+        tty::print(" extra=");
+        tty::print_hex_u32(extra);
+        tty::print(" settle=");
+        tty::print_hex_u32(settle);
+        tty::print(" busyafter=");
+        tty::print_hex_u32(busy_after_settle as u32);
+        tty::print(" slices=");
+        tty::print_hex_u32(slices);
+        tty::print("/");
+        tty::print_hex_u32(SLICE_COLUMNS as u32);
+        tty::print(" stat=");
+        tty::print_hex_u32(mdec::read_stat());
+        tty::print(" inbusy=");
+        tty::print_hex_u32(dma::is_busy(dma::Channel::MdecIn) as u32);
+        tty::print("\n");
+
+        if slices < SLICE_COLUMNS as u32 {
+            tty::print("@@VB1 REPEAT died_at=");
+            tty::print_hex_u32(iter);
+            tty::print("\n");
+            break;
+        }
+    }
+
+    unsafe { reader.stop() };
+    tty::println("@@VB1 REPEAT done");
+}
+
+/// Decode the same frame repeatedly with the drive never touched.
+///
+/// This separates "the MDEC cannot decode back-to-back frames" from "the
+/// CD causes it". If this wedges too, the CD is irrelevant to the
+/// accumulation and the old code only survived because its long read
+/// burst left the MDEC time to settle between frames.
+pub fn probe_mdec_nocd(iterations: u32) {
+    let s = storage();
+    let mut reader = SectorReader::new();
+    let Some(video_lba) = open_video(b"INTRO.VID", &mut reader) else {
+        tty::println("@@VB1 NOCD skipped");
+        return;
+    };
+    if !unsafe { reader.prepare() } {
+        tty::println("@@VB1 NOCD skipped");
+        return;
+    }
+    // Read one frame, then leave the drive stopped for the whole probe.
+    if !unsafe { reader.start_read(video_lba) } {
+        tty::println("@@VB1 NOCD skipped");
+        return;
+    }
+    for sector in 0..SECTORS_PER_FRAME {
+        let offset = sector * SECTOR_WORDS;
+        let buf: &mut [u32; SECTOR_WORDS] = unsafe {
+            &mut *(s.frame_words[offset..offset + SECTOR_WORDS].as_mut_ptr()
+                as *mut [u32; SECTOR_WORDS])
+        };
+        unsafe { reader.read_sector(buf) };
+    }
+    unsafe { reader.stop() };
+
+    tty::println("@@VB1 NOCD begin");
+    for iter in 0..iterations {
+        mdec::init();
+        mdec::start_decode_frame(&s.frame_words);
+        let mut slices = 0u32;
+        for _ in 0..SLICE_COLUMNS {
+            if mdec::drain_slice_dma(&mut s.slice_words) {
+                slices += 1;
+            } else {
+                break;
+            }
+        }
+        let mut settle = 0u32;
+        while mdec::is_busy() && settle < 2_000_000 {
+            settle += 1;
+        }
+        tty::print("@@VB1 NOCD iter=");
+        tty::print_hex_u32(iter);
+        tty::print(" slices=");
+        tty::print_hex_u32(slices);
+        tty::print("/");
+        tty::print_hex_u32(SLICE_COLUMNS as u32);
+        tty::print(" settle=");
+        tty::print_hex_u32(settle);
+        tty::print(" busyafter=");
+        tty::print_hex_u32(mdec::is_busy() as u32);
+        tty::print(" stat=");
+        tty::print_hex_u32(mdec::read_stat());
+        tty::print("\n");
+        if slices < SLICE_COLUMNS as u32 {
+            tty::print("@@VB1 NOCD died_at=");
+            tty::print_hex_u32(iter);
+            tty::print("\n");
+            break;
+        }
+    }
+    tty::println("@@VB1 NOCD done");
 }

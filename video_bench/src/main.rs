@@ -114,6 +114,12 @@ fn main() -> ! {
     tty::print_hex_u32(dma_ok as u32);
     tty::print("\n@@VB1 UPLOAD_PATHS 0");
 
+    // P0e: bisect the MDEC/CD contention. Emitted first and on its own
+    // so the answer cannot be lost to a later-phase wedge.
+    stages::probe_mdec_contention();
+    stages::probe_mdec_repeat(40);
+    stages::probe_mdec_nocd(40);
+
     // P1: paced run -- the numbers that matter.
     let (presents, using_cd, dma_fallbacks) = run_paced(&mut renderer);
     // Emit the headline numbers now, before the diagnostic phases, so a
