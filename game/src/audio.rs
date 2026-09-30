@@ -587,9 +587,16 @@ impl AudioManager {
         cdrom::stop();
     }
 
-    /// Pause CD-DA playback.
+    /// Pause CD-DA playback. The drive holds its position, so the music picks
+    /// up exactly where it stopped rather than restarting.
     pub fn pause_cdda() {
         cdrom::pause();
+    }
+
+    /// Resume CD-DA after [`Self::pause_cdda`]. The CD-ROM has no separate
+    /// resume command; re-issuing play for the same track continues it.
+    pub fn resume_cdda() {
+        cdrom::play_track(2);
     }
 
     /// Check if CD-DA is currently playing.

@@ -402,7 +402,7 @@ pub static RADIO_TIPS_DIALOGUE: &[CodecPage] = &[
     CodecPage {
         speaker: Speaker::Dad,
         line1: "Stealth: Crawl low under lasers",
-        line2: "and vents with CIRCLE / DOWN.",
+        line2: "and vents. Press CIRCLE to crawl.",
     },
     CodecPage {
         speaker: Speaker::Mom,
@@ -525,13 +525,6 @@ pub static STATIC_DIALOGUE: &[CodecPage] = &[
     },
 ];
 
-// Backward-compatibility aliases
-pub static ACT1_START_DIALOGUE: &[CodecPage] = ACT1_1_DIALOGUE;
-pub static ACT1_BOSS_DIALOGUE: &[CodecPage] = ACT1_3_DIALOGUE;
-pub static ACT2_START_DIALOGUE: &[CodecPage] = ACT2_1_DIALOGUE;
-pub static ACT3_START_DIALOGUE: &[CodecPage] = ACT3_1_DIALOGUE;
-pub static ACT4_START_DIALOGUE: &[CodecPage] = ACT4_1_DIALOGUE;
-
 pub fn get_act_dialogue(act: crate::level::Act) -> &'static [CodecPage] {
     match act {
         crate::level::Act::Act1_1Drainage => ACT1_1_DIALOGUE,
@@ -619,7 +612,16 @@ impl CodecManager {
     /// Connect call to the currently tuned frequency
     pub fn call_current_frequency(&mut self, act: crate::level::Act, memcard_ok: bool) {
         let pages = match self.tuned_freq {
-            CODEC_FREQ_BURROW => get_act_dialogue(act),
+            // During the very first act, Burrow Command walks the player
+            // through the core controls instead of pure story. The tips were
+            // authored but never reachable from any frequency.
+            CODEC_FREQ_BURROW => {
+                if act == crate::level::Act::Act1_1Drainage {
+                    RADIO_TIPS_DIALOGUE
+                } else {
+                    get_act_dialogue(act)
+                }
+            }
             CODEC_FREQ_SCRIBE => {
                 self.pending_save = true;
                 if memcard_ok {

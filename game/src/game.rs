@@ -734,6 +734,7 @@ impl Game {
                 if just_start {
                     self.pause_selection = 0;
                     self.state = GameState::Paused;
+                    AudioManager::pause_cdda();
                     AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                 } else if just_select {
                     self.codec.open_tuner();
@@ -994,12 +995,18 @@ impl Game {
                 } else if just_circle {
                     // Quick unpause on CIRCLE
                     self.state = GameState::Playing;
+                    if AudioManager::is_cdda_playing() {
+                        AudioManager::resume_cdda();
+                    }
                     AudioManager::play_jump();
                 } else if just_cross || just_start {
                     match self.pause_selection {
                         0 => {
                             // Resume mission
                             self.state = GameState::Playing;
+                            if AudioManager::is_cdda_playing() {
+                                AudioManager::resume_cdda();
+                            }
                             AudioManager::play_jump();
                         }
                         1 => {

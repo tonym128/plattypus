@@ -54,10 +54,6 @@ pub const ANALOG_FULL_DEFLECTION: i32 = 127;
 /// facing, and an ungated right stick made a worn pad read as aiming.
 pub const ANALOG_DEADZONE: i16 = 18;
 
-/// Below this the player counts as deliberately standing still, which the
-/// cardboard box relies on.
-pub const MOVING_SPEED_EPSILON: i32 = 1;
-
 /// X component of a velocity of magnitude `speed` pointing along a heading.
 /// Headings are 0..256 units per revolution with 0 = South (+Z) and
 /// 64 = East (+X), so X follows sine and Z follows cosine.
@@ -131,6 +127,10 @@ pub struct Platypus {
     /// Frames until a tripped laser tripwire can fire again.
     pub tripwire_cooldown: u8,
 
+    /// Whether the player was standing in water on the previous frame, so
+    /// breaking the surface can splash.
+    was_in_water: bool,
+
     /// Whether the player is actively asking to move this frame, recorded
     /// from the input rather than inferred from velocity. The cardboard box
     /// treats a motionless box as harmless, and a diagonal analog push that
@@ -175,6 +175,7 @@ impl Platypus {
             on_ground: true,
             input_moving: false,
             tripwire_cooldown: 0,
+            was_in_water: false,
             rumble_small_timer: 0,
             rumble_large_timer: 0,
             rumble_large_intensity: 0,
@@ -216,6 +217,7 @@ impl Platypus {
         self.in_box = false;
         self.input_moving = false;
         self.tripwire_cooldown = 0;
+        self.was_in_water = false;
     }
 
     pub fn trigger_rumble_small(&mut self, duration: u8) {
@@ -305,6 +307,12 @@ impl Platypus {
             }
             AudioManager::play_swoosh();
         }
+
+        // Breaking the surface is a distinct sound from the generic swoosh.
+        if in_water && !self.was_in_water {
+            AudioManager::play_splash();
+        }
+        self.was_in_water = in_water;
 
         // Water submersion vs Land/Rapids Jump/Crawl
         if in_water && !is_rapids {
