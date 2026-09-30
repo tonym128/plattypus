@@ -21,7 +21,7 @@
        /   [OFFICIAL SONY PLAYSTATION SEAL]                \
       /                                                     \
      |    PLATTYPUS                                          |
-     |    TACTICAL ESPIONAGE OPERATION                       |
+     |    TACTICAL ESPIONAGE ACTION                       |
      |                                                       |
      |                   +-------+                           |
      |                   | ( o ) |  <- CENTER SPINDLE        |
@@ -49,5 +49,9 @@
 4. **Copyright & Rights Line**:
    * `© 2026 Burrow Command Studios / PSoxide Project. Licensed by Sony Computer Entertainment Inc.`
 5. **Red Book Audio Track Map**:
-   * Track 1: ISO 9660 Mode 2 / Form 1 Game Executable, Assets, & STR Full Motion Video data (Sector 00:02:00 to 03:10:60).
-   * Track 2: 44.1 kHz 16-bit Stereo CD-DA Title Soundtrack "Infiltration Dawn" (Sector 03:12:60 to 07:28:45).
+   * Track 1: MODE2/2352 data -- ISO 9660 image carrying the game executable,
+     assets, and MDEC video streams (from 00:00:00).
+   * Track 2: AUDIO -- 44.1 kHz 16-bit stereo CD-DA title soundtrack, with a
+     2-sector pregap (INDEX 00 at 01:27:68, INDEX 01 at 01:29:68).
+     Derived from the mastered `dist/plattypus.cue`; regenerate with `make disc`
+     rather than editing by hand if the media changes.

@@ -1,5 +1,11 @@
 # Plattypus: Tactical Espionage Action — Development Checklist
 
+> **Status: complete — kept as a record of what was built.**
+> Every checkbox below is ticked, including the two items filed under "Active
+> Issues" (inverted controls, and stages not resetting after death). Both were
+> fixed. This file is a historical checklist, not an open work queue; current
+> status and remaining work are tracked in [REVIEW.md](REVIEW.md).
+
 ## Priority Phase 1: Recommended Immediate Steps (Foundations)
 
 These 5 items form the core technical foundation required for a commercial-grade PlayStation experience.

@@ -44,7 +44,7 @@
   <g transform="translate(400, 180)">
     <!-- Subtitle Banner -->
     <rect x="-170" y="-45" width="340" height="22" fill="#00ff88" opacity="0.9"/>
-    <text x="0" y="-29" font-family="'Arial Black', Impact, sans-serif" font-size="12" font-weight="bold" fill="#0a1218" text-anchor="middle" letter-spacing="3">TACTICAL ESPIONAGE OPERATION</text>
+    <text x="0" y="-29" font-family="'Arial Black', Impact, sans-serif" font-size="12" font-weight="bold" fill="#0a1218" text-anchor="middle" letter-spacing="3">TACTICAL ESPIONAGE ACTION</text>
 
     <!-- Main Title -->
     <text x="0" y="25" font-family="'Arial Black', Impact, sans-serif" font-weight="900" font-size="52" fill="#ffffff" stroke="#000" stroke-width="3" text-anchor="middle" letter-spacing="4">PLATTYPUS</text>

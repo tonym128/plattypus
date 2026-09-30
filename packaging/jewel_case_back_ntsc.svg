@@ -16,7 +16,7 @@
   <rect x="38" y="0" width="2" height="786" fill="#222222"/>
   <g transform="translate(24, 730) rotate(-90)">
     <text font-family="'Helvetica Neue', Arial, sans-serif" font-weight="900" font-size="12" fill="#ffffff" letter-spacing="2">SLUS-00001</text>
-    <text x="110" y="0" font-family="'Arial Black', sans-serif" font-weight="900" font-size="13" fill="#ffe680" letter-spacing="2">PLATTYPUS : TACTICAL ESPIONAGE OPERATION</text>
+    <text x="110" y="0" font-family="'Arial Black', sans-serif" font-weight="900" font-size="13" fill="#ffe680" letter-spacing="2">PLATTYPUS : TACTICAL ESPIONAGE ACTION</text>
   </g>
 
   <!-- Right Spine (40px) -->
@@ -24,7 +24,7 @@
   <rect x="960" y="0" width="2" height="786" fill="#222222"/>
   <g transform="translate(984, 730) rotate(-90)">
     <text font-family="'Helvetica Neue', Arial, sans-serif" font-weight="900" font-size="12" fill="#ffffff" letter-spacing="2">SLUS-00001</text>
-    <text x="110" y="0" font-family="'Arial Black', sans-serif" font-weight="900" font-size="13" fill="#ffe680" letter-spacing="2">PLATTYPUS : TACTICAL ESPIONAGE OPERATION</text>
+    <text x="110" y="0" font-family="'Arial Black', sans-serif" font-weight="900" font-size="13" fill="#ffe680" letter-spacing="2">PLATTYPUS : TACTICAL ESPIONAGE ACTION</text>
   </g>
 
   <!-- Center Back Tray (920px) -->

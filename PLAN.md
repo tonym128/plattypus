@@ -1,5 +1,13 @@
 # Plattypus: Tactical Espionage Action — Commercial PSX Release Plan
 
+> **Status: largely superseded — kept for historical reference.**
+> Phases 1-6 below are implemented. The campaign shipped as 12 acts across
+> 4 chapters plus 4 VR missions, not the "4-stage prototype" the Executive
+> Summary describes, and the codename list and VR count below are out of date
+> (the game ships 12 codenames and 4 VR missions). For current engineering
+> status see [REVIEW.md](REVIEW.md) and the git history. Section headings are
+> preserved as written so the original plan can still be read.
+
 ## Executive Summary & Vision
 
 **Plattypus: Tactical Espionage Action** is a 3D tactical stealth action game developed for the original PlayStation (PS1 / PSX) hardware using Rust and the `psoxide` SDK. 

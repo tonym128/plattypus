@@ -11,7 +11,7 @@
 * **Cover Elements**:
   * Top-Left: Vertical Black PlayStation banner stripe with White "PlayStation" logotype.
   * Main Hero Art: 3D rendered Platty crouching in tactical sneaking stance with leathery bill, green headband flutter, and golden venom spurs.
-  * Title Logo: Foil-embossed metallic silver and green **"PLATTYPUS : TACTICAL ESPIONAGE OPERATION"**.
+  * Title Logo: Foil-embossed metallic silver and green **"PLATTYPUS : TACTICAL ESPIONAGE ACTION"**.
   * Bottom-Left: ESRB Rating Badge (**EVERYONE 10+** - Animated Violence, Comic Mischief).
   * Bottom-Right: Official Sony Computer Entertainment seal of quality.
 
@@ -22,7 +22,7 @@
   * Right Spine: $6.0\,\text{mm} \times 118.0\,\text{mm}$ (Folded)
 * **Spine Text**:
   * Font: Helvetica Black / Eurostyle Bold $9\,\text{pt}$ uppercase.
-  * Text: `SLUS-00001  PLATTYPUS : TACTICAL ESPIONAGE OPERATION  [PS LOGO]`
+  * Text: `BASLUS-00001  PLATTYPUS : TACTICAL ESPIONAGE ACTION  [PS LOGO]`
 * **Back Cover Elements**:
   * Top Headline: *"THE DUCK-BILLED OPERATIVE HAS ARRIVED."*
   * Promotional Blurb: Detailed synopsis of the 4-chapter campaign and VR simulator.
@@ -46,7 +46,7 @@
 * **Front Inlay**: $120.0\,\text{mm} \times 120.0\,\text{mm}$ with characteristic PAL Blue vertical left banner:
   * Blue gradient banner with PlayStation silver geometric symbols (▲ ✖ ◼ ●).
 * **Back Inlay**: $150.0\,\text{mm} \times 118.0\,\text{mm}$ with dual $6.5\,\text{mm}$ spine folds.
-* **Spine Text**: `SLES-00001  PLATTYPUS : TACTICAL ESPIONAGE OPERATION`.
+* **Spine Text**: `BASLUS-00001  PLATTYPUS : TACTICAL ESPIONAGE ACTION`.
 
 ### B. Multi-Language Blurbs (PAL 5-Language Standard)
 * English: *"Tactical espionage action meets Australian wildlife in full 3D!"*

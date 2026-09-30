@@ -1,0 +1,57 @@
+name: CI
+
+# The PSoXide submodule carries its own workflow, but that one only builds and
+# tests the SDK. This workflow is what actually gates the game.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  game:
+    name: Game build and logic tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils-mipsel-linux-gnu
+
+      # rustup picks the pinned nightly up from rust-toolchain.toml, including
+      # the rust-src component that build-std needs.
+      - name: Show toolchain
+        run: rustup show
+
+      - name: Build the PSX executable
+        working-directory: game
+        run: cargo build --release --locked
+
+      - name: Check formatting
+        run: cargo fmt --manifest-path game/Cargo.toml --all -- --check
+
+      - name: Run host-side game logic tests
+        run: cargo run --locked --manifest-path tools/test_game_logic/Cargo.toml
+
+  disc:
+    name: Disc mastering smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils-mipsel-linux-gnu
+
+      # Guards the Makefile's emulator path against regressing to a hardcoded
+      # local path, and proves `make disc` can still master an image.
+      - name: Master the disc image
+        run: make disc

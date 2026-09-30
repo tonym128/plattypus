@@ -7,7 +7,11 @@
 !game/video_mdec.bin
 *.cue
 *.exe
+.worktrees/
+/.opencode/
+
+# Cargo's own lock files. `**/target/` already covers the per-target ones, so
+# these only matter for a stray lock outside a target directory.
 .cargo-artifact-lock
 .cargo-build-lock
 .cargo-lock
-.worktrees/

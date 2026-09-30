@@ -1,0 +1,9 @@
+[toolchain]
+# Matches psoxide/rust-toolchain.toml. The SDK's own comment asks downstream
+# game repos to keep this in step: the build uses `mipsel-sony-psx`,
+# `build-std`, and `asm_experimental_arch`, all of which are nightly-only and
+# have moved between releases. Without a pin here the game builds against
+# whatever nightly the developer happens to have installed, and the disc master
+# stops being reproducible.
+channel    = "nightly-2026-03-25"
+components = ["rustfmt", "clippy", "rust-src", "llvm-tools"]

@@ -1,5 +1,7 @@
 # Plattypus: Tactical Espionage Action 🦆 (Sony PlayStation 1 / PSX)
 
+[![CI](actions/workflows/ci.yml/badge.svg)](actions/workflows/ci.yml)
+
 A 3D tactical stealth action infiltration thriller for the original **Sony PlayStation (PS1 / PSX)**, developed in bare-metal **Rust** using the **[PSoXide](https://github.com/EBonura/PSoXide)** SDK.
 
 ---
@@ -56,8 +58,26 @@ Equipped with his combat headband, venomous ankle spurs, and bio-electric electr
 ## 🛠️ Building & Mastering
 
 ### Prerequisites
-- Rust nightly toolchain with `rust-src` and `llvm-tools` (managed via `rustup`).
+- `git` (the PSoXide SDK is a submodule and must be initialised)
+- The Rust nightly pinned in [`rust-toolchain.toml`](rust-toolchain.toml).
+  `rustup` installs it automatically on first build; it needs `rust-src` and
+  `llvm-tools` for the `mipsel-sony-psx` cross build.
 - Host C/C++ compiler and Python 3.
+
+### Getting the source
+
+The PSoXide SDK is a git submodule, so a plain clone is not enough.
+
+```sh
+git clone --recurse-submodules <repository-url>
+cd plattypus-psoxide
+
+# If you already cloned without --recurse-submodules:
+git submodule update --init --recursive
+```
+
+The build fails with an unhelpful `psx-asset` manifest error if the `psoxide/`
+submodule is missing, so check `ls psoxide/sdk` before building.
 
 ### Build Targets
 
@@ -72,9 +92,13 @@ make exe
 make disc
 ```
 
-### Output Files (`dist/`):
+### Output Files (`dist/`)
+
+These are build products and are **not** checked in. Run `make disc` to produce
+them; the directory is listed in `.gitignore`.
+
 - `dist/plattypus.exe` — Bare-metal MIPS R3000 PlayStation executable
-- `dist/plattypus.bin` — Raw 2352-byte/sector Mode 2 Form 1/2 disc image
+- `dist/plattypus.bin` — Raw 2352-byte/sector disc image
 - `dist/plattypus.cue` — Red-book disc cue sheet with CD-DA title audio track
 
 ---
@@ -82,9 +106,9 @@ make disc
 ## 💿 Emulation & Real Hardware
 
 ### Recommended Emulators:
-Open [`dist/plattypus.cue`](dist/plattypus.cue) in:
+Open `dist/plattypus.cue` (after running `make disc`) in:
 - **DuckStation** (Recommended — full hardware MDEC and SPU timing accuracy)
-- **RetroArch** (Beetle PSX or SwanStation core): `make run`
+- **RetroArch** (Beetle PSX or SwanStation core)
 - **PCSX-Redux** / **Mednafen**
 
 ### Real PlayStation Hardware:

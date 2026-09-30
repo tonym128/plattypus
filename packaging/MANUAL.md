@@ -1,4 +1,4 @@
-# PLATTYPUS: TACTICAL ESPIONAGE OPERATION
+# PLATTYPUS: TACTICAL ESPIONAGE ACTION
 ## Official Instruction Manual (PlayStation® Game Console)
 ### Serial: BASLUS-00001 / SCES-00001
 ---
@@ -39,7 +39,7 @@ A very small percentage of individuals may experience epileptic seizures when ex
 ---
 
 ## 2. STARTING UP & HARDWARE SETUP
-1. Insert the **PLATTYPUS: TACTICAL ESPIONAGE OPERATION** disc into your PlayStation® console with the label side facing upward.
+1. Insert the **PLATTYPUS: TACTICAL ESPIONAGE ACTION** disc into your PlayStation® console with the label side facing upward.
 2. Connect a standard Digital Controller or DualShock® Analog Controller to Controller Port 1.
 3. Insert a PlayStation® Memory Card into Memory Card Slot 1. *PLATTYPUS requires 1 Memory Card block to save campaign progress, VR simulation badges, and unlocked costumes.*
 4. Press the **POWER** button to initiate boot. The animated Burrow HQ title sequence will stream from disc.
@@ -132,12 +132,12 @@ Platty's bill features specialized electro-receptors capable of sensing ambient 
 
 ## 9. CQC & SUBTERFUGE: THE BILL BOX
 ### Silent Rear Takedowns (Venom Spurs)
-Platty possesses calcaneus venom spurs on his rear ankles. When approaching an unsuspecting sentry from behind, press **CROSS** to execute a Close Quarters Combat (CQC) strike!
+Platty possesses calcaneus venom spurs on his rear ankles. When approaching an unsuspecting sentry from behind, press **SQUARE** to execute a Close Quarters Combat (CQC) strike!
 * **Silent Rear Strike**: Instantly incapacitates sentries for 15 seconds without triggering an alarm (+500 pts).
 * **Frontal Strike**: Causes an 8-second stun but risks alerting adjacent patrol units (+200 pts).
 
 ### The Bill Box (Cardboard Disguise)
-Press **CIRCLE** to slip beneath "The Bill Box" cardboard shipping container:
+Press **L1** to slip beneath "The Bill Box" cardboard shipping container:
 * **Motionless**: Completely ignored by sentry vision cones and sweeping searchlights!
 * **Moving in Vision**: Shuffling cardboard boxes will arouse immediate guard suspicion ("?!"). Move only when sentries look away!
 
@@ -175,7 +175,7 @@ Ground surfaces transmit acoustic vibrations based on material density:
 * **Surveillance Drone**: Floating rotary drones sweeping infrared radar beams.
 * **Autonomous Searchlight**: High-candela spotlights triggering alarms on moving targets.
 * **Chapter 1 Boss: Perimeter Walker Mk-I**: Dual searchlight combat mech with ground-stomp shockwaves.
-* **Chapter 2 Boss: Ranger Dave Jet Ski**: Fast patrol cutter dropping rotary river mines and wake turbulences.
+* **Chapter 2 Boss: Park Ranger Jet Ski**: Fast patrol cutter dropping rotary river mines and wake turbulences.
 * **Chapter 3 Boss: Sniper Kooky**: High-rise cyborg hunter utilizing broadcast lasers and flash grenades.
 * **Chapter 4 Final Boss: Dr. Cane Toad's Excavator**: Heavy dual-treaded excavator with hydraulic smashing claws and toxic mud mortar cannons.
 
@@ -189,7 +189,7 @@ Ground surfaces transmit acoustic vibrations based on material density:
 * **Chapter 2: The Yarra Wilds**:
   * 2.1 Gorge Rapids: High-speed 5-lane river runner dodging obstacles and tubers.
   * 2.2 Mangrove Caverns: Zero-visibility pitch-black waterways requiring sonar pulses.
-  * 2.3 Pursuit Run: Neutralize Ranger Dave's high-speed patrol jet ski.
+  * 2.3 Pursuit Run: Neutralize the Park Ranger's high-speed patrol jet ski.
 * **Chapter 3: Melbourne Downtown**:
   * 3.1 Neon Highway: 6-lane city Frogger across high-speed taxis and trams.
   * 3.2 Flinder Laneways: Sentry patrols, dumpster hideouts, and rooftop catwalks.
@@ -211,12 +211,28 @@ Access **VR TRAINING SIMULATOR** from the main menu to hone your tactical reflex
 ---
 
 ## 16. MISSION DEBRIEFING & CODENAME RANKINGS
-Upon completing the campaign, Burrow Command evaluates your tactical performance:
-* **BIG PLATYPUS (Rank S)**: 0 Alerts, 0 Damage. The supreme stealth legend!
-* **TASMANIAN DEVIL (Rank A)**: 6+ CQC takedowns. Aggressive predator style.
-* **LURKING ECHIDNA (Rank A)**: 2 or fewer alerts. Patient shadow operative.
-* **SLY POSSUM (Rank B)**: Completed under 450 seconds. Swift runner.
-* **DUCKBILL ROOKIE (Rank C)**: General completion.
+Burrow Command evaluates your tactical performance after the campaign. Conditions
+are checked in order; the first one you satisfy is your rank. Alert, damage and
+takedown counts are your whole-campaign totals, and the time is your total play
+time across every mission.
+
+* **BIG PLATYPUS (Rank S)**: 0 alerts, 0 damage, entire campaign in 420s or less.
+* **GHOST PLATYPUS (Rank A)**: 0 alerts and 0 CQC takedowns. You were never seen.
+* **SPEEDY WALLABY (Rank A)**: Entire campaign in 300s or less.
+* **TASMANIAN DEVIL (Rank A)**: 10 or more CQC takedowns.
+* **LURKING ECHIDNA (Rank A)**: 2 or fewer alerts and 3 or less damage.
+* **IRON BILL (Rank B)**: 12 or more damage taken. You fought your way through.
+* **SLY POSSUM (Rank B)**: Entire campaign in 600s or less with 5 or fewer alerts.
+* **BUSH KOALA (Rank B)**: 5 or more takedowns with 4 or fewer alerts.
+* **VENOMOUS TAIPAN (Rank C)**: 6 or more takedowns.
+* **WOMBAT TUNNEL (Rank C)**: 8 or fewer alerts.
+* **CARDBOARD HERMIT (Rank D)**: 1 or fewer takedowns.
+* **DUCKBILL ROOKIE (Rank D)**: General completion.
+
+Beating the campaign unlocks the Tuxedo costume. **Rank S also unlocks Stealth
+Camo** — note that Rank S requires clearing all twelve missions without taking a
+single point of damage or raising a single alert inside seven minutes total,
+which is the game's hardest single achievement.
 
 ---
 
@@ -234,13 +250,13 @@ Upon completing the campaign, Burrow Command evaluates your tactical performance
 * **Screen V-Center Offset**:
   * Adjust scanline alignment between -16 and +16 lines for optimal centering on CRT monitors.
 * **Multi-Language Selector**:
-  * Choose between English, Français, Deutsch, Español, and 日本語 (Romaji).
+  * Choose between English, Français, Deutsch, Español, and 日本語 (Romaji transliteration). The game ships no Japanese glyph set: the fifth option is the romanised Japanese title, not Japanese script.
 
 ---
 
 ## 19. MEMORY CARD SPECIFICATION
 * **Save File**: `BASLUS-00001PLATTY`
-* **Card Capacity**: 1 Memory Card Block (128 bytes dedicated payload, 8 KB block size).
+* **Card Capacity**: 1 Memory Card Block (46-byte save payload, 8 KB block size). The game reads 128 bytes into a scratch buffer but only writes the 46 bytes that carry actual state.
 * **Animated BIOS Icon**: Features 16-color custom pixel art of Platty with fluttering green headband, viewable in the official PlayStation BIOS Memory Card manager!
 
 ---
