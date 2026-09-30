@@ -2517,7 +2517,7 @@ impl Renderer {
         gpu::draw_rect_flat(20, 188, 280, 48, 8, 12, 16);
         match selected_opt {
             0 => {
-                self.draw_text_clamped(26, 192, "Tuxedo wins. Camo is rank S.", (180, 200, 220));
+                self.draw_text_clamped(26, 192, "Tuxedo: finish campaign. Camo: finish rank S.", (180, 200, 220));
                 self.draw_text_clamped(26, 205, "DPAD LEFT/RIGHT: Switch costume", (255, 230, 80));
             }
             1 => {

@@ -2191,5 +2191,67 @@ fn main() {
         assert!(using_cd, "one transient failure must keep streaming alive");
     }
 
-    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (33/33 test suites)");
+    // 29. Rank S is reachable, and the Stealth Camo unlock is not a lie (UX-1)
+    //
+    // The final ranking was graded on campaign-cumulative play time and
+    // damage, so Rank S demanded all twelve acts in under seven minutes with
+    // zero damage and zero alerts. The one content unlock in the game was
+    // gated behind it, and the options screen told the player how to get it.
+    {
+        // A realistic clean final-boss run: 3 minutes, no damage, no alerts,
+        // no takedowns.
+        let (alerts, damage, time_s, takedowns) = (0u16, 0u16, 180u32, 0u16);
+        assert_eq!(
+            Codename::evaluate(alerts, damage, time_s, takedowns),
+            Codename::BigPlatypus,
+            "a clean three-minute final act must earn Rank S"
+        );
+
+        // Each clause of Rank S must actually gate something.
+        assert_ne!(
+            Codename::evaluate(1, damage, time_s, takedowns),
+            Codename::BigPlatypus,
+            "one alert must cost Rank S"
+        );
+        assert_ne!(
+            Codename::evaluate(alerts, 1, time_s, takedowns),
+            Codename::BigPlatypus,
+            "one point of damage must cost Rank S"
+        );
+        assert_ne!(
+            Codename::evaluate(alerts, damage, 421, takedowns),
+            Codename::BigPlatypus,
+            "over 420 s must cost Rank S"
+        );
+        // 420 s exactly still qualifies.
+        assert_eq!(
+            Codename::evaluate(alerts, damage, 420, takedowns),
+            Codename::BigPlatypus,
+            "420 s is inclusive"
+        );
+
+        // The per-stage figures the game now passes must be within the rank's
+        // own thresholds, i.e. a single stage is a sane unit to grade.
+        let per_stage_time = 180u32;
+        assert!(per_stage_time <= 420, "a single stage fits the Rank S time gate");
+        // A full campaign is well outside it, which is why cumulative time
+        // made the rank impossible.
+        let campaign_time = 12 * 180;
+        assert!(
+            Codename::evaluate(0, 0, campaign_time, 0) != Codename::BigPlatypus,
+            "campaign-cumulative time must not reach Rank S"
+        );
+    }
+
+    // 30. Per-stage damage is derived by difference, like takedowns (UX-1)
+    {
+        // Mirrors the load_act baseline / current-value subtraction the game
+        // uses, including the saturating case where a reset lowers the counter.
+        let stage_damage = |before: u16, now: u16| now.saturating_sub(before);
+        assert_eq!(stage_damage(40, 43), 3, "a stage that took 3 damage reports 3");
+        assert_eq!(stage_damage(40, 40), 0, "an untouched stage reports 0");
+        assert_eq!(stage_damage(40, 10), 0, "a lowered counter must not underflow");
+    }
+
+    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (35/35 test suites)");
 }

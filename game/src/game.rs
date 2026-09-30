@@ -86,6 +86,9 @@ pub struct Game {
     pub stage_time_frames: u32,
     pub stage_alerts: u16,
     pub stage_start_takedowns: u16,
+    /// `total_damage` when the current stage began, so a stage's damage taken
+    /// is the difference. The codename ranks grade a single mission.
+    pub stage_start_damage: u16,
     /// Whether a formatted card is present, from a probe run when the CODEC is
     /// opened. `memcard.status` cannot answer this: it is a self-clearing
     /// message, not a card state.
@@ -134,6 +137,7 @@ impl Game {
             stage_time_frames: 0,
             stage_alerts: 0,
             stage_start_takedowns: 0,
+            stage_start_damage: 0,
             card_present,
         };
         game.apply_save_preferences();
@@ -823,12 +827,27 @@ impl Game {
                         } else if self.level.act == Act::Act4_3ExcavatorBoss {
                             // The final boss also settles the campaign records
                             // (best time, rank, unlocks) before the one write.
-                            let time_s = self.mission_stats.play_time_frames / self.frames_per_second();
+                            // Grade the mission that was just played, not the
+                            // whole campaign. The ranks are written around a
+                            // single clean run: feeding campaign-cumulative
+                            // time and damage asked for all twelve acts in
+                            // under seven minutes with no damage and no
+                            // alerts, which made Rank S -- and with it the
+                            // Stealth Camo unlock -- impossible.
+                            let time_s = self.stage_time_frames / self.frames_per_second();
+                            let stage_damage = self
+                                .platty
+                                .total_damage
+                                .saturating_sub(self.stage_start_damage);
+                            let stage_takedowns = self
+                                .platty
+                                .takedowns
+                                .saturating_sub(self.stage_start_takedowns);
                             let codename = crate::save::Codename::evaluate(
-                                self.mission_stats.alerts_count,
-                                self.platty.total_damage,
+                                self.stage_alerts,
+                                stage_damage,
                                 time_s,
-                                self.platty.takedowns,
+                                stage_takedowns,
                             );
 
                             // Award unlocks
@@ -838,8 +857,10 @@ impl Game {
                                 self.save_data.camo_unlocked = 1;
                             }
 
+                            // Records for the mission just finished, matching
+                            // the per-stage figures the rank is graded on.
                             self.save_data.best_time_seconds = self.save_data.best_time_seconds.min(time_s);
-                            self.save_data.alerts_count = self.save_data.alerts_count.min(self.mission_stats.alerts_count);
+                            self.save_data.alerts_count = self.save_data.alerts_count.min(self.stage_alerts);
 
                             let name_bytes = codename.name().as_bytes();
                             for (i, b) in self.save_data.best_codename.iter_mut().enumerate() {
@@ -1012,6 +1033,7 @@ impl Game {
         self.stage_time_frames = 0;
         self.stage_alerts = 0;
         self.stage_start_takedowns = self.platty.takedowns;
+        self.stage_start_damage = self.platty.total_damage;
 
         // Snap camera immediately to spawn target without slow drifting
         self.snap_camera_to_player();

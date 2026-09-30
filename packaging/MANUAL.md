@@ -212,17 +212,17 @@ Access **VR TRAINING SIMULATOR** from the main menu to hone your tactical reflex
 
 ## 16. MISSION DEBRIEFING & CODENAME RANKINGS
 Burrow Command evaluates your tactical performance after the campaign. Conditions
-are checked in order; the first one you satisfy is your rank. Alert, damage and
-takedown counts are your whole-campaign totals, and the time is your total play
-time across every mission.
+are checked in order; the first one you satisfy is your rank. Every figure —
+time, alerts, damage and takedowns — is measured on the **final mission alone**,
+so your rank describes how you played the climax rather than your whole run.
 
-* **BIG PLATYPUS (Rank S)**: 0 alerts, 0 damage, entire campaign in 420s or less.
+* **BIG PLATYPUS (Rank S)**: 0 alerts, 0 damage, final mission in 420s or less.
 * **GHOST PLATYPUS (Rank A)**: 0 alerts and 0 CQC takedowns. You were never seen.
-* **SPEEDY WALLABY (Rank A)**: Entire campaign in 300s or less.
+* **SPEEDY WALLABY (Rank A)**: Final mission in 300s or less.
 * **TASMANIAN DEVIL (Rank A)**: 10 or more CQC takedowns.
 * **LURKING ECHIDNA (Rank A)**: 2 or fewer alerts and 3 or less damage.
 * **IRON BILL (Rank B)**: 12 or more damage taken. You fought your way through.
-* **SLY POSSUM (Rank B)**: Entire campaign in 600s or less with 5 or fewer alerts.
+* **SLY POSSUM (Rank B)**: Final mission in 600s or less with 5 or fewer alerts.
 * **BUSH KOALA (Rank B)**: 5 or more takedowns with 4 or fewer alerts.
 * **VENOMOUS TAIPAN (Rank C)**: 6 or more takedowns.
 * **WOMBAT TUNNEL (Rank C)**: 8 or fewer alerts.
@@ -230,9 +230,8 @@ time across every mission.
 * **DUCKBILL ROOKIE (Rank D)**: General completion.
 
 Beating the campaign unlocks the Tuxedo costume. **Rank S also unlocks Stealth
-Camo** — note that Rank S requires clearing all twelve missions without taking a
-single point of damage or raising a single alert inside seven minutes total,
-which is the game's hardest single achievement.
+Camo**: clear the final mission without taking a single point of damage or
+raising a single alert, and finish it inside seven minutes.
 
 ---
 
