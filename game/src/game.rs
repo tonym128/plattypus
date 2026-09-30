@@ -339,7 +339,11 @@ impl Game {
                 }
 
                 self.renderer.begin_frame();
-                self.renderer.draw_stage_select_menu(self.stage_selection, self.save_data.unlocked_act);
+                self.renderer.draw_stage_select_menu(
+                self.stage_selection,
+                self.save_data.unlocked_act,
+                Some(&self.save_data),
+            );
             }
             GameState::VrMenu => {
                 if is_connected {

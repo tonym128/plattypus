@@ -2928,7 +2928,24 @@ impl Renderer {
         }
     }
 
-    pub fn draw_stage_select_menu(&self, selected_stage: usize, _unlocked_act: u8) {
+    /// Render a right-space-padded fixed record buffer as text.
+    fn record_str(buf: &[u8; 20]) -> &str {
+        let end = buf.iter().rposition(|c| *c != b' ' && *c != 0).map_or(0, |i| i + 1);
+        core::str::from_utf8(&buf[..end]).unwrap_or("")
+    }
+
+    /// Stage select with real progression state.
+    ///
+    /// `unlocked_act` is a campaign *clear count*: stages below it are cleared,
+    /// the stage at it is the next objective, and anything above is sealed. The
+    /// parameter used to be discarded, so all twelve stages rendered
+    /// identically and the screen carried no information at all.
+    pub fn draw_stage_select_menu(
+        &self,
+        selected_stage: usize,
+        unlocked_act: u8,
+        save: Option<&crate::save::SaveData>,
+    ) {
         // Dark tactical cyber grid background
         gpu::draw_rect_flat(0, 0, 320, 240, 6, 16, 14);
 
@@ -2972,6 +2989,9 @@ impl Renderer {
 
             let is_sel = i == selected_stage;
             let is_boss = (i % 3) == 2;
+            // i is the stage index; `unlocked_act` counts how many are cleared.
+            let cleared = (i as u8) < unlocked_act;
+            let sealed = (i as u8) > unlocked_act;
 
             if is_sel {
                 let border_col = if is_boss { (220, 70, 70) } else { (25, 80, 60) };
@@ -2985,9 +3005,31 @@ impl Renderer {
                 let bg_col = if is_boss { (30, 10, 10) } else { (6, 18, 14) };
                 gpu::draw_rect_flat(col_x, row_y, w, h, border_col.0, border_col.1, border_col.2);
                 gpu::draw_rect_flat(col_x + 1, row_y + 1, w - 2, h - 2, bg_col.0, bg_col.1, bg_col.2);
-                let text_col = if is_boss { (255, 140, 140) } else { (160, 190, 180) };
+                let text_col = if sealed { (90, 100, 105) } else if is_boss { (255, 140, 140) } else { (160, 190, 180) };
                 self.draw_text_clamped(col_x + 12, row_y + 5, stage_names[i], text_col);
             }
+
+            // Progression badge, right-aligned inside the row.
+            let badge: (&str, (u8, u8, u8)) = if cleared {
+                ("CLEAR", (110, 230, 150))
+            } else if sealed {
+                ("LOCKED", (110, 110, 120))
+            } else {
+                ("NEXT", (255, 220, 90))
+            };
+            self.draw_text_clamped(col_x + (w as i16) - 46, row_y + 5, badge.0, badge.1);
+        }
+
+        // Service records. The save has carried a score, a collectible total, a
+        // best time, an alert record and a best rank since it was introduced;
+        // none of them was ever displayed, so there was nothing to beat.
+        if let Some(save) = save {
+            let (score, time, rank) = crate::save::service_records_from(save);
+            gpu::draw_rect_flat(14, 202, 292, 24, 10, 22, 18);
+            gpu::draw_rect_flat(16, 204, 288, 20, 5, 12, 9);
+            self.draw_text_clamped(20, 207, Self::record_str(&score), (255, 220, 120));
+            self.draw_text_clamped(120, 207, Self::record_str(&time), (150, 220, 255));
+            self.draw_text_clamped(210, 207, Self::record_str(&rank), (200, 160, 255));
         }
 
         // Footer. One row cannot hold all three control names inside a 292 px

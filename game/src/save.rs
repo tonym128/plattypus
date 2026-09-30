@@ -190,6 +190,71 @@ const OFF_SCREEN_OFFSET_Y: usize = OFF_SCREEN_OFFSET_X + 1;
 const OFF_PAL_MODE: usize = OFF_SCREEN_OFFSET_Y + 1;
 const OFF_CHECKSUM: usize = OFF_PAL_MODE + 1;
 /// Bytes in the on-card payload.
+/// Three short "LABEL VALUE" strings summarising the service record for the
+/// stage-select panel: best score, best mission time, and best rank.
+///
+/// These fields have been written on every clear since the save format was
+/// introduced but were never read by any screen, so the player had no number to
+/// beat and no history to compare against. Formatting lives here rather than in
+/// the renderer so the buffer bounds are checked in one place.
+///
+pub fn service_records_from(save: &SaveData) -> ([u8; 20], [u8; 20], [u8; 20]) {
+    let mut score_buf = [b' '; 20];
+    let mut time_buf = [b' '; 20];
+    let mut rank_buf = [b' '; 20];
+    write_u32_padded(&mut score_buf, b"BEST SCORE: ", save.highest_score);
+    if save.best_time_seconds > 0 {
+        write_u32_padded(&mut time_buf, b"BEST TIME: ", save.best_time_seconds);
+    } else {
+        copy_ascii(&mut time_buf, b"BEST TIME: --");
+    }
+    let mut rank_ok = false;
+    for (i, b) in save.best_codename.iter().enumerate() {
+        rank_buf[i] = *b;
+        if *b != b' ' {
+            rank_ok = true;
+        }
+    }
+    if !rank_ok {
+        copy_ascii(&mut rank_buf, b"RANK: --");
+    } else {
+        // Prefix over the first five bytes.
+        rank_buf[0] = b'R';
+        rank_buf[1] = b'A';
+        rank_buf[2] = b'N';
+        rank_buf[3] = b'K';
+        rank_buf[4] = b':';
+        rank_buf[5] = b' ';
+    }
+    (score_buf, time_buf, rank_buf)
+}
+
+fn copy_ascii(dst: &mut [u8; 20], src: &[u8]) {
+    let n = src.len().min(dst.len());
+    dst[..n].copy_from_slice(&src[..n]);
+}
+
+fn write_u32_padded(dst: &mut [u8; 20], label: &[u8], value: u32) {
+    copy_ascii(dst, label);
+    let mut digits = [0u8; 10];
+    let mut v = value;
+    let mut n = 0;
+    loop {
+        digits[n] = b'0' + (v % 10) as u8;
+        v /= 10;
+        n += 1;
+        if v == 0 || n == 10 {
+            break;
+        }
+    }
+    let start = label.len();
+    for i in 0..n {
+        if start + i < dst.len() {
+            dst[start + i] = digits[n - 1 - i];
+        }
+    }
+}
+
 pub const SERIALIZED_SIZE: usize = OFF_CHECKSUM + 2;
 
 /// Byte length of each checksummed field, derived from the offsets above so the
