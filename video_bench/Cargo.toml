@@ -30,6 +30,6 @@ psx-hw   = { path = "../psoxide/crates/psx-hw" }
 psx-io   = { path = "../psoxide/sdk/crates/psx-io" }
 psx-pack = { path = "../psoxide/sdk/crates/psx-pack" }
 psx-pad  = { path = "../psoxide/sdk/crates/psx-pad" }
-psx-rt   = { path = "../psoxide/sdk/crates/psx-rt" }
+psx-rt   = { path = "../psoxide/sdk/crates/psx-rt", features = ["boot-trace"] }
 psx-spu  = { path = "../psoxide/sdk/crates/psx-spu" }
 psx-vram = { path = "../psoxide/sdk/crates/psx-vram" }

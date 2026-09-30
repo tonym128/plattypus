@@ -473,16 +473,13 @@ impl Game {
                     self.video.stop();
                     self.codec.start_conversation(INTRO_DIALOGUE);
                     self.state = GameState::IntroCodec;
-                } else if self.video.needs_redraw() {
-                    self.renderer.begin_frame();
-                    self.video.draw(&self.renderer);
+                } else {
+                    // `present` owns the whole display period: it tops the
+                    // cache up, decodes the next frame when the back buffer
+                    // is free, and swaps only a frame that is finished.
+                    self.video.present(&mut self.renderer);
                     // "NEW CAMPAIGN" rewrites the save on the way in.
                     self.draw_save_status_osd();
-                } else {
-                    // Hold the displayed buffer until the next 15 fps video
-                    // frame is ready; swapping every VBlank flashes the stale
-                    // alternate buffer between uploads.
-                    psx_rt::interrupts::wait_vblank();
                 }
             }
             GameState::OutroVideo { codename } => {
@@ -491,11 +488,8 @@ impl Game {
                     self.video.stop();
                     AudioManager::play_fanfare();
                     self.state = GameState::MissionDebriefing { timer: 0, codename };
-                } else if self.video.needs_redraw() {
-                    self.renderer.begin_frame();
-                    self.video.draw(&self.renderer);
                 } else {
-                    psx_rt::interrupts::wait_vblank();
+                    self.video.present(&mut self.renderer);
                 }
             }
             GameState::AttractDemo { ref mut act, ref mut timer } => {

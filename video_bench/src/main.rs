@@ -115,10 +115,10 @@ fn main() -> ! {
     tty::print("\n@@VB1 UPLOAD_PATHS 0");
 
     // P1: paced run -- the numbers that matter.
-    let (presents, using_cd) = run_paced(&mut renderer);
+    let (presents, using_cd, dma_fallbacks) = run_paced(&mut renderer);
     // Emit the headline numbers now, before the diagnostic phases, so a
     // wedge in one of those cannot cost us the deliverable.
-    report::emit_paced_only(&presents, using_cd);
+    report::emit_paced_only(&presents, using_cd, dma_fallbacks);
 
     // P2: burst stage attribution.
     let burst = stages::run_burst(&mut clock);
@@ -128,7 +128,7 @@ fn main() -> ! {
     let cd_rate = stages::measure_cd_rate(&mut clock);
 
     // P3: closure check against the shipped draw().
-    let real = run_real_player_burst(&renderer, &mut clock);
+    let real = run_real_player_burst(&mut renderer, &mut clock);
 
     // P4: decode integrity.
     let integ = stages::check_integrity();
@@ -144,19 +144,22 @@ fn main() -> ! {
 
 /// Replays the intro exactly as `GameState::IntroVideo` does.
 ///
-/// The tick body below is `game.rs`'s `GameState::IntroVideo` arm with
-/// the state transition replaced by "keep playing": the bench drives a
-/// disconnected pad, so no skip button is ever held and the video runs to
-/// its last frame on its own. `using_cd` is sampled before `stop()`, which
-/// clears the flag.
-fn run_paced(r: &mut renderer::Renderer) -> (stages::Presents, bool) {
+/// Replays the intro exactly as `GameState::IntroVideo` does, with the
+/// state transition replaced by "keep playing": the bench drives a
+/// disconnected pad, so no skip button is held and the video runs to its
+/// last frame on its own.
+///
+/// Presents come from the `PresentStep` the shipped `present()` returns
+/// rather than being inferred from the VBlank counter.
+fn run_paced(r: &mut renderer::Renderer) -> (stages::Presents, bool, u32) {
     let mut player = VideoPlayer::new();
     player.start_video(VideoKind::Intro);
 
     let pad = PadState::NONE;
     let prev = ButtonState::NONE;
     let mut presents = stages::Presents::new();
-    let mut prev_swap = u32::MAX;
+    let mut prev_swap: Option<u32> = None;
+    let mut pending_work = 0u32;
     let mut using_cd = false;
 
     loop {
@@ -165,44 +168,52 @@ fn run_paced(r: &mut renderer::Renderer) -> (stages::Presents, bool) {
             player.stop();
             break;
         }
+        using_cd |= player.using_cd;
 
-        if player.needs_redraw() {
-            r.begin_frame();
-            let swap_vblank = interrupts::vblank_count();
-            using_cd |= player.using_cd;
-
-            let before = interrupts::vblank_count();
-            player.draw(r);
-            let work = interrupts::vblank_count().wrapping_sub(before);
-
+        // `present` returns nothing, so a present is observed as
+        // `last_swap_vblank` advancing. The call that changes it is the
+        // one that swapped.
+        let swap_before = player.last_swap_vblank;
+        player.present(r);
+        if player.last_swap_vblank != swap_before {
+            let now = player.last_swap_vblank;
             presents.push(stages::Present {
-                // The first present has no predecessor to measure against.
-                interval: if prev_swap == u32::MAX { 0 } else { swap_vblank.wrapping_sub(prev_swap) },
-                work,
+                interval: match prev_swap {
+                    Some(p) => now.wrapping_sub(p),
+                    None => 0,
+                },
+                work: pending_work,
             });
-            prev_swap = swap_vblank;
+            prev_swap = Some(now);
+            pending_work = 0;
         } else {
-            interrupts::wait_vblank();
+            // Attribute the display periods this call took to the next
+            // present, so `work` reflects the decode.
+            let now = interrupts::vblank_count();
+            pending_work = pending_work.max(now.wrapping_sub(swap_before));
         }
     }
 
-    (presents, using_cd)
+    (presents, using_cd, player.vram_dma_fallbacks)
 }
 
-/// Times the shipped `VideoPlayer::draw()` with no display sync.
-fn run_real_player_burst(r: &renderer::Renderer, clock: &mut timing::Clock) -> timing::Span {
+/// Times the shipped decode path with no display pacing, as a closure
+/// check against `stages::run_burst`.
+fn run_real_player_burst(r: &mut renderer::Renderer, clock: &mut timing::Clock) -> timing::Span {
     let mut player = VideoPlayer::new();
     player.start_video(VideoKind::Intro);
 
     let mut total = timing::Span::default();
-    for frame in 0..TOTAL_FRAMES {
-        // `draw()` decodes when `frame_idx` differs from the last decoded
-        // frame, so advancing the public index drives it; no private state
-        // is touched.
-        player.frame_idx = frame;
-        clock.start();
-        player.draw(r);
-        total += clock.lap();
+    for _ in 0..(TOTAL_FRAMES as u32 * 10) {
+        let before = interrupts::vblank_count();
+        player.present(r);
+        let after = interrupts::vblank_count();
+        if after > before {
+            total += timing::Span { vblanks: after - before, cycles: 0 };
+        }
+        if player.is_finished() {
+            break;
+        }
     }
     player.stop();
     total

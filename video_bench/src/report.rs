@@ -63,6 +63,8 @@ pub struct Summary {
     /// Same payload over DMA channel 2, so the size of the unused
     /// opportunity is a measurement rather than an estimate.
     pub upload_dma_us: u32,
+    /// Times the channel wedged and the shipped fallback took over.
+    pub vram_dma_fallbacks: u32,
     pub pipeline_us: u32,
     pub budget_pct: u32,
     pub read_pct: u32,
@@ -192,6 +194,7 @@ pub fn build_report(
     let copy_us = burst_clock.us_per_sample(burst.copy, FRAMES_U32);
     let decode_us = burst_clock.us_per_sample(burst.decode, FRAMES_U32);
     let upload_us = burst_clock.us_per_sample(burst.upload, FRAMES_U32);
+    // `upload_dma` here is the GP0-only cost, kept as the comparison.
     let upload_dma_us = burst_clock.us_per_sample(burst.upload_dma, FRAMES_U32);
     let pipeline_us = burst_clock.us_per_sample(burst.pipeline, FRAMES_U32);
     let real_us = burst_clock.us_per_sample(real, FRAMES_U32);
@@ -230,6 +233,7 @@ pub fn build_report(
         decode_us,
         upload_us,
         upload_dma_us,
+        vram_dma_fallbacks: burst.vram_dma_fallbacks,
         pipeline_us,
         budget_pct: pct(pipeline_us),
         read_pct: pct(read_us),
@@ -303,7 +307,8 @@ pub fn emit(s: &Summary) {
     kv("burst", "copy_us", s.copy_us);
     kv("burst", "decode_us", s.decode_us);
     kv("burst", "upload_us", s.upload_us);
-    kv("burst", "upload_dma_us", s.upload_dma_us);
+    kv("burst", "upload_gp0_us", s.upload_dma_us);
+    kv("burst", "vram_dma_fallbacks", s.vram_dma_fallbacks);
     kv("burst", "pipeline_us", s.pipeline_us);
     kv("burst", "budget_pct", s.budget_pct);
     kv("burst", "read_pct", s.read_pct);
@@ -441,7 +446,7 @@ pub fn draw_on_screen(
 /// several emulator-timing-sensitive spots), this still gets the frame
 /// rate, interval distribution, stutter count and average frame time to
 /// the host rather than losing the whole run.
-pub fn emit_paced_only(presents: &Presents, using_cd: bool) {
+pub fn emit_paced_only(presents: &Presents, using_cd: bool, vram_dma_fallbacks: u32) {
     let items = presents.as_slice();
     let presented = items.len() as u32;
     let mut iv_sum = 0u64;
@@ -468,6 +473,7 @@ pub fn emit_paced_only(presents: &Presents, using_cd: bool) {
     };
     tty::println("@@VB1 PACED_ONLY 1");
     kv("paced_only", "using_cd", using_cd as u32);
+    kv("paced_only", "vram_dma_fallbacks", vram_dma_fallbacks);
     kv("paced_only", "presented", presented);
     kv("paced_only", "fps_x1000", fps_x1000);
     kv("paced_only", "interval_min", iv_min);

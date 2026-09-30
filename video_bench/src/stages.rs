@@ -21,7 +21,7 @@ use crate::timing::{Clock, Span};
 
 pub const FRAMES: usize = TOTAL_FRAMES as usize;
 /// Compressed frames pulled per CD command, matching `VideoPlayer`.
-const PREFETCH_FRAMES: u16 = 4;
+const PREFETCH_FRAMES: u16 = 8;
 /// Macroblock columns in a 320px-wide frame.
 const SLICE_COLUMNS: u16 = 20;
 
@@ -84,8 +84,11 @@ pub struct Burst {
     pub decode: Span,
     /// Twenty `upload_words` into VRAM, the shipped GP0-FIFO path.
     pub upload: Span,
-    /// The same twenty slices over DMA channel 2, for comparison.
+    /// What the same twenty slices cost on the GP0 command port alone,
+    /// kept alongside `upload` so the report can show the difference.
     pub upload_dma: Span,
+    /// Times the channel wedged and the shipped fallback took over.
+    pub vram_dma_fallbacks: u32,
     /// Sum of the four stages above.
     pub pipeline: Span,
     /// Per-frame read VBlanks, for spotting frames that read late.
@@ -205,6 +208,7 @@ pub fn run_burst(clock: &mut Clock) -> Burst {
         decode: Span::default(),
         upload: Span::default(),
         upload_dma: Span::default(),
+        vram_dma_fallbacks: 0,
         pipeline: Span::default(),
         read_per_frame: [0; FRAMES],
         video_lba,
@@ -242,29 +246,30 @@ pub fn run_burst(clock: &mut Clock) -> Burst {
         }
         out.decode += clock.lap();
 
+        // The shipped path: DMA channel 2, falling back to the GP0
+        // command port for the rest of the run if the channel wedges.
+        clock.start();
+        let mut dma_live = true;
+        for col in 0..SLICE_COLUMNS {
+            let rect = VramRect::new(col * 16, 0, 16, VIDEO_H);
+            if dma_live && !dma_copy_to_vram(rect, s.slice_words.as_ptr()) {
+                dma_live = false;
+                out.vram_dma_fallbacks += 1;
+            }
+            if !dma_live {
+                upload_words(rect, &s.slice_words);
+            }
+        }
+        out.upload += clock.lap();
+
+        // For reference, what the same payload costs on the GP0 path
+        // alone, so the report can show the win even when DMA is in use.
         clock.start();
         for col in 0..SLICE_COLUMNS {
             let rect = VramRect::new(col * 16, 0, 16, VIDEO_H);
             upload_words(rect, &s.slice_words);
         }
-        out.upload += clock.lap();
-
-        // Same payload, same destination geometry, but pushed over DMA
-        // channel 2 instead of the GP0 command port. This is the
-        // opt-in path `psx-vram` ships but nothing calls.
-        clock.start();
-        let mut dma_ok = true;
-        for col in 0..SLICE_COLUMNS {
-            let rect = VramRect::new(col * 16, 0, 16, VIDEO_H);
-            if !dma_copy_to_vram(rect, s.slice_words.as_ptr()) {
-                dma_ok = false;
-                break;
-            }
-        }
         out.upload_dma = clock.lap();
-        if !dma_ok {
-            out.upload_dma = Span::default();
-        }
     }
 
     out.pipeline = out.read + out.copy + out.decode + out.upload;

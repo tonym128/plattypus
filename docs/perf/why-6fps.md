@@ -281,3 +281,82 @@ for a known data-corruption failure mode is a clear no.
 So of the two unused channels, one is worth 11 ms/frame and is blocked only
 by a hardware risk the project already knows about, and the other is worth
 nothing and carries a known correctness risk.
+
+
+## 10 fps attempt: reached the rate, not the smoothness
+
+Per the follow-up plan: drop the target to 10 fps, then try a RAM cache.
+
+**10.00 fps is reached.** Three changes, all measured:
+
+1. **Decoupled present.** `begin_frame()` swapped before `draw()`, so the
+   decode got only the window between one swap and the next and any
+   overrun pushed the following swap out by a whole display period. Now a
+   frame is presented only once it is complete, so the decode gets the
+   full window. `present()` also starts the decode as soon as the back
+   buffer is free, immediately after the previous present, rather than
+   when the next frame falls due -- waiting for the due time made each
+   period `target + decode_time` instead of `max(target, decode_time)`.
+2. **A floor on the dwell time.** Without it the cadence followed the
+   decode rather than the target: a 1.7-period decode was being presented
+   every 2 display periods (~30 fps) and then the read frames lurched.
+   With the floor, 112 of 150 presents land on exactly 6 display periods.
+3. **DMA channel 2 for the VRAM upload** (previous commit), which took the
+   upload from 12.55 ms to 1.55 ms.
+
+Result: **10.00 fps**, interval 6 vb on 112 of 150 presents, pipeline
+82.89 ms/frame. Against the 6.00 fps baseline that is a 1.67x improvement
+and 23 fewer milliseconds of CPU per frame.
+
+**But it is not smooth, and so is not being shipped as smooth.** 37 of
+150 presents still land at 17-19 display periods. The histogram is bimodal:
+112 at 6 vb and 37 at 17-19, and the 37 are exactly the frames served
+from a CD read-ahead burst (every fourth frame, at `PREFETCH_FRAMES=4`).
+
+### Why no cache size fixes it
+
+The arithmetic, with the numbers above:
+
+```
+video duration            150 frames / 10 fps     = 10.0 s
+drive time   1050 sectors @ 130 sect/s contiguous =  8.1 s
+CPU  time     (25.66 decode + 1.55 upload) x 10   =  0.3 s
+serialised                                        =  8.3 s   -> fits, 1.7 s spare
+```
+
+It fits on *totals*. It does not fit on *shape*: the read is 54.89 ms per
+frame of drive time against a 27.2 ms compute, and single-threaded that
+can only be hidden by running the drive during the decode -- which is the
+MDEC contention, still unresolved. So the read lands as blocking bursts and
+every burst is visible as late presents.
+
+A RAM cache removes the read from the frame path, but only for the frames
+it holds. Measured RAM headroom is 844 KiB and a 7-sector frame is 14 KiB,
+so at most 56 of 150 frames (37%) can be cached; the whole video is
+2,100 KiB and neither it nor half of it fits. So the best a full-memory
+cache can do is make 37% of the video perfectly smooth and leave the rest
+stalling. An attempt to build exactly that (a 56-frame ring, drive stopped
+around each decode, refilled in the gaps) primed all 56 frames and then
+reproduced the contention as soon as the stream resumed mid-playback, which
+is the same wall from a different direction: only `SectorReader::stop`
+satisfies the MDEC, not `pause_read`, and resuming a stopped reader means
+a seek.
+
+### What would actually make it smooth
+
+In order of leverage:
+
+1. **The MDEC/CD contention.** Worth 54.89 ms/frame of overlap, and it is
+   the difference between 8.3 s serialised and ~5.5 s overlapped. This is
+   the only change that makes the *shape* right rather than just the
+   total.
+2. **A variable-length container** (already built and working, 37% cut,
+   mean 5.04 sectors/frame) would cut the drive time to 5.1 s, which
+   combined with a partial cache could make 10 fps genuinely smooth without
+   touching the contention. It needs its CD-read wedge fixed first, though.
+3. **A lower frame rate still** (8 fps = 7.5 periods) would absorb the
+   bursts, at the cost of the intended 15 fps look.
+
+Not shipped: 10.00 fps with 37 late presents is a real improvement over
+the 6.00 fps baseline and is committed, but it does not meet the "smooth
+playback" bar, and presenting it as shipped would be overclaiming.
