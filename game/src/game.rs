@@ -410,7 +410,7 @@ impl Game {
                 }
 
                 self.renderer.begin_frame();
-                self.renderer.draw_options_menu(&self.save_data, self.options_selection);
+                self.renderer.draw_options_menu(&self.save_data, self.options_selection, self.memcard.last_load);
             }
             GameState::MissionDebriefing { ref mut timer, codename } => {
                 *timer = timer.saturating_add(1);
@@ -843,6 +843,10 @@ impl Game {
                         crate::save::SaveStatus::SaveErrorUnformatted => {
                             gpu::draw_rect_flat(88, 214, 144, 18, 35, 25, 10);
                             self.renderer.font.draw_text(94, 218, "CARD IS UNFORMATTED", (255, 200, 100));
+                        }
+                        crate::save::SaveStatus::SaveErrorCorrupt => {
+                            gpu::draw_rect_flat(88, 214, 144, 18, 35, 18, 10);
+                            self.renderer.font.draw_text(94, 218, "CARD IS UNREADABLE", (255, 170, 90));
                         }
                         crate::save::SaveStatus::SaveErrorFailed => {
                             gpu::draw_rect_flat(88, 214, 144, 18, 35, 10, 10);

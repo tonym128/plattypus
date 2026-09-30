@@ -2203,7 +2203,12 @@ impl Renderer {
         }
     }
 
-    pub fn draw_options_menu(&self, save_data: &crate::save::SaveData, selected_opt: usize) {
+    pub fn draw_options_menu(
+        &self,
+        save_data: &crate::save::SaveData,
+        selected_opt: usize,
+        card_state: crate::save::LoadOutcome,
+    ) {
         // Tactical dark steel background
         gpu::draw_rect_flat(0, 0, 320, 240, 10, 14, 20);
 
@@ -2279,10 +2284,16 @@ impl Renderer {
 
         // Hardware Status & Memory Card Info Banner
         let (_, region_name) = crate::save::detect_console_region();
+        let card_color = match card_state {
+            crate::save::LoadOutcome::Loaded => (100, 255, 140),
+            crate::save::LoadOutcome::NotFound => (150, 160, 170),
+            crate::save::LoadOutcome::Incompatible => (255, 200, 100),
+            crate::save::LoadOutcome::Corrupt | crate::save::LoadOutcome::CardError => (255, 140, 140),
+        };
         gpu::draw_rect_flat(20, 168, 280, 18, 10, 16, 26);
         self.font.draw_text(24, 172, "HARDWARE:", (140, 180, 220));
         self.font.draw_text(80, 172, region_name, (255, 230, 80));
-        self.font.draw_text(224, 172, "CARD: 1 BLK", (100, 255, 140));
+        self.font.draw_text(180, 172, card_state.label(), card_color);
 
         // Description box
         gpu::draw_rect_flat(20, 188, 280, 48, 8, 12, 16);
@@ -2307,6 +2318,17 @@ impl Renderer {
                 self.font.draw_text(26, 192, "Adjust vertical display centering on CRT.", (180, 200, 220));
                 self.font.draw_text(26, 205, "DPAD LEFT/RIGHT: Shift Scanlines", (255, 230, 80));
             }
+        }
+        // A save the game could not read is still on the card, and the next
+        // save replaces it: say so instead of letting it look like a new card.
+        let warn = match card_state {
+            crate::save::LoadOutcome::Corrupt => "SAVE CORRUPT - WILL BE OVERWRITTEN",
+            crate::save::LoadOutcome::Incompatible => "OLD SAVE VERSION - WILL BE LOST",
+            crate::save::LoadOutcome::CardError => "CARD DATA UNREADABLE",
+            _ => "",
+        };
+        if !warn.is_empty() {
+            self.font.draw_text(26, 213, warn, (255, 150, 100));
         }
         self.font.draw_text(26, 222, "CIRCLE: RETURN TO TITLE SCREEN", (130, 180, 210));
     }
