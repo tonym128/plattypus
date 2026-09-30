@@ -212,3 +212,72 @@ because it changes the picture.
 The bench now emits the paced metrics immediately after the paced phase
 (`@@VB1 paced_only ...`), so a wedge in a later diagnostic phase cannot cost
 us the headline numbers.
+
+
+## Where DMA is available and unused
+
+Inventory of the six root DMA channels against what the project actually
+uses, and what each unused one is worth.
+
+| Channel | Used for | Status |
+| --- | --- | --- |
+| 0 | MDEC in (RAM to MDEC) | used, `start_decode_frame` |
+| 1 | MDEC out (MDEC to RAM) | used, `drain_slice_dma` |
+| **2** | **GPU (RAM to VRAM)** | **`dma_copy_to_vram` exists, has zero call sites** |
+| 3 | CD-ROM (drive to RAM) | channel is *enabled* in `SectorReader::prepare` but never started; the reader pops 2048 bytes per sector over PIO |
+| 4 | SPU | used |
+| 5 | PIO | n/a |
+| 6 | OTC (ordering-table clear) | used |
+
+### Channel 2 is the real one: 11.11 ms/frame, 88% faster
+
+Measured directly, same payload and same destination geometry, 150 frames'
+worth, with no CD read or decode in the way (`stages::measure_upload_paths`,
+emitted as `@@VB1 upload fifo_us=... dma_us=...`):
+
+```
+GP0 FIFO (shipped) :  12.55 ms/frame   = 753% of one display period
+DMA ch2 (unused)   :   1.44 ms/frame   =  87%
+saving             :  11.11 ms/frame  (88% faster)
+```
+
+The shipped path pushes 38,400 words per frame through the GP0 command
+port one word at a time. The DMA path hands the same bytes to channel 2 in
+block mode. It is fully implemented and `pub`; nothing calls it, which is
+why it has sat there.
+
+It passes the function's own safety guard for this geometry: a 16x240
+slice is 8 words per row, inside the 16-word GPU FIFO limit the guard
+enforces. The reason nothing calls it is documented in `psx-vram` and is
+worth repeating here: on real silicon a probe on 2026-07-31 found channel 2
+can latch its start bit and stay busy forever, and the completion wait would
+then spin unboundedly. That is a hardware-safety finding, not a performance
+one, and this measurement is from DuckStation, so it cannot speak to it.
+**Enabling it is a real-hardware risk decision, not a code decision.**
+
+What it buys: compute drops from 38.0 ms to 27.3 ms per frame. On its own,
+against a serialised read of ~51 ms at seven sectors, that moves 6.67 fps
+to roughly 7.5 -- worth having, still not 15. Combined with the overlap that
+the MDEC contention fix would unlock, it is *necessary*: with the read and
+decode overlapping, the frame cost becomes `max(read, decode + upload)`, and
+27.3 ms against a 66.67 ms budget clears comfortably where 38.0 does not.
+
+### Channel 3 is not worth pursuing
+
+The obvious-looking one, and a trap. The reader does 2048 byte-at-a-time
+MMIO pops per sector where a channel 3 transfer would move the whole sector
+at once, and `dma_read_sector` is still *named* for the DMA recipe it no
+longer uses. But the measurement says the read is already at the drive's
+limit: 137 sectors/s sustained against 130 measured for a pure contiguous
+stream. The pops are already hidden behind the drive wait, so channel 3
+would save approximately nothing -- which is exactly what the SDK's own
+note predicted ("~1.3 ms slower per sector than a working DMA, which no
+SectorReader user notices").
+
+And channel 3 is the one path the same real-silicon probes convicted: it
+could read as all-zero sectors everywhere. Trading a measured zero saving
+for a known data-corruption failure mode is a clear no.
+
+So of the two unused channels, one is worth 11 ms/frame and is blocked only
+by a hardware risk the project already knows about, and the other is worth
+nothing and carries a known correctness risk.

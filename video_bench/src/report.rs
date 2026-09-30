@@ -60,6 +60,9 @@ pub struct Summary {
     pub copy_us: u32,
     pub decode_us: u32,
     pub upload_us: u32,
+    /// Same payload over DMA channel 2, so the size of the unused
+    /// opportunity is a measurement rather than an estimate.
+    pub upload_dma_us: u32,
     pub pipeline_us: u32,
     pub budget_pct: u32,
     pub read_pct: u32,
@@ -189,6 +192,7 @@ pub fn build_report(
     let copy_us = burst_clock.us_per_sample(burst.copy, FRAMES_U32);
     let decode_us = burst_clock.us_per_sample(burst.decode, FRAMES_U32);
     let upload_us = burst_clock.us_per_sample(burst.upload, FRAMES_U32);
+    let upload_dma_us = burst_clock.us_per_sample(burst.upload_dma, FRAMES_U32);
     let pipeline_us = burst_clock.us_per_sample(burst.pipeline, FRAMES_U32);
     let real_us = burst_clock.us_per_sample(real, FRAMES_U32);
 
@@ -225,6 +229,7 @@ pub fn build_report(
         copy_us,
         decode_us,
         upload_us,
+        upload_dma_us,
         pipeline_us,
         budget_pct: pct(pipeline_us),
         read_pct: pct(read_us),
@@ -298,6 +303,7 @@ pub fn emit(s: &Summary) {
     kv("burst", "copy_us", s.copy_us);
     kv("burst", "decode_us", s.decode_us);
     kv("burst", "upload_us", s.upload_us);
+    kv("burst", "upload_dma_us", s.upload_dma_us);
     kv("burst", "pipeline_us", s.pipeline_us);
     kv("burst", "budget_pct", s.budget_pct);
     kv("burst", "read_pct", s.read_pct);

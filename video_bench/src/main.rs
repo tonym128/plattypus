@@ -78,7 +78,7 @@ mod renderer {
 use psx_font::{fonts::BASIC, FontAtlas};
 use psx_gpu::{self as gpu, Resolution, VideoMode};
 use psx_pad::{ButtonState, PadState};
-use psx_rt::interrupts;
+use psx_rt::{interrupts, tty};
 use psx_vram::{Clut, TexDepth, Tpage};
 use video::{VideoKind, VideoPlayer, TOTAL_FRAMES};
 
@@ -100,6 +100,19 @@ fn main() -> ! {
 
     let font = FontAtlas::upload(&BASIC, FONT_TPAGE, FONT_CLUT);
     audio::AudioManager::init();
+
+    // P0d: how much would DMA channel 2 save on the VRAM upload? Measured
+    // first and in isolation, because it is the largest unused DMA
+    // opportunity in the codebase and it does not depend on anything else.
+    let (fifo_us, dma_us, dma_ok) = stages::measure_upload_paths(&mut clock);
+    tty::println("@@VB1 UPLOAD_PATHS 1");
+    tty::print("@@VB1 upload fifo_us=");
+    tty::print_hex_u32(fifo_us);
+    tty::print(" dma_us=");
+    tty::print_hex_u32(dma_us);
+    tty::print(" dma_ok=");
+    tty::print_hex_u32(dma_ok as u32);
+    tty::print("\n@@VB1 UPLOAD_PATHS 0");
 
     // P1: paced run -- the numbers that matter.
     let (presents, using_cd) = run_paced(&mut renderer);

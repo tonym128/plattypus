@@ -195,6 +195,7 @@ def summarise(r: Run) -> dict:
         "copy_us_per_frame": f.get("burst.copy_us", 0),
         "decode_us_per_frame": f.get("burst.decode_us", 0),
         "upload_us_per_frame": f.get("burst.upload_us", 0),
+        "upload_dma_us_per_frame": f.get("burst.upload_dma_us", 0),
         "pipeline_us_per_frame": f.get("burst.pipeline_us", 0),
         "budget_pct": f.get("burst.budget_pct", 0),
         "read_pct": f.get("burst.read_pct", 0),

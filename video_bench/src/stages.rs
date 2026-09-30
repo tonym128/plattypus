@@ -12,7 +12,7 @@
 
 use psx_io::mdec;
 use psx_pack::cd::{SectorReader, SECTOR_WORDS};
-use psx_vram::{upload_words, VramRect};
+use psx_vram::{dma_copy_to_vram, upload_words, VramRect};
 use crate::video::{
     SECTORS_PER_FRAME, TOTAL_FRAMES, VIDEO_H, WORDS_PER_FRAME, WORDS_PER_SLICE,
 };
@@ -82,8 +82,10 @@ pub struct Burst {
     pub copy: Span,
     /// `start_decode_frame` plus twenty `drain_slice_dma`.
     pub decode: Span,
-    /// Twenty `upload_words` into VRAM.
+    /// Twenty `upload_words` into VRAM, the shipped GP0-FIFO path.
     pub upload: Span,
+    /// The same twenty slices over DMA channel 2, for comparison.
+    pub upload_dma: Span,
     /// Sum of the four stages above.
     pub pipeline: Span,
     /// Per-frame read VBlanks, for spotting frames that read late.
@@ -202,6 +204,7 @@ pub fn run_burst(clock: &mut Clock) -> Burst {
         copy: Span::default(),
         decode: Span::default(),
         upload: Span::default(),
+        upload_dma: Span::default(),
         pipeline: Span::default(),
         read_per_frame: [0; FRAMES],
         video_lba,
@@ -245,6 +248,23 @@ pub fn run_burst(clock: &mut Clock) -> Burst {
             upload_words(rect, &s.slice_words);
         }
         out.upload += clock.lap();
+
+        // Same payload, same destination geometry, but pushed over DMA
+        // channel 2 instead of the GP0 command port. This is the
+        // opt-in path `psx-vram` ships but nothing calls.
+        clock.start();
+        let mut dma_ok = true;
+        for col in 0..SLICE_COLUMNS {
+            let rect = VramRect::new(col * 16, 0, 16, VIDEO_H);
+            if !dma_copy_to_vram(rect, s.slice_words.as_ptr()) {
+                dma_ok = false;
+                break;
+            }
+        }
+        out.upload_dma = clock.lap();
+        if !dma_ok {
+            out.upload_dma = Span::default();
+        }
     }
 
     out.pipeline = out.read + out.copy + out.decode + out.upload;
@@ -382,4 +402,52 @@ pub fn measure_cd_rate(clock: &mut Clock) -> CdRate {
         batched_sectors: batched,
         batched_vblanks,
     }
+}
+
+/// Time the two ways of getting one decoded frame into VRAM, with no CD
+/// read and no decode in the way.
+///
+/// `psx-vram` ships an opt-in DMA channel 2 path (`dma_copy_to_vram`) that
+/// nothing in the project calls, and the shipped path pushes the same
+/// bytes through the GP0 command port one word at a time. This puts a
+/// number on the difference instead of leaving it as an estimate, and
+/// deliberately does not depend on the rest of the pipeline so a wedge
+/// elsewhere cannot hide it.
+pub fn measure_upload_paths(clock: &mut Clock) -> (u32, u32, bool) {
+    const REPS: u32 = 150;
+
+    // One representative decoded slice. Contents do not matter for a
+    // throughput measurement; only the size and destination do.
+    let mut slice = [0u32; WORDS_PER_SLICE];
+    for (i, w) in slice.iter_mut().enumerate() {
+        *w = 0x1234_5678 ^ (i as u32);
+    }
+
+    clock.start();
+    for _ in 0..REPS {
+        for col in 0..SLICE_COLUMNS {
+            upload_words(VramRect::new(col * 16, 0, 16, VIDEO_H), &slice);
+        }
+    }
+    let fifo = clock.lap();
+
+    clock.start();
+    let mut ok = true;
+    for _ in 0..REPS {
+        for col in 0..SLICE_COLUMNS {
+            if !dma_copy_to_vram(VramRect::new(col * 16, 0, 16, VIDEO_H), slice.as_ptr()) {
+                ok = false;
+                break;
+            }
+        }
+        if !ok {
+            break;
+        }
+    }
+    let dma = clock.lap();
+
+    let per_frame = |span: Span| -> u32 {
+        (span.vblanks as u64 * crate::timing::US_PER_VBLANK as u64 / REPS as u64) as u32
+    };
+    (per_frame(fifo), per_frame(dma), ok)
 }
