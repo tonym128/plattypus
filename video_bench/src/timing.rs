@@ -39,7 +39,10 @@ pub const US_PER_VBLANK: u32 = 1_000_000 / 60;
 
 /// Display periods per video frame when nothing is late: a 60 Hz display
 /// showing a 15 fps video.
-pub const VBLANKS_PER_VIDEO_FRAME: u32 = 4;
+/// Display periods per video frame. Taken from the shipped player rather
+/// than repeated here: a stale copy of this constant made the bench score
+/// 6-display-period presents as stutters against a 4-period target.
+pub use crate::video::VBLANKS_PER_VIDEO_FRAME;
 
 /// A 32-bit cycle counter at 33.8688 MHz, from root counter 0 extended
 /// by its overflow register.
