@@ -2252,7 +2252,11 @@ impl Renderer {
             gpu::draw_rect_flat(38, 118, 244, 94, 12, 20, 30);
             gpu::draw_rect_flat(40, 120, 240, 90, 6, 10, 16);
 
-            let is_completed = save_data.unlocked_act >= 11;
+            // `unlocked_act` is a campaign *clear count*: 11 means "Act 4-3 is
+            // pending" and `CAMPAIGN_ACT_COUNT` means the campaign is finished.
+            // The two must not be conflated, or the title offers STAGE SELECT
+            // while Continue loads the final boss.
+            let is_completed = save_data.unlocked_act >= crate::save::CAMPAIGN_ACT_COUNT;
             let (cont_text, new_text, vr_text, opt_text) = match self.language {
                 1 => (if is_completed { "SELECTION ETAPES" } else { "CONTINUER" }, "NOUVELLE CAMPAGNE", "SIMULATEUR ENTRAINEMENT VR", "OPTIONS ET EQUIPEMENT"),
                 2 => (if is_completed { "STAGE-AUSWAHL" } else { "FORTSETZEN" }, "NEUE KAMPAGNE", "VR-TRAININGSSIMULATOR", "OPTIONEN UND AUSRUESTUNG"),
@@ -2481,8 +2485,15 @@ impl Renderer {
             }
         }
 
-        // Hardware Status & Memory Card Info Banner
-        let (_, region_name) = crate::save::detect_console_region();
+        // Hardware Status & Memory Card Info Banner.
+        // Resolve the region through the player's `pal_mode`, exactly as
+        // `Game::video_standard` does. Re-deriving it from the BIOS alone made
+        // this banner contradict the "Video Standard" row whenever the player
+        // forced the other standard.
+        let region_name: &str = match self.video_mode {
+            psx_gpu::VideoMode::Ntsc => "NTSC-U 60HZ",
+            _ => "PAL 50HZ",
+        };
         let card_color = match card_state {
             crate::save::LoadOutcome::Loaded => (100, 255, 140),
             crate::save::LoadOutcome::NotFound => (150, 160, 170),
