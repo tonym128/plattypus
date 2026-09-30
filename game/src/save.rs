@@ -223,6 +223,18 @@ const STRUCT_PADDING: usize = 2;
 /// Screen-offset clamp the options menu enforces on `screen_offset_x/y`.
 pub const SCREEN_OFFSET_LIMIT: i8 = 16;
 
+/// Number of acts in the campaign (Act 1-1 .. Act 4-3).
+///
+/// `unlocked_act` is a campaign *clear count* in `0..=CAMPAIGN_ACT_COUNT`,
+/// not an `Act` index: `0..=10` is the next act to play, `11` is Act 4-3, and
+/// `CAMPAIGN_ACT_COUNT` means the campaign is finished. It used to be an
+/// `Act` index that doubled as the completion flag, which made 4-3
+/// unreachable from the title and let the CODEC scribe write a VR act's index
+/// (12..=15) into it. Nothing writes a VR index any more -- a VR clear records
+/// `vr_cleared` -- so a card carrying 13..=15 here is a save written by that
+/// bug and is reported as corrupt rather than loaded as "campaign finished".
+pub const CAMPAIGN_ACT_COUNT: u8 = 12;
+
 /// The checksummed fields must tile the payload exactly: contiguous, in
 /// serialization order, with nothing left over before the `checksum` field.
 const _: () = {
@@ -309,6 +321,33 @@ pub struct SaveData {
     pub screen_offset_y: i8,
     pub pal_mode: u8, // 0: NTSC 60Hz, 1: PAL 50Hz, 2: Auto Detect
     pub checksum: u16,
+}
+
+/// The save "NEW CAMPAIGN" starts from.
+///
+/// Progression is dropped -- campaign position, rank records, costume unlocks
+/// and the VR trainer's clears -- because a new campaign is a new playthrough
+/// and the old one was only reachable by never clearing anything (every writer
+/// used `max`, so nothing could lower `unlocked_act`). What survives is the
+/// player's display setup: language, video standard and CRT offset are
+/// settings of the machine, not achievements, and re-asking for them after
+/// every restart is a bug report waiting to happen. `wireframe_enabled` also
+/// survives because the permission that gates it is granted by default in
+/// [`SaveData::new`], so preserving the toggle cannot select something the
+/// player has not earned; `selected_costume` does not, because tuxedo and camo
+/// are exactly the unlocks being cleared.
+pub fn new_campaign_save(previous: &SaveData) -> SaveData {
+    SaveData {
+        language: previous.language,
+        pal_mode: previous.pal_mode,
+        screen_offset_x: previous.screen_offset_x,
+        screen_offset_y: previous.screen_offset_y,
+        wireframe_enabled: previous.wireframe_enabled,
+        ..SaveData::new()
+    }
+    // The struct update inherits the base's checksum, which was computed for
+    // the base's field values, not these.
+    .with_checksum()
 }
 
 impl SaveData {
@@ -454,10 +493,10 @@ impl SaveData {
     /// `best_time_seconds`) are deliberately not bounded: every site that shows
     /// them saturates its own output.
     pub fn is_sane(&self) -> bool {
-        // `unlocked_act` indexes `Act`, whose VR stages are 12..=15, so 16 is
-        // the bound; a campaign-only bound of 12 would reject a save written
-        // from the VR trainer.
-        self.unlocked_act < 16
+        // A campaign clear count, not an `Act` index: 12 is "all 12 acts
+        // cleared" and the VR indices 12..=15 are not reachable any more (see
+        // `CAMPAIGN_ACT_COUNT`), so the bound is the count itself.
+        self.unlocked_act <= CAMPAIGN_ACT_COUNT
             && self.selected_costume < 3
             && self.language < 5
             && self.pal_mode < 3
