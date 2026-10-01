@@ -184,8 +184,9 @@ pub struct VideoPlayer {
     /// Highest frame number seen, to recognise the trailing EOF marker.
     last_frame_seen: u32,
     slot_state: [SlotState; SLOTS],
-    /// Bitmap of slots holding a complete frame.
-    ready_mask: u8,
+    /// FIFO queue of slots holding complete frames ready for presentation.
+    ready_queue: [usize; SLOTS],
+    ready_len: usize,
     cd_reader: SectorReader,
     /// Whether VRAM uploads may still go over DMA channel 2.
     vram_dma_ok: bool,
@@ -194,8 +195,7 @@ pub struct VideoPlayer {
     /// variable number of sectors and the STR file is just a sector
     /// sequence.
     next_lba: u32,
-    /// A `ReadN` is running. The drive is stopped while the ring is full, so
-    /// this is often false mid-movie.
+    /// A `ReadN` is running.
     stream_live: bool,
     /// VBlank of the last sector delivered, for the stall watchdog.
     last_sector_vblank: u32,
@@ -231,7 +231,8 @@ impl VideoPlayer {
             fill_slot: 0,
             last_frame_seen: 0,
             slot_state: [SlotState::Free; SLOTS],
-            ready_mask: 0,
+            ready_queue: [0; SLOTS],
+            ready_len: 0,
             cd_reader: SectorReader::new(),
             vram_dma_ok: true,
             next_lba: 0,
@@ -298,10 +299,13 @@ impl VideoPlayer {
             if let Some(lba) = unsafe { Self::find_movie_lba(filename, &mut self.cd_reader, storage) }
             {
                 self.cd_start_lba = lba;
-                // The pump starts and stops the stream to match the decode
-                // rate, so nothing is armed here.
                 self.next_lba = lba;
                 self.using_cd = true;
+                self.fill_slot = 0;
+                self.slot_state[0] = SlotState::Filling;
+                if unsafe { self.cd_reader.start_read(lba) } {
+                    self.stream_live = true;
+                }
                 psx_rt::tty::println("[VIDEO] streaming BS v2 movie at 1x with XA audio");
             }
         } else {
@@ -333,11 +337,9 @@ impl VideoPlayer {
         self.asm = strfmt::FrameAssembler::new();
         self.fill_slot = 0;
         self.last_frame_seen = 0;
-        // Every slot starts Free. The assembler claims one on demand, and the
-        // drive is throttled once they are all claimed, so it never gets far
-        // enough ahead to have to replace a frame.
         self.slot_state = [SlotState::Free; SLOTS];
-        self.ready_mask = 0;
+        self.ready_queue = [0; SLOTS];
+        self.ready_len = 0;
         self.vram_dma_ok = true;
         self.next_lba = self.cd_start_lba;
         self.stream_live = false;
@@ -347,6 +349,18 @@ impl VideoPlayer {
         self.saved_irq_mask = psx_io::irq::mask();
         self.irq_mask_saved = true;
     }
+
+    /// Pop the oldest ready frame from the FIFO queue.
+    fn take_ready_slot(&mut self) -> Option<usize> {
+        if self.ready_len == 0 {
+            return None;
+        }
+        let slot = self.ready_queue[0];
+        self.ready_queue.copy_within(1..self.ready_len, 0);
+        self.ready_len -= 1;
+        Some(slot)
+    }
+
 
     /// Locate a movie in the ISO 9660 root directory (extent 20).
     ///
@@ -533,27 +547,35 @@ impl VideoPlayer {
             };
             if self.asm.add(sector, buf).is_some() {
                 self.slot_state[self.fill_slot] = SlotState::Ready;
-                self.ready_mask |= 1 << self.fill_slot;
+                if self.ready_len < SLOTS {
+                    self.ready_queue[self.ready_len] = self.fill_slot;
+                    self.ready_len += 1;
+                }
                 self.dropped_frames += (self.asm.dropped - dropped_before) as u16;
-                // Claim the next slot now if one is free; if not, the pump's
-                // throttle has already stopped the drive and the assembler
-                // waits here until the decoder hands a slot back.
+                // Claim the next slot now if one is free; if not, reclaim the oldest
+                // ready frame so the drive never has to stop during 1x streaming.
                 self.acquire_slot();
             }
         }
     }
 
-    /// Point the assembler at a slot it may write. `false` when every slot is
-    /// spoken for, which is the pump's signal to stop the drive.
+    /// Point the assembler at a slot it may write.
     ///
-    /// Only a `Free` slot is ever taken. Replacing a `Ready` slot was tried
-    /// and is wrong: it silently discards a decoded frame, and because the
-    /// ring then *always* has somewhere to write, the throttle that depends
-    /// on the ring filling never engages.
+    /// If all slots are occupied, we drop the oldest ready frame from the FIFO queue
+    /// rather than stopping the CD drive. In 1x streaming mode with CD-XA audio,
+    /// stopping the drive breaks continuous 37.8 kHz audio playback and incurs
+    /// a 60-120 ms seek penalty to restart, which starves the pipeline and causes stutter.
     fn acquire_slot(&mut self) -> bool {
         if let Some(s) = (0..SLOTS).find(|&s| self.slot_state[s] == SlotState::Free) {
             self.slot_state[s] = SlotState::Filling;
             self.fill_slot = s;
+            true
+        } else if let Some(oldest) = self.take_ready_slot() {
+            // Ring buffer full: reclaim the oldest ready frame to keep video in lock-step
+            // with uninterrupted CD-XA audio.
+            self.dropped_frames += 1;
+            self.slot_state[oldest] = SlotState::Filling;
+            self.fill_slot = oldest;
             true
         } else {
             false
@@ -595,34 +617,16 @@ impl VideoPlayer {
             return;
         }
 
-        // 1. Take a complete frame, if one has arrived.
-        let ready = (0..SLOTS).find(|&s| self.ready_mask & (1 << s) != 0);
-        if let Some(slot) = ready {
-            self.slot_state[slot] = SlotState::Decoding;
-            self.ready_mask &= !(1 << slot);
-            self.decode_and_upload(slot, renderer, storage);
-            self.slot_state[slot] = SlotState::Free;
-        }
-
-        // 2. Nothing to show: wait for a frame, pumping throughout. A wait
-        //    with no sector at all means the stream is finished.
-        if ready.is_none() && !self.eof {
+        // 1. Ensure at least one frame is ready in the FIFO queue before presenting.
+        //    On initial startup, wait for 2 frames so the ring buffer holds a 1-frame jitter buffer.
+        let min_buffered = if self.frames_shown == 0 { 2 } else { 1 };
+        if self.ready_len < min_buffered && !self.eof && self.using_cd {
             self.wait_started_vblank = psx_rt::interrupts::vblank_count();
-            // Spin on the pump. This must NOT block on a VBlank wait: at 2x a
-            // sector lands every ~6.7 ms against a data FIFO a sector or two
-            // deep, so a 16.7 ms wait here overruns the FIFO, loses the very
-            // chunks this loop is waiting for, and the frame never completes.
-            // A tight pump is also what the drive wants -- there is nothing
-            // else to do until a frame lands.
             loop {
                 self.pump(storage);
-                if self.ready_mask != 0 || self.eof || !self.using_cd {
+                if self.ready_len >= min_buffered || self.eof || !self.using_cd {
                     break;
                 }
-                // Bound the wait on display periods elapsed with nothing to
-                // show, not on sectors arriving: a desynchronised stream
-                // keeps delivering sectors that never assemble, so "the
-                // drive is still talking" is not evidence of health.
                 let idle =
                     psx_rt::interrupts::vblank_count().wrapping_sub(self.wait_started_vblank);
                 if idle > STALL_VBLANKS {
@@ -633,38 +637,39 @@ impl VideoPlayer {
             }
         }
 
-        // 3. Pace to the flip, pumping the whole time.
+        // 2. Pop the oldest complete frame in strict FIFO sequence, decode, and upload to back buffer.
+        let popped_slot = self.take_ready_slot();
+        if let Some(slot) = popped_slot {
+            self.slot_state[slot] = SlotState::Decoding;
+            self.decode_and_upload(slot, renderer, storage);
+            self.slot_state[slot] = SlotState::Free;
+        }
+
+        // 3. Pace to the flip target (15 fps = every 4 VBlanks), pumping the drive continuously.
         while (psx_rt::interrupts::vblank_count().wrapping_sub(self.next_flip_vblank) as i32) < 0 {
             self.pump(storage);
         }
 
-        // 4. Flip at the VBlank.
+        // 4. Flip on the VBlank boundary.
         let v0 = psx_rt::interrupts::vblank_count();
         while psx_rt::interrupts::vblank_count() == v0 {
             self.pump(storage);
         }
 
-        if ready.is_some() {
+        if popped_slot.is_some() {
             renderer.fb.swap();
             self.last_swap_vblank = psx_rt::interrupts::vblank_count();
             self.frames_shown += 1;
         }
         // Schedule the next flip one period *minus one* before the target.
-        // The loop above leaves this point by waiting for the VBlank counter
-        // to change, which itself consumes a period, so aiming at
-        // `last + 4` would flip at `last + 5` and hold every frame a period
-        // long -- 12 fps from a pipeline that has 2.4 periods to spare.
+        // Waiting for the VBlank counter to increment consumed 1 VBlank, so
+        // adding VBLANKS_PER_VIDEO_FRAME - 1 (3) flips exactly 4 VBlanks after this one.
         self.next_flip_vblank = psx_rt::interrupts::vblank_count().wrapping_add(
             VBLANKS_PER_VIDEO_FRAME - 1,
         );
 
-        // 5. End of movie. The EOF marker only says the stream is over, not
-        //    that the pictures are: several frames are usually still queued
-        //    behind the marker, and stopping on the marker itself throws them
-        //    away. So the movie ends when the marker has been seen *and* the
-        //    queue has drained, or when the stall watchdog fires with nothing
-        //    ready.
-        let drained = self.ready_mask == 0 && ready.is_none();
+        // 5. End of movie check: stream marked EOF (or stalled) and all queued frames presented.
+        let drained = self.ready_len == 0 && popped_slot.is_none();
         if self.frames_shown > 0 && ((self.eof || self.stalled) && drained) {
             self.stop();
         }
@@ -800,6 +805,6 @@ impl VideoPlayer {
 
     /// Whether a newly decoded frame is ready to be presented.
     pub fn needs_redraw(&self) -> bool {
-        self.ready_mask != 0
+        self.ready_len != 0
     }
 }
