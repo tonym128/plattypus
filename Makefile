@@ -78,10 +78,8 @@ disc: exe check-media
 		--out $(DIST)/plattypus.bin \
 		--volume PLATTYPUS \
 		--cdda-track $(ROOT)/Music/title_music.cdda \
-		--str-file $(ROOT)/Videos/INTRO.STR \
-		--str-file $(ROOT)/Videos/INTRO.VID \
-		--str-file $(ROOT)/Videos/OUTRO.STR \
-		--str-file $(ROOT)/Videos/OUTRO.VID
+		--xa-file $(ROOT)/Videos/INTRO.STR \
+		--xa-file $(ROOT)/Videos/OUTRO.STR
 	@echo "SUCCESS! Bootable PS1 Disc Mastered:"
 	@echo "  CUE: $(DIST)/plattypus.cue"
 	@echo "  BIN: $(DIST)/plattypus.bin"
@@ -90,8 +88,7 @@ disc: exe check-media
 # a missing one used to surface as an opaque failure inside mkisopsx.
 check-media:
 	@missing=""; \
-	for f in Music/title_music.cdda Videos/INTRO.STR Videos/INTRO.VID \
-	         Videos/OUTRO.STR Videos/OUTRO.VID; do \
+	for f in Music/title_music.cdda Videos/INTRO.STR Videos/OUTRO.STR; do \
 		[ -f "$(ROOT)/$$f" ] || missing="$$missing $$f"; \
 	done; \
 	if [ -n "$$missing" ]; then \

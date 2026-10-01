@@ -5,10 +5,3 @@ version = 4
 [[package]]
 name = "plattypus-core"
 version = "0.1.0"
-
-[[package]]
-name = "test_game_logic"
-version = "0.1.0"
-dependencies = [
- "plattypus-core",
-]

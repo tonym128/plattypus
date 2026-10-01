@@ -273,29 +273,27 @@ impl VideoPlayer {
         psx_rt::tty::print("\n");
 
         let filename: &[u8] = match kind {
-            VideoKind::Intro => b"INTRO.VID",
-            VideoKind::Outro => b"OUTRO.VID",
+            VideoKind::Intro => b"INTRO.STR",
+            VideoKind::Outro => b"OUTRO.STR",
         };
 
         // SAFETY: single static, only this player touches it.
         let storage = unsafe { &mut *addr_of_mut!(STORAGE) };
 
-        // Double speed, which is a measured necessity rather than a
-        // preference. This movie is 5.00 sectors per frame, so 15 fps needs
-        // 75 sectors/s -- exactly the nominal 1x rate, with no margin at all.
-        // DuckStation's 1x measures 68 sectors/s, which caps playback at
-        // 13.6 fps; at 2x it measures 128, leaving the stream at 59% duty
-        // with room to spare. See `docs/perf/why-6fps.md`.
-        //
-        // The SDK records silent payload corruption over hundreds of
-        // *sustained* 2x sectors on real silicon (2026-08-01), and this is
-        // 740 of them, so single speed is the safer choice wherever the
-        // payload is small enough to feed it.
+        // 1x speed with XA-ADPCM audio decode and file 1 / channel 0 filter.
+        // Interleaved audio sectors are routed by the drive directly to the
+        // SPU at 37800 Hz stereo, costing zero CPU time.
         //
         // SAFETY: MMIO, single-threaded; this call takes interrupt policy.
-        let prepared = unsafe { self.cd_reader.prepare_single_speed() };
+        let prepared = unsafe {
+            self.cd_reader.demute()
+                && self.cd_reader.prepare_mode(0x40 | 0x08)
+                && self.cd_reader.set_filter(1, 0)
+        };
+        psx_io::cdrom::set_audio_mixer(0x80, 0, 0x80, 0);
+
         if prepared {
-            psx_rt::tty::println("[VIDEO] CD reader prepare OK (1x)");
+            psx_rt::tty::println("[VIDEO] CD reader prepare OK (1x XA)");
             // SAFETY: as above.
             if let Some(lba) = unsafe { Self::find_movie_lba(filename, &mut self.cd_reader, storage) }
             {
@@ -304,7 +302,7 @@ impl VideoPlayer {
                 // rate, so nothing is armed here.
                 self.next_lba = lba;
                 self.using_cd = true;
-                psx_rt::tty::println("[VIDEO] streaming BS v2 movie at 1x");
+                psx_rt::tty::println("[VIDEO] streaming BS v2 movie at 1x with XA audio");
             }
         } else {
             psx_rt::tty::println("[VIDEO] CD reader prepare FAILED");
@@ -312,13 +310,6 @@ impl VideoPlayer {
 
         if !self.using_cd {
             psx_rt::tty::println("[VIDEO] no movie on disc; skipping");
-        }
-
-        // The movie's audio is an SPU sample in the binary for now; see
-        // `AudioManager::play_intro_audio` for why.
-        match kind {
-            VideoKind::Intro => AudioManager::play_intro_audio(),
-            VideoKind::Outro => AudioManager::play_outro_audio(),
         }
     }
 

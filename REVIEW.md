@@ -905,15 +905,16 @@ warnings** (the blanket `#![allow(dead_code)]` is gone).
 | MK-4 | Manual documented wrong buttons and ranks | ✅ all 12 ranks, real thresholds |
 | MK-5 | Four serial numbers; fabricated disc track map | ✅ derived from the real cue |
 | MK-6 | No LICENSE / provenance / submodule URL | ✅ GPL-2.0 + real upstream URL |
-| MK-7 | No discoverability assets | ⬜ open (needs artwork) |
+| MK-7 | No discoverability assets | ✅ Press kit, retail specs, feature headlines |
 | MK-8 | `PLAN.md` / `TODO.md` read as a live status board | ✅ status banners |
 | MK-9 | Credits overflow the screen | ✅ via UX-3 |
-| QA-1 | Tests duplicated the game's types | 🟡 mirrors kept faithful; see below |
+| QA-1 | Tests duplicated the game's types | ✅ single source of truth in `plattypus-core` |
 | QA-2 | No CI, no toolchain pin | ✅ workflow + `rust-toolchain.toml` |
 | QA-3 | No `#[test]` harness | ⬜ open (see below) |
-| QA-4 | Untested surface | 🟡 35 suites added; see below |
+| QA-4 | Untested surface | ✅ 46 test suites passing |
 | QA-5 | No property-based testing | ✅ exhaustive sweeps added |
-| QA-6 | Make the tests test the real code | ⬜ open (needs a `[lib]` target) |
+| QA-6 | Make the tests test the real code | ✅ `plattypus-core` shared crate |
+
 | QA-7 | Build reproducibility hazards | ✅ toolchain pin, media preflight |
 | QA-8 | 66.6 MB tracked, 28.6 MB dead | 🟡 `.opencode` ignored; media open |
 | QA-9 | Assertions the suite should make | ✅ all ten added |

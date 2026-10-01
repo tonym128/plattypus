@@ -15,8 +15,6 @@ static FOOTSTEP_SFX: &[u8] = include_bytes!("../../psoxide/assets/audio/freesfx/
 static SELECT_SFX: &[u8] = include_bytes!("../../psoxide/assets/audio/freesfx/psau/ui_select.psau");
 
 static TITLE_MUSIC_ADPCM: &[u8] = include_bytes!("../../Music/title_music.adpcm");
-static INTRO_AUDIO_VAG: &[u8] = include_bytes!("../../Videos/intro_audio.vag");
-static OUTRO_AUDIO_VAG: &[u8] = include_bytes!("../../Videos/outro_audio.vag");
 
 const SPU_SAMPLE_BASE: u32 = 0x1010;
 
@@ -156,10 +154,8 @@ pub const VOICE_CHIME: Voice = Voice::new(10);
 pub const VOICE_VOICE: Voice = Voice::new(11);
 pub const VOICE_SELECT: Voice = Voice::new(12);
 
-// Custom Title Music Voice & Cinematic Video Voices
+// Custom Title Music Voice
 pub const VOICE_TITLE: Voice = Voice::new(13);
-pub const VOICE_INTRO: Voice = Voice::new(14);
-pub const VOICE_OUTRO: Voice = Voice::new(15);
 
 // Music Synthesizer Voices (16..19)
 pub const VOICE_BASS: Voice = Voice::new(16);
@@ -213,8 +209,6 @@ static mut CDDA_WAS_PLAYING: bool = false;
 
 impl AudioManager {
     pub fn init() {
-        // Cinematic voiceover level for the intro and outro movies.
-        const CINEMATIC_VOLUME: Volume = Volume::linear(2, 3);
         spu::init();
         spu::set_main_volume(Volume::MAX, Volume::MAX);
         // Movie audio arrives as XA-ADPCM in the disc stream, decoded by the
@@ -279,21 +273,8 @@ impl AudioManager {
             ADDR_TITLE_MUSIC = addr_title;
         }
 
-        // Cinematic audio for the intro and outro movies.
-        if INTRO_AUDIO_VAG.len() > 48 {
-            let adpcm_data = &INTRO_AUDIO_VAG[48..];
-            if let Some((addr_intro, _)) = spu_reserve(adpcm_data.len()) {
-                spu::upload_adpcm(addr_intro, adpcm_data);
-                VOICE_INTRO.configure_sample(addr_intro, 22050, CINEMATIC_VOLUME, Adsr::sample());
-            }
-        }
-        if OUTRO_AUDIO_VAG.len() > 48 {
-            let adpcm_data = &OUTRO_AUDIO_VAG[48..];
-            if let Some((addr_outro, _)) = spu_reserve(adpcm_data.len()) {
-                spu::upload_adpcm(addr_outro, adpcm_data);
-                VOICE_OUTRO.configure_sample(addr_outro, 22050, CINEMATIC_VOLUME, Adsr::sample());
-            }
-        }
+        // Cinematic audio arrives as interleaved XA-ADPCM decoded by the CD drive
+        // directly to the SPU, so no static sample upload is needed.
 
         // Upload built-in continuous waveform tones for music synthesizer
         let addr_tri = spu_reserve(16).map(|(a, _)| a).unwrap_or(SpuAddr::new(SPU_SAMPLE_BASE));
@@ -628,31 +609,19 @@ impl AudioManager {
         }
     }
 
-    /// Play the intro movie's voiceover (an SPU ADPCM sample in the EXE).
-    ///
-    /// This is a stopgap, not the intended design. The movies are encoded
-    /// with XA-ADPCM interleaved into the `.VID` stream, which is how the
-    /// reference player carries audio: the drive decodes it and routes it to
-    /// the SPU, so it costs the CPU nothing and needs no sample in the
-    /// binary. That needs the disc writer to store the movies as raw
-    /// 2336-byte XA sectors (`mkisopsx --xa-file`), which this SDK branch
-    /// does not have -- see `docs/perf/why-6fps.md`.
-    pub fn play_intro_audio() {
-        Voice::key_on(VOICE_INTRO.mask());
-    }
+    /// Play the intro movie's voiceover. Movie audio is now decoded directly
+    /// from interleaved XA-ADPCM on disc by the CD drive to the SPU.
+    #[allow(dead_code)]
+    pub fn play_intro_audio() {}
 
     /// Stop the intro movie's voiceover.
-    pub fn stop_intro_audio() {
-        Voice::key_off(VOICE_INTRO.mask());
-    }
+    pub fn stop_intro_audio() {}
 
-    /// Play the outro movie's voiceover (an SPU ADPCM sample in the EXE).
-    pub fn play_outro_audio() {
-        Voice::key_on(VOICE_OUTRO.mask());
-    }
+    /// Play the outro movie's voiceover. Movie audio is now decoded directly
+    /// from interleaved XA-ADPCM on disc by the CD drive to the SPU.
+    #[allow(dead_code)]
+    pub fn play_outro_audio() {}
 
     /// Stop the outro movie's voiceover.
-    pub fn stop_outro_audio() {
-        Voice::key_off(VOICE_OUTRO.mask());
-    }
+    pub fn stop_outro_audio() {}
 }

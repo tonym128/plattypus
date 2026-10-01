@@ -19,7 +19,10 @@ Equipped with his combat headband, venomous ankle spurs, and bio-electric electr
 
 ## 🎮 Key Features
 
-* **3D Tactical Espionage Gameplay**: Fully 3D environments with GTE-accelerated geometry, directional Gouraud shading, and affine texture mapping.
+* **Bare-Metal Rust on 1994 Hardware**: Compiled to native MIPS R3000A machine code using `rustc` with `#![no_std]`, targeting 2 MB of main RAM with zero operating system dependencies.
+* **3D Tactical Espionage Gameplay**: Fully 3D environments with GTE-accelerated fixed-point math, directional Gouraud shading, and affine texture mapping.
+* **Hardware MDEC Cinematics & CD-XA Audio**: 320x240 full-screen video at 15 fps decoded via the PlayStation Motion Decoder (MDEC) coprocessor, with interleaved 37.8 kHz stereo **CD-XA ADPCM audio** streaming directly off disc sectors into the SPU CD audio mixer.
+* **Red Book CD-DA Title Soundtrack**: Uncompressed 44.1 kHz 16-bit stereo CD digital audio mastered directly onto Track 2.
 * **Soliton Radar System**: Real-time tactical radar displaying enemy positions, patrol headings, and vision cones.
 * **Multi-Frequency CODEC Radio**: Authentic MGS-style wireless communications with frequency tuning (Burrow Command: 140.85, Field Save: 140.96, Bushland Intel: 141.12, Tactical Gear: 141.80).
 * **Tactical Infiltration Abilities**:
@@ -35,8 +38,9 @@ Equipped with his combat headband, venomous ankle spurs, and bio-electric electr
   * **Chapter 4**: Coastal Beachhead (Sandstone Cliff Platforming, Pier Shark Trench, Dr. Cane Toad's Excavator Climax).
 * **VR Training Simulator**: 4 standalone training missions (Sneaking, CQC, Sonar Labyrinth, Speed Hurdles).
 * **DualShock® Analog & Rumble Support**: Full 360° analog stealth speed control and dual-motor vibration feedback.
-* **Hardware MDEC Video Streaming**: High-resolution cinematics streamed directly from CD-ROM sectors using the PS1 MDEC hardware coprocessor.
 * **PlayStation Memory Card Integration**: 1-block save support with custom animated 16x16 3-frame BIOS save icon.
+* **Clean Shared Architecture (`plattypus-core`)**: Pure `#![no_std]` game logic, save formats, and level geometry verified by 46 automated host test suites (`make test`).
+* **Commercial Retail Packaging**: Production-ready print specifications for NTSC-U/C and PAL jewel cases, instruction manual, and silk-screened disc face (see [`packaging/PRESS_KIT.md`](packaging/PRESS_KIT.md) and [`packaging/`](packaging/)).
 
 ---
 
