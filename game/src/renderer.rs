@@ -409,11 +409,8 @@ impl Renderer {
         let min_gz = ((self.cam_z + 80) / TILE_SZ).clamp(0, GRID_D as i32) as usize;
         let max_gz = ((self.cam_z + 680) / TILE_SZ + 1).clamp(0, GRID_D as i32) as usize;
 
-        for gz in min_gz..max_gz {
-            // Once the frame's quads are spent, stop walking rows. Tiles are
-            // drawn front-to-back within the visible window, so the budget runs
-            // out at the near edge and the remaining geometry is the furthest
-            // detail -- exactly the geometry that is cheapest to lose.
+        for gz in (min_gz..max_gz).rev() {
+            // Once the frame's quads are spent, stop walking rows.
             if !self.budget_available() {
                 break;
             }
@@ -430,7 +427,7 @@ impl Renderer {
                 let wx = (gx as i32) * TILE_SZ;
                 let wz = row_z_min;
                 let cell = level.get_cell(gx, gz);
-                self.draw_cell(cell, wx, wz, level.act, frame, detail);
+                self.draw_cell(level, cell, gx, gz, wx, wz, frame, detail);
             }
 
             // 2. Draw entities situated in this row (with horizontal frustum culling)
@@ -656,16 +653,24 @@ impl Renderer {
     /// `detail` is false for rows past [`TILE_LOD_DISTANCE`], where only the
     /// bare floor is drawn. Props and surface shading cost several quads a tile
     /// and are unreadable at that range.
-    fn draw_cell(&self, cell: CellType, wx: i32, wz: i32, act: Act, frame: u8, detail: bool) {
+    fn draw_cell(
+        &self,
+        level: &Level,
+        cell: CellType,
+        gx: usize,
+        gz: usize,
+        wx: i32,
+        wz: i32,
+        frame: u8,
+        detail: bool,
+    ) {
+        let act = level.act;
         let (floor_r, floor_g, floor_b) = match act.chapter() {
             1 => (30, 38, 44),   // Dark tarmac / concrete
             2 => (25, 75, 40),   // Lush Yarra riverbank moss & grass
             3 => (48, 52, 58),   // City asphalt road
             _ => (220, 200, 145), // Warm coastal sand
         };
-
-        let gx = (wx / TILE_SZ) as usize;
-        let gz = (wz / TILE_SZ) as usize;
 
         match cell {
             CellType::Floor => {
@@ -711,10 +716,10 @@ impl Renderer {
                 // Subtle dark ground shadow / ambient occlusion footprint beneath crate
                 let (sr, sg, sb) = (floor_r / 2, floor_g / 2, floor_b / 2);
                 Self::draw_quad_3d(
-                    Vec3I16::new((wx + 6) as i16, 0, (wz + 6) as i16),
-                    Vec3I16::new((wx + 58) as i16, 0, (wz + 6) as i16),
                     Vec3I16::new((wx + 6) as i16, 0, (wz + 60) as i16),
                     Vec3I16::new((wx + 58) as i16, 0, (wz + 60) as i16),
+                    Vec3I16::new((wx + 6) as i16, 0, (wz + 6) as i16),
+                    Vec3I16::new((wx + 58) as i16, 0, (wz + 6) as i16),
                     sr, sg, sb,
                 );
                 // 48x48x48 cargo crate with texture & Gouraud shading
@@ -724,10 +729,10 @@ impl Renderer {
                 self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b, act);
                 let (sr, sg, sb) = (floor_r / 2, floor_g / 2, floor_b / 2);
                 Self::draw_quad_3d(
-                    Vec3I16::new(wx as i16, 0, wz as i16),
-                    Vec3I16::new((wx + 64) as i16, 0, wz as i16),
                     Vec3I16::new(wx as i16, 0, (wz + 64) as i16),
                     Vec3I16::new((wx + 64) as i16, 0, (wz + 64) as i16),
+                    Vec3I16::new(wx as i16, 0, wz as i16),
+                    Vec3I16::new((wx + 64) as i16, 0, wz as i16),
                     sr, sg, sb,
                 );
                 let (c_tex, c_col, h) = match act.chapter() {
@@ -750,10 +755,18 @@ impl Renderer {
                 }
             }
             CellType::Wall => {
+                let cull_left = gx > 0 && level.get_cell(gx - 1, gz) == CellType::Wall;
+                let cull_right = gx + 1 < GRID_W && level.get_cell(gx + 1, gz) == CellType::Wall;
+                let cull_front = gz > 0 && level.get_cell(gx, gz - 1) == CellType::Wall;
+                let cull_back = gz + 1 < GRID_D && level.get_cell(gx, gz + 1) == CellType::Wall;
+
                 match act.chapter() {
                     2 => {
                         // Bushland riverbank: mossy bank + gum tree
-                        self.draw_box_3d_textured(wx, wz, 64, 32, 64, TextureId::GumLeaves, (140, 140, 140));
+                        self.draw_wall_box_textured(
+                            wx, wz, 64, 32, 64, TextureId::GumLeaves, (140, 140, 140),
+                            cull_left, cull_right, cull_front, cull_back,
+                        );
                         // A gum tree is roughly 18 quads, the most expensive
                         // tile prop in the game, and unreadable at range.
                         if detail && (gx + gz) % 2 == 0 {
@@ -761,13 +774,22 @@ impl Renderer {
                         }
                     }
                     1 => {
-                        self.draw_box_3d_textured(wx, wz, 64, 80, 64, TextureId::ConcreteWall, (150, 150, 150));
+                        self.draw_wall_box_textured(
+                            wx, wz, 64, 80, 64, TextureId::ConcreteWall, (150, 150, 150),
+                            cull_left, cull_right, cull_front, cull_back,
+                        );
                     }
                     3 => {
-                        self.draw_box_3d_textured(wx, wz, 64, 80, 64, TextureId::CityBrick, (160, 160, 160));
+                        self.draw_wall_box_textured(
+                            wx, wz, 64, 80, 64, TextureId::CityBrick, (160, 160, 160),
+                            cull_left, cull_right, cull_front, cull_back,
+                        );
                     }
                     _ => {
-                        self.draw_box_3d_textured(wx, wz, 64, 60, 64, TextureId::RockCliff, (160, 160, 160));
+                        self.draw_wall_box_textured(
+                            wx, wz, 64, 60, 64, TextureId::RockCliff, (160, 160, 160),
+                            cull_left, cull_right, cull_front, cull_back,
+                        );
                     }
                 }
             }
@@ -775,10 +797,10 @@ impl Renderer {
                 self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b, act);
                 let (sr, sg, sb) = (floor_r / 2, floor_g / 2, floor_b / 2);
                 Self::draw_quad_3d(
-                    Vec3I16::new((wx + 6) as i16, 0, (wz + 6) as i16),
-                    Vec3I16::new((wx + 58) as i16, 0, (wz + 6) as i16),
                     Vec3I16::new((wx + 6) as i16, 0, (wz + 60) as i16),
                     Vec3I16::new((wx + 58) as i16, 0, (wz + 60) as i16),
+                    Vec3I16::new((wx + 6) as i16, 0, (wz + 6) as i16),
+                    Vec3I16::new((wx + 58) as i16, 0, (wz + 6) as i16),
                     sr, sg, sb,
                 );
                 // Low ventilation shaft passable only when crawling
@@ -806,10 +828,10 @@ impl Renderer {
     }
 
     fn draw_floor_tile(&self, wx: i32, wz: i32, r: u8, g: u8, b: u8, act: Act) {
-        let v0 = Vec3I16::new(wx as i16, 0, wz as i16);
-        let v1 = Vec3I16::new((wx + TILE_SZ) as i16, 0, wz as i16);
-        let v2 = Vec3I16::new(wx as i16, 0, (wz + TILE_SZ) as i16);
-        let v3 = Vec3I16::new((wx + TILE_SZ) as i16, 0, (wz + TILE_SZ) as i16);
+        let v0 = Vec3I16::new(wx as i16, 0, (wz + TILE_SZ) as i16);
+        let v1 = Vec3I16::new((wx + TILE_SZ) as i16, 0, (wz + TILE_SZ) as i16);
+        let v2 = Vec3I16::new(wx as i16, 0, wz as i16);
+        let v3 = Vec3I16::new((wx + TILE_SZ) as i16, 0, wz as i16);
 
         let floor_tex = match act.chapter() {
             1 => TextureId::MetalGrate,
@@ -823,10 +845,10 @@ impl Renderer {
     fn draw_water_tile(&self, wx: i32, wz: i32, act: Act, frame: u8, is_current: bool) {
         let bob = if (frame / 8) % 2 == 0 { 2 } else { 0 };
         let y = 14 + bob;
-        let v0 = Vec3I16::new(wx as i16, y, wz as i16);
-        let v1 = Vec3I16::new((wx + TILE_SZ) as i16, y, wz as i16);
-        let v2 = Vec3I16::new(wx as i16, y, (wz + TILE_SZ) as i16);
-        let v3 = Vec3I16::new((wx + TILE_SZ) as i16, y, (wz + TILE_SZ) as i16);
+        let v0 = Vec3I16::new(wx as i16, y, (wz + TILE_SZ) as i16);
+        let v1 = Vec3I16::new((wx + TILE_SZ) as i16, y, (wz + TILE_SZ) as i16);
+        let v2 = Vec3I16::new(wx as i16, y, wz as i16);
+        let v3 = Vec3I16::new((wx + TILE_SZ) as i16, y, wz as i16);
 
         let tint = match act.chapter() {
             4 => (160, 200, 240),
@@ -873,10 +895,10 @@ impl Renderer {
     }
 
     fn draw_exit_hatch(&self, wx: i32, wz: i32, frame: u8) {
-        let v0 = Vec3I16::new(wx as i16, 0, wz as i16);
-        let v1 = Vec3I16::new((wx + 40) as i16, 0, wz as i16);
-        let v2 = Vec3I16::new(wx as i16, 0, (wz + 40) as i16);
-        let v3 = Vec3I16::new((wx + 40) as i16, 0, (wz + 40) as i16);
+        let v0 = Vec3I16::new(wx as i16, 0, (wz + 40) as i16);
+        let v1 = Vec3I16::new((wx + 40) as i16, 0, (wz + 40) as i16);
+        let v2 = Vec3I16::new(wx as i16, 0, wz as i16);
+        let v3 = Vec3I16::new((wx + 40) as i16, 0, wz as i16);
         Self::draw_quad_3d(v0, v1, v2, v3, 130, 95, 60);
 
         let p = scene::project_vertex(Vec3I16::new((wx + 20) as i16, -18, (wz + 20) as i16));
@@ -913,71 +935,162 @@ impl Renderer {
         let z0 = wz as i16;
         let z1 = (wz + d) as i16;
 
-        // 1. TOP FACE (lit by overhead sunlight)
+        // 1. BACK FACE (facing +Z away from camera)
         self.draw_quad_3d_textured_gouraud(
-            Vec3I16::new(x0, y0, z0),
-            Vec3I16::new(x1, y0, z0),
-            Vec3I16::new(x0, y0, z1),
             Vec3I16::new(x1, y0, z1),
-            texture,
-            FaceDirection::Top,
-            col,
-        );
-
-        // 2. FRONT FACE (facing +Z)
-        self.draw_quad_3d_textured_gouraud(
             Vec3I16::new(x0, y0, z1),
-            Vec3I16::new(x1, y0, z1),
-            Vec3I16::new(x0, y1, z1),
             Vec3I16::new(x1, y1, z1),
-            texture,
-            FaceDirection::Front,
-            col,
-        );
-
-        // 3. BACK FACE (facing -Z)
-        self.draw_quad_3d_textured_gouraud(
-            Vec3I16::new(x1, y0, z0),
-            Vec3I16::new(x0, y0, z0),
-            Vec3I16::new(x1, y1, z0),
-            Vec3I16::new(x0, y1, z0),
+            Vec3I16::new(x0, y1, z1),
             texture,
             FaceDirection::Back,
             col,
         );
 
-        // 4. LEFT FACE (facing -X)
+        // 2. BOTTOM FACE (facing +Y, ground shadow)
         self.draw_quad_3d_textured_gouraud(
-            Vec3I16::new(x0, y0, z0),
-            Vec3I16::new(x0, y0, z1),
             Vec3I16::new(x0, y1, z0),
+            Vec3I16::new(x1, y1, z0),
             Vec3I16::new(x0, y1, z1),
+            Vec3I16::new(x1, y1, z1),
+            texture,
+            FaceDirection::Bottom,
+            col,
+        );
+
+        // 3. LEFT FACE (facing -X)
+        self.draw_quad_3d_textured_gouraud(
+            Vec3I16::new(x0, y0, z1),
+            Vec3I16::new(x0, y0, z0),
+            Vec3I16::new(x0, y1, z1),
+            Vec3I16::new(x0, y1, z0),
             texture,
             FaceDirection::Left,
             col,
         );
 
-        // 5. RIGHT FACE (facing +X)
+        // 4. RIGHT FACE (facing +X)
         self.draw_quad_3d_textured_gouraud(
-            Vec3I16::new(x1, y0, z1),
             Vec3I16::new(x1, y0, z0),
-            Vec3I16::new(x1, y1, z1),
+            Vec3I16::new(x1, y0, z1),
             Vec3I16::new(x1, y1, z0),
+            Vec3I16::new(x1, y1, z1),
             texture,
             FaceDirection::Right,
             col,
         );
 
-        // 6. BOTTOM FACE (facing +Y, ground shadow)
+        // 5. TOP FACE (lit by overhead sunlight)
         self.draw_quad_3d_textured_gouraud(
-            Vec3I16::new(x0, y1, z1),
-            Vec3I16::new(x1, y1, z1),
+            Vec3I16::new(x0, y0, z1),
+            Vec3I16::new(x1, y0, z1),
+            Vec3I16::new(x0, y0, z0),
+            Vec3I16::new(x1, y0, z0),
+            texture,
+            FaceDirection::Top,
+            col,
+        );
+
+        // 6. FRONT FACE (facing -Z towards camera - drawn LAST to eliminate sorting artifacts)
+        self.draw_quad_3d_textured_gouraud(
+            Vec3I16::new(x0, y0, z0),
+            Vec3I16::new(x1, y0, z0),
             Vec3I16::new(x0, y1, z0),
             Vec3I16::new(x1, y1, z0),
             texture,
-            FaceDirection::Bottom,
+            FaceDirection::Front,
             col,
         );
+    }
+
+    /// Render a wall box with hidden-face culling against adjacent solid wall cells.
+    pub fn draw_wall_box_textured(
+        &self,
+        wx: i32,
+        wz: i32,
+        w: i32,
+        h: i32,
+        d: i32,
+        texture: TextureId,
+        col: (u8, u8, u8),
+        cull_left: bool,
+        cull_right: bool,
+        cull_front: bool,
+        cull_back: bool,
+    ) {
+        if !self.budget_available() {
+            return;
+        }
+        self.spend_quads(BOX_FACE_QUADS);
+
+        let x0 = wx as i16;
+        let x1 = (wx + w) as i16;
+        let y0 = -h as i16;
+        let y1 = 0i16;
+        let z0 = wz as i16;
+        let z1 = (wz + d) as i16;
+
+        // 1. BACK FACE (facing +Z away from camera)
+        if !cull_back {
+            self.draw_quad_3d_textured_gouraud(
+                Vec3I16::new(x1, y0, z1),
+                Vec3I16::new(x0, y0, z1),
+                Vec3I16::new(x1, y1, z1),
+                Vec3I16::new(x0, y1, z1),
+                texture,
+                FaceDirection::Back,
+                col,
+            );
+        }
+
+        // 2. LEFT FACE (facing -X)
+        if !cull_left {
+            self.draw_quad_3d_textured_gouraud(
+                Vec3I16::new(x0, y0, z1),
+                Vec3I16::new(x0, y0, z0),
+                Vec3I16::new(x0, y1, z1),
+                Vec3I16::new(x0, y1, z0),
+                texture,
+                FaceDirection::Left,
+                col,
+            );
+        }
+
+        // 3. RIGHT FACE (facing +X)
+        if !cull_right {
+            self.draw_quad_3d_textured_gouraud(
+                Vec3I16::new(x1, y0, z0),
+                Vec3I16::new(x1, y0, z1),
+                Vec3I16::new(x1, y1, z0),
+                Vec3I16::new(x1, y1, z1),
+                texture,
+                FaceDirection::Right,
+                col,
+            );
+        }
+
+        // 4. TOP FACE (lit by overhead sunlight)
+        self.draw_quad_3d_textured_gouraud(
+            Vec3I16::new(x0, y0, z1),
+            Vec3I16::new(x1, y0, z1),
+            Vec3I16::new(x0, y0, z0),
+            Vec3I16::new(x1, y0, z0),
+            texture,
+            FaceDirection::Top,
+            col,
+        );
+
+        // 5. FRONT FACE (facing -Z towards camera - drawn LAST to eliminate sorting artifacts)
+        if !cull_front {
+            self.draw_quad_3d_textured_gouraud(
+                Vec3I16::new(x0, y0, z0),
+                Vec3I16::new(x1, y0, z0),
+                Vec3I16::new(x0, y1, z0),
+                Vec3I16::new(x1, y1, z0),
+                texture,
+                FaceDirection::Front,
+                col,
+            );
+        }
     }
 
     /// Helper to draw a local 3D box transformed by a rotation and placed at world position.
@@ -1080,12 +1193,12 @@ impl Renderer {
         };
         // (corner quad, direction, base colour) sorted by descending depth.
         let mut faces: [(usize, usize, usize, usize, FaceDirection, (u8, u8, u8)); 6] = [
-            (0, 1, 2, 3, FaceDirection::Top, col),
-            (2, 3, 6, 7, FaceDirection::Front, f_col),
-            (1, 0, 5, 4, FaceDirection::Back, b_col),
+            (2, 3, 0, 1, FaceDirection::Top, col),
+            (3, 2, 7, 6, FaceDirection::Front, f_col),
+            (0, 1, 4, 5, FaceDirection::Back, b_col),
             (2, 0, 6, 4, FaceDirection::Left, l_col),
             (1, 3, 5, 7, FaceDirection::Right, r_col),
-            (6, 7, 4, 5, FaceDirection::Bottom, bot_col),
+            (4, 5, 6, 7, FaceDirection::Bottom, bot_col),
         ];
         // Insertion sort by descending depth: six elements, and this runs per
         // box, so the constant factor matters more than asymptotics.
@@ -1823,7 +1936,7 @@ impl Renderer {
         // readable as a threat.
         if self.dist_to(sx, sz) > ACTOR_LOD_DISTANCE {
             let col = if s.stun_timer > 0 { (50, 65, 80) } else { (90, 120, 140) };
-            self.draw_model_box(sx, sy, sz, -10, 0, -10, 20, 34, 20, &rot, col);
+            self.draw_model_box(sx, sy, sz, -10, -34, -10, 20, 34, 20, &rot, col);
             return;
         }
 
