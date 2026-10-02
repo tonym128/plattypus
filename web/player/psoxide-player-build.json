@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "emulator_revision": "45e9b14d51a9184f14e4744685c327bfa3f7396c",
-  "source_url": "https://github.com/EBonura/PSoXide-emulator/tree/45e9b14d51a9184f14e4744685c327bfa3f7396c",
+  "emulator_revision": "c7bad9322089c7ef81ce96c8528e970e749628ed",
+  "source_url": "https://github.com/EBonura/PSoXide-emulator/tree/c7bad9322089c7ef81ce96c8528e970e749628ed",
   "emulator_dirty": false,
   "components_lock_sha256": "9ca71f25d155876c9f57d2db77ac4199c49264cd3a17dbb61c605baf611608ca",
   "rustc": "rustc 1.96.0-nightly (362211dc2 2026-03-24)",
@@ -12,19 +12,19 @@
   "files": {
     "THIRD-PARTY-NOTICES.txt": {
       "bytes": 1826978,
-      "sha256": "28c94780706e7684f75948e04a1c0332db1ac6039cdf2cace53630ea8d64afc0"
+      "sha256": "fd460ca8fcee520953f5bb451a622e9b020d16d43b4553242908a0088da7627d"
     },
-    "frontend-9a10ae41d56ecacf.js": {
-      "bytes": 102965,
-      "sha256": "daadc857fba649afee05105d4c3e529d7f665912b0548563b6ff2809f4443a5f"
+    "frontend-856b85e38d578374.js": {
+      "bytes": 155476,
+      "sha256": "fc1476b29789c9e8703be1e9774c8e1cc52060f7ce59f50a8a0cb4d0313e9891"
     },
-    "frontend-9a10ae41d56ecacf_bg.wasm": {
-      "bytes": 7190037,
-      "sha256": "2ad45cc3c665632ee8fec521819cc6f783dd41c6077a84fdd4fdf6a0d3b84da5"
+    "frontend-856b85e38d578374_bg.wasm": {
+      "bytes": 7595266,
+      "sha256": "c5e3c3937d12226cb3ffb7ad03c486c89e6e99c8e6013afe82ab3f735c1869ed"
     },
     "index.html": {
       "bytes": 21398,
-      "sha256": "ae4ae29f1370c86a5104b8d5c9dc6037b32773b4fcdc0eda576ccf734207118b"
+      "sha256": "2c894642118a9fba9497603bb17b1dab953b41df88d91a0009ada979079e52ad"
     },
     "psoxide-app-icon-99e5b83a2cf87470.png": {
       "bytes": 107591,
@@ -47,5 +47,5 @@
       "sha256": "82dc21e5e00f9252f36ffce74110c5f75ae725cd5cd931a866bd22cf27ea4de2"
     }
   },
-  "total_bytes": 9257840
+  "total_bytes": 9715580
 }
