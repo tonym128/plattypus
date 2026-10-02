@@ -384,18 +384,22 @@ impl ExcavatorBoss {
 
     /// True while the hull is open to damage.
     pub fn is_vulnerable(&self) -> bool {
-        self.active && !self.is_defeated() && matches!(self.state, ExcavatorState::Venting(_))
+        self.active
+            && !self.is_defeated()
+            && matches!(self.state, ExcavatorState::Venting(_) | ExcavatorState::Exposed)
     }
 
-    /// Index of the engine within striking distance of a world position, if any.
+    /// Index of an active, surviving engine within striking distance of a world position, if any.
     pub fn engine_at(&self, wx: i32, wz: i32) -> Option<usize> {
         if !self.active {
             return None;
         }
         EXCAVATOR_ENGINE_OFFSETS
             .iter()
-            .position(|(dx, dz)| {
-                (wx - (self.x + dx)).abs() <= EXCAVATOR_ENGINE_HIT_RADIUS
+            .enumerate()
+            .position(|(i, (dx, dz))| {
+                self.engine_hp[i] > 0
+                    && (wx - (self.x + dx)).abs() <= EXCAVATOR_ENGINE_HIT_RADIUS
                     && (wz - (self.z + dz)).abs() <= EXCAVATOR_ENGINE_HIT_RADIUS
             })
     }

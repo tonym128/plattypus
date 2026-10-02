@@ -2041,7 +2041,15 @@ fn main() {
         }
         impl Excavator {
             fn vulnerable(&self) -> bool {
-                self.health > 0 && matches!(self.state, State::Venting(_))
+                self.health > 0 && matches!(self.state, State::Venting(_) | State::Exposed)
+            }
+            fn engine_at(&self, wx: i32, wz: i32) -> Option<usize> {
+                const OFFSETS: [(i32, i32); 3] = [(-90, 0), (0, -70), (90, 0)];
+                OFFSETS.iter().enumerate().position(|(i, (dx, dz))| {
+                    self.engine_hp[i] > 0
+                        && (wx - dx).abs() <= 40
+                        && (wz - dz).abs() <= 40
+                })
             }
             fn damage_engine(&mut self, i: usize) -> bool {
                 if i >= ENGINES || self.engine_hp[i] == 0 {
@@ -2070,6 +2078,7 @@ fn main() {
 
         // The hull is untouchable while the shields hold.
         assert!(!e.vulnerable(), "the hull must be closed at the start");
+        assert_eq!(e.engine_at(0, -70), Some(1), "intact engine must be targetable");
 
         // Each engine takes two hits, and only the killing blow opens a window.
         assert!(!e.damage_engine(0), "first hit must not destroy the engine");
@@ -2077,6 +2086,7 @@ fn main() {
         assert!(!e.vulnerable(), "a single hit must not open the hull");
         assert!(e.damage_engine(0), "the second hit must destroy the engine");
         assert!(e.vulnerable(), "destroying an engine must open the hull");
+        assert_eq!(e.engine_at(-90, 0), None, "destroyed engine must not intercept strikes");
 
         // Every engine is independently targetable.
         for i in 1..ENGINES {
@@ -2088,7 +2098,19 @@ fn main() {
         assert_eq!(e.engine_hp, [0; ENGINES]);
         assert!(e.shields_down, "shields_down must be set once every engine is gone");
         assert_eq!(e.state, State::Exposed, "the final engine must not just vent");
-        assert!(!e.vulnerable(), "Exposed is a distinct state from Venting");
+        assert!(e.vulnerable(), "the hull must be vulnerable once shields are down in Exposed state");
+
+        // All engine locations now yield None so attacks pass through to hull:
+        assert_eq!(e.engine_at(0, -70), None);
+        assert_eq!(e.engine_at(90, 0), None);
+
+        // The exposed hull takes damage until defeated.
+        while e.health > 0 {
+            assert!(e.vulnerable());
+            e.health -= 1;
+        }
+        assert_eq!(e.health, 0);
+        assert!(!e.vulnerable(), "defeated machine is no longer vulnerable");
 
         // An already-destroyed engine cannot be hit again.
         assert!(!e.damage_engine(0), "a destroyed engine must not be re-killed");

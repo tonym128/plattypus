@@ -21,7 +21,7 @@ pub const HITBOX_CONDUIT_RADIUS: i32 = 48;
 pub const HITBOX_MECH_CORE_RADIUS: i32 = 44;
 pub const HITBOX_JETSKI_RADIUS: i32 = 48;
 pub const HITBOX_SNIPER_RADIUS: i32 = 56;
-pub const HITBOX_EXCAVATOR_RADIUS: i32 = 60;
+pub const HITBOX_EXCAVATOR_RADIUS: i32 = 90;
 
 /// How close an alerted sentry must be to strike, and how long it waits
 /// between swings.
@@ -696,12 +696,16 @@ impl Platypus {
                         let dz = (self.z - exc.z).abs();
                         if dx < HITBOX_EXCAVATOR_RADIUS && dz < HITBOX_EXCAVATOR_RADIUS {
                             exc.hit_timer = 30;
+                            let (ex, ez) = (exc.x, exc.z);
                             if exc.health > 1 {
                                 exc.health -= 1;
                                 self.score += SCORE_EXCAVATOR_HIT;
                                 self.screen_shake = 12;
                                 self.trigger_rumble_large(24, 255);
                                 AudioManager::play_metal();
+                                for _ in 0..6 {
+                                    entities.spawn_particle(ex, -22, ez, 0, -3, 0, 26, (255, 180, 50), 4);
+                                }
                             } else {
                                 exc.health = 0;
                                 exc.state = crate::entities::ExcavatorState::Defeated(crate::entities::EXCAVATOR_DEATH_FRAMES);
@@ -709,6 +713,9 @@ impl Platypus {
                                 self.screen_shake = 20;
                                 self.trigger_rumble_large(40, 255);
                                 AudioManager::play_fanfare();
+                                for _ in 0..12 {
+                                    entities.spawn_particle(ex, -22, ez, 0, -4, 0, 32, (255, 200, 60), 5);
+                                }
                             }
                         }
                     }
