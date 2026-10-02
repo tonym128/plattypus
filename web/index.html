@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PLATTYPUS (PS1) - Tactical Espionage Action | Web Arcade</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" type="image/png" href="assets/disc_face_art.svg">
+</head>
+<body>
+
+  <!-- Top Header -->
+  <header>
+    <div class="header-container">
+      <div class="logo-group">
+        <div class="ps-badge">
+          <div class="ps-logo-dots">
+            <span>▲</span><span>●</span><span>✖</span><span>■</span>
+          </div>
+          PLAYSTATION
+        </div>
+        <div class="title-group">
+          <h1>PLATTYPUS</h1>
+          <p>Tactical Espionage Action &bull; Developed with PSoXide</p>
+        </div>
+      </div>
+      <div class="header-badges">
+        <div class="badge pulse">WASM SIMD READY</div>
+        <div class="badge">60 FPS NTSC/PAL</div>
+        <div class="badge">DUALSHOCK SUPPORT</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Showcase Container -->
+  <main class="main-container">
+
+    <!-- Arcade Monitor / Emulation Stage -->
+    <section class="arcade-section">
+      <div class="arcade-bezel">
+        <div class="bezel-header">
+          <div class="bezel-power-led">
+            <div class="led-indicator" id="status-led"></div>
+            <span id="status-text">INITIALIZING CONSOLE...</span>
+          </div>
+          <span>SONY TRINITRON HR MONITOR &bull; 240P RGB</span>
+        </div>
+
+        <!-- Monitor Screen with Shader Overlay -->
+        <div class="screen-container">
+          <iframe id="emulator-frame"
+                  src="player/?embed=1&disc=../roms/plattypus.exe"
+                  title="Plattypus PS1 Web Player"
+                  allow="autoplay; gamepad; fullscreen"
+                  loading="eager">
+          </iframe>
+          <div id="crt-overlay" class="crt-overlay crt-scanlines"></div>
+        </div>
+
+        <!-- Arcade Control Toolbar -->
+        <div class="arcade-toolbar">
+          <div class="toolbar-group">
+            <select id="disc-select" class="select-tool" title="Select Game Disc Format">
+              <option value="../roms/plattypus.exe">🚀 Fast Boot (Standalone EXE - 614 KB)</option>
+              <option value="../roms/plattypus.bin">💿 Master CD-ROM (Full Audio & FMVs - 29 MB)</option>
+            </select>
+            <button id="btn-reset" class="btn-tool" title="Cold Boot / Reset PS1">🔄 Reset</button>
+            <button id="btn-mute" class="btn-tool" title="Mute/Unmute Audio">🔊 Audio</button>
+          </div>
+
+          <div class="toolbar-group">
+            <label for="crt-select" style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">CRT FILTER:</label>
+            <select id="crt-select" class="select-tool">
+              <option value="scanlines" selected>Scanlines</option>
+              <option value="trinitron">Retro Trinitron Glow</option>
+              <option value="off">Off (Crisp Raw Pixels)</option>
+            </select>
+            <button id="btn-fullscreen" class="btn-tool" title="Toggle Fullscreen">⛶ Fullscreen</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Controller Visualizer & Input Mapping -->
+    <section class="controller-section">
+      <!-- Input Controls Table -->
+      <div>
+        <h2 class="section-title">Controller & Keyboard Reference</h2>
+        <table class="controls-table">
+          <thead>
+            <tr>
+              <th>PlayStation Action</th>
+              <th>DualShock Button</th>
+              <th>Keyboard Key</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Directional Movement / Steering</td>
+              <td>D-Pad / Left Analog Stick</td>
+              <td><span class="key-badge">W</span> <span class="key-badge">A</span> <span class="key-badge">S</span> <span class="key-badge">D</span> / Arrows</td>
+            </tr>
+            <tr>
+              <td>Jump / Surface Water / Select</td>
+              <td><span class="ps-symbol sym-cross">✖ Cross</span></td>
+              <td><span class="key-badge">K</span> or <span class="key-badge">X</span></td>
+            </tr>
+            <tr>
+              <td>Crouch / Belly Crawl / Submerge</td>
+              <td><span class="ps-symbol sym-circle">● Circle</span></td>
+              <td><span class="key-badge">L</span> or <span class="key-badge">C</span></td>
+            </tr>
+            <tr>
+              <td>Venom Spur Strike / Silent Takedown</td>
+              <td><span class="ps-symbol sym-square">■ Square</span></td>
+              <td><span class="key-badge">J</span> or <span class="key-badge">Z</span></td>
+            </tr>
+            <tr>
+              <td>Electro-Reception Radar / Sonar Pulse</td>
+              <td><span class="ps-symbol sym-triangle">▲ Triangle</span></td>
+              <td><span class="key-badge">I</span> or <span class="key-badge">V</span></td>
+            </tr>
+            <tr>
+              <td>Equip / Unequip Cardboard Box</td>
+              <td><strong>L1 Shoulder</strong></td>
+              <td><span class="key-badge">Q</span></td>
+            </tr>
+            <tr>
+              <td>Pause Menu / Mission Status</td>
+              <td><strong>START</strong></td>
+              <td><span class="key-badge">Enter</span></td>
+            </tr>
+            <tr>
+              <td>Soliton Radar / CODEC Radio</td>
+              <td><strong>SELECT</strong></td>
+              <td><span class="key-badge">Shift</span> / <span class="key-badge">Tab</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Live Virtual DualShock Controller -->
+      <div class="gamepad-visualizer">
+        <h2 class="section-title" style="align-self: flex-start;">Live Controller HUD</h2>
+        <div class="controller-svg-wrap">
+          <svg viewBox="0 0 360 220" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- Controller Base Body -->
+            <path d="M 60 40 C 30 40, 20 90, 20 150 C 20 190, 45 210, 70 210 C 95 210, 110 170, 120 140 L 240 140 C 250 170, 265 210, 290 210 C 315 210, 340 190, 340 150 C 340 90, 330 40, 300 40 C 270 40, 250 60, 230 60 L 130 60 C 110 60, 90 40, 60 40 Z" fill="#242a38" stroke="#3b4459" stroke-width="3"/>
+            
+            <!-- Shoulders L1 / R1 -->
+            <rect id="svg-l1" x="50" y="24" width="45" height="12" rx="4" fill="#3b4459" stroke="#505c75" stroke-width="2"/>
+            <rect id="svg-r1" x="265" y="24" width="45" height="12" rx="4" fill="#3b4459" stroke="#505c75" stroke-width="2"/>
+            <text x="65" y="34" font-size="9" fill="#94a3b8" font-family="monospace">L1</text>
+            <text x="280" y="34" font-size="9" fill="#94a3b8" font-family="monospace">R1</text>
+
+            <!-- D-Pad Base & Directional Buttons -->
+            <circle cx="85" cy="100" r="32" fill="#1b202c"/>
+            <path id="svg-dpad-up" d="M 77 72 H 93 V 86 H 77 Z" fill="#38435a" stroke="#4d5c7b"/>
+            <path id="svg-dpad-down" d="M 77 114 H 93 V 128 H 77 Z" fill="#38435a" stroke="#4d5c7b"/>
+            <path id="svg-dpad-left" d="M 57 92 H 71 V 108 H 57 Z" fill="#38435a" stroke="#4d5c7b"/>
+            <path id="svg-dpad-right" d="M 99 92 H 113 V 108 H 99 Z" fill="#38435a" stroke="#4d5c7b"/>
+
+            <!-- Center Buttons (Select / Analog / Start) -->
+            <rect id="svg-select" x="145" y="94" width="18" height="6" rx="3" fill="#38435a"/>
+            <rect id="svg-start" x="197" y="94" width="18" height="6" rx="3" fill="#38435a"/>
+            <text x="142" y="88" font-size="7" fill="#64748b" font-family="monospace">SELECT</text>
+            <text x="195" y="88" font-size="7" fill="#64748b" font-family="monospace">START</text>
+            <circle cx="180" cy="115" r="5" fill="#e11d48"/>
+
+            <!-- Action Buttons (Triangle, Circle, Cross, Square) -->
+            <circle cx="275" cy="100" r="32" fill="#1b202c"/>
+            <!-- Triangle (Top) -->
+            <g id="svg-triangle">
+              <circle cx="275" cy="78" r="9" fill="#32e096" opacity="0.3"/>
+              <circle cx="275" cy="78" r="8" fill="#1b202c"/>
+              <path d="M 275 73 L 279 81 L 271 81 Z" fill="none" stroke="#32e096" stroke-width="2"/>
+            </g>
+            <!-- Circle (Right) -->
+            <g id="svg-circle">
+              <circle cx="297" cy="100" r="9" fill="#ff4d6a" opacity="0.3"/>
+              <circle cx="297" cy="100" r="8" fill="#1b202c"/>
+              <circle cx="297" cy="100" r="4.5" fill="none" stroke="#ff4d6a" stroke-width="2"/>
+            </g>
+            <!-- Cross (Bottom) -->
+            <g id="svg-cross">
+              <circle cx="275" cy="122" r="9" fill="#4d88ff" opacity="0.3"/>
+              <circle cx="275" cy="122" r="8" fill="#1b202c"/>
+              <path d="M 271.5 118.5 L 278.5 125.5 M 278.5 118.5 L 271.5 125.5" stroke="#4d88ff" stroke-width="2"/>
+            </g>
+            <!-- Square (Left) -->
+            <g id="svg-square">
+              <circle cx="253" cy="100" r="9" fill="#ff77d2" opacity="0.3"/>
+              <circle cx="253" cy="100" r="8" fill="#1b202c"/>
+              <rect x="249.5" y="96.5" width="7" height="7" fill="none" stroke="#ff77d2" stroke-width="2"/>
+            </g>
+
+            <!-- Dual Analog Sticks -->
+            <g id="svg-stick-l">
+              <circle cx="135" cy="155" r="18" fill="#131720" stroke="#2f374a" stroke-width="2"/>
+              <circle cx="135" cy="155" r="12" fill="#242c3d"/>
+            </g>
+            <g id="svg-stick-r">
+              <circle cx="225" cy="155" r="18" fill="#131720" stroke="#2f374a" stroke-width="2"/>
+              <circle cx="225" cy="155" r="12" fill="#242c3d"/>
+            </g>
+          </svg>
+        </div>
+        <div class="controller-status-bar">
+          <div id="gamepad-status" class="status-dot"></div>
+          <span id="gamepad-name">No Gamepad Detected (Keyboard Active)</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Information Hub / Manual & Media Tabs -->
+    <section class="hub-section">
+      <div class="hub-tabs">
+        <button class="tab-btn active" data-tab="tab-manual">📖 Tactical Manual</button>
+        <button class="tab-btn" data-tab="tab-ranks">🏆 Stealth Ranks</button>
+        <button class="tab-btn" data-tab="tab-gallery">🎨 Jewel Case & Artwork</button>
+        <button class="tab-btn" data-tab="tab-downloads">💾 Disc Downloads & Hardware</button>
+      </div>
+
+      <!-- Tab 1: Field Manual -->
+      <div id="tab-manual" class="tab-content active">
+        <h3>Mission Briefing & Operative Dossier</h3>
+        <p>
+          You are <strong>Platty the Platypus</strong>, an amphibious operative equipped with natural bio-electrical sensory organs and venomous calcaneus spurs. 
+          Deep beneath Victoria's Yarra Valley, the malevolent <strong>Dr. Toad-Dozer</strong> has enclosed the Healesville wetlands inside an automated perimeter, 
+          deploying guard patrols, drone networks, and industrial searchlight mechs. Your mission: infiltrate through the sanctuary drainage network, cross the roaring Yarra rapids, 
+          traverse Melbourne's midnight thoroughfares, and reach the ocean estuary to rescue your newborn sibling!
+        </p>
+
+        <div class="features-grid">
+          <div class="feature-card">
+            <h5>⚡ Electro-Reception Radar</h5>
+            <p>Hold <span class="ps-symbol sym-triangle">▲</span> to charge your bill's electrolocation ampullae. Release to emit a sonar pulse that stuns nearby sentries, blinds drones, and reveals hidden yabbies through walls.</p>
+          </div>
+          <div class="feature-card">
+            <h5>📦 Cardboard Box Disguise</h5>
+            <p>Press <strong>L1</strong> while stationary on solid ground to slip inside "The Bill Box". Guards cannot identify you as long as you remain motionless within their vision cones.</p>
+          </div>
+          <div class="feature-card">
+            <h5>💥 Venom Spur Strike (CQC)</h5>
+            <p>Sneak behind patrol guards and press <span class="ps-symbol sym-square">■</span> to administer a 15-second silent knockout with your hind ankle spurs (+500 points!).</p>
+          </div>
+          <div class="feature-card">
+            <h5>🌊 Amphibious Diving</h5>
+            <p>Platty can swim and dive into water channels. Press <span class="ps-symbol sym-circle">●</span> to dive submerged beneath searchlights. Keep an eye on your O2 gauge before surfacing!</p>
+          </div>
+        </div>
+
+        <h4>Predator & Boss Roster</h4>
+        <p>
+          <strong>Act 1-3: Searchlight Mech</strong> &bull; Heavy security walker with triple power matrix conduits. Destroy the 3 generators before targeting the rear coolant core.<br>
+          <strong>Act 2-3: Park Ranger Jet Ski</strong> &bull; High-speed watercraft boss. Lure into river whirlpools to stall its engine, then strike.<br>
+          <strong>Act 3-3: Sniper Kookaburra</strong> &bull; Rooftop marksman. Track the laser sight and strike when reloading.<br>
+          <strong>Act 4-3: Dr. Toad-Dozer's Mega Excavator</strong> &bull; The final mechanical fortress. Overheat its engine pods to bring down the central cockpit!
+        </p>
+      </div>
+
+      <!-- Tab 2: Stealth Ranks -->
+      <div id="tab-ranks" class="tab-content">
+        <h3>Campaign Codename & Grading System</h3>
+        <p>Upon completing the campaign or individual acts, your performance is graded against clear times and stealth alerts:</p>
+        
+        <table class="controls-table" style="margin-top: 1rem;">
+          <thead>
+            <tr>
+              <th>Codename</th>
+              <th>Rank</th>
+              <th>Requirement</th>
+              <th>Evaluation Profile</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong style="color: #ffd700;">FOX</strong></td>
+              <td><span class="key-badge" style="color: #ffd700; border-color: #ffd700;">S-RANK</span></td>
+              <td>0 Alerts &bull; Time &lt; 10 min</td>
+              <td>Ultimate Ghost Operative &bull; Zero Detection</td>
+            </tr>
+            <tr>
+              <td><strong>PLATYPUS</strong></td>
+              <td><span class="key-badge">A-RANK</span></td>
+              <td>&le; 2 Alerts &bull; Time &lt; 15 min</td>
+              <td>True Amphibious Spec-Ops Master</td>
+            </tr>
+            <tr>
+              <td><strong>ECHIDNA</strong></td>
+              <td><span class="key-badge">A-RANK</span></td>
+              <td>&le; 4 Alerts &bull; Time &lt; 20 min</td>
+              <td>Spiny Defensive Expert</td>
+            </tr>
+            <tr>
+              <td><strong>WOMBAT</strong></td>
+              <td><span class="key-badge">B-RANK</span></td>
+              <td>&le; 6 Alerts &bull; Time &lt; 25 min</td>
+              <td>Sturdy Subterranean Infiltrator</td>
+            </tr>
+            <tr>
+              <td><strong>KOALA</strong></td>
+              <td><span class="key-badge">B-RANK</span></td>
+              <td>&le; 8 Alerts &bull; Time &lt; 30 min</td>
+              <td>Methodical Tree Climber</td>
+            </tr>
+            <tr>
+              <td><strong>SLOTH</strong></td>
+              <td><span class="key-badge">C-RANK</span></td>
+              <td>&gt; 8 Alerts or Time &ge; 30 min</td>
+              <td>Take Your Time, Platty!</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Tab 3: Artwork & Packaging Gallery -->
+      <div id="tab-gallery" class="tab-content">
+        <h3>Original PlayStation Packaging & Physical Media</h3>
+        <p>Complete authentic PlayStation jewel case designs and disc face specifications drafted for retail manufacturing:</p>
+
+        <div class="gallery-grid">
+          <div class="art-card">
+            <img src="assets/jewel_case_cover_ntsc.svg" alt="NTSC Front Jewel Case">
+            <span>NTSC-U Front Jewel Case Art</span>
+          </div>
+          <div class="art-card">
+            <img src="assets/disc_face_art.svg" alt="CD-ROM Disc Face Art">
+            <span>Direct Silk-Screened Disc Face</span>
+          </div>
+          <div class="art-card">
+            <img src="assets/jewel_case_back_ntsc.svg" alt="NTSC Back Cover Insert">
+            <span>Rear Inlay & Barcode Packaging</span>
+          </div>
+          <div class="art-card">
+            <img src="assets/frontscreen.png" alt="In-Game Title Art">
+            <span>Hi-Res 16-Bit Title Screen Canvas</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 4: Downloads & Hardware Guide -->
+      <div id="tab-downloads" class="tab-content">
+        <h3>Master Disc Images & Hardware Deployment</h3>
+        <p>Run Plattypus natively on genuine PlayStation 1 hardware or your preferred desktop emulator:</p>
+
+        <div class="download-grid">
+          <div class="download-card">
+            <div>
+              <h4>Standalone PSX-EXE</h4>
+              <p>MIPS R3000 bare-metal executable. Ideal for fast network boot via Unirom, Caetla, or emulator rapid testing.</p>
+            </div>
+            <a href="roms/plattypus.exe" download="plattypus.exe" class="btn-download">
+              ⬇ Download plattypus.exe (614 KB)
+            </a>
+          </div>
+
+          <div class="download-card">
+            <div>
+              <h4>Master Bootable CD (.CUE / .BIN)</h4>
+              <p>Mastered Red Book CD image including CDDA Audio soundtrack and 15fps MDEC/XA cinematic sequences.</p>
+            </div>
+            <div style="display: flex; gap: 0.5rem; flex-direction: column;">
+              <a href="roms/plattypus.cue" download="plattypus.cue" class="btn-download">
+                ⬇ Download plattypus.cue (Index)
+              </a>
+              <a href="roms/plattypus.bin" download="plattypus.bin" class="btn-download" style="background: linear-gradient(90deg, #10b981 0%, #059669 100%);">
+                ⬇ Download plattypus.bin (29 MB)
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <h4 style="margin-top: 2rem;">Hardware Installation Instructions</h4>
+        <ul style="color: var(--text-muted); font-size: 0.9rem; margin-left: 1.5rem; margin-top: 0.5rem; line-height: 1.8;">
+          <li><strong>Optical Drive Emulators (xStation, MODE, PSIO):</strong> Place <code>plattypus.cue</code> and <code>plattypus.bin</code> inside your SD card game folder. Compatible with NTSC-U, NTSC-J, and PAL consoles with automatic 60Hz/50Hz clock scaling.</li>
+          <li><strong>Physical CD-R:</strong> Burn <code>plattypus.cue</code> using ImgBurn at 2x or 4x speed onto high quality CD-R media. Boot via modchip or Tonyhax international soft-exploit.</li>
+          <li><strong>DuckStation / RetroArch:</strong> Open DuckStation &bull; File &bull; Start Disc &bull; Select <code>plattypus.cue</code>. Enable PGXP Geometry Precision for ultra-smooth perspective polygon rendering.</li>
+        </ul>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer>
+    <p>PLATTYPUS &copy; 2026. Built with PSoXide &bull; Powered by WebAssembly SIMD128 & WebGL &bull; Mastered for Sony PlayStation</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -16,3 +16,4 @@
 .cargo-build-lock
 .cargo-lock
 __pycache__/
+/scratch/

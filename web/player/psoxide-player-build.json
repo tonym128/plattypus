@@ -1,0 +1,51 @@
+{
+  "schema": 1,
+  "emulator_revision": "45e9b14d51a9184f14e4744685c327bfa3f7396c",
+  "source_url": "https://github.com/EBonura/PSoXide-emulator/tree/45e9b14d51a9184f14e4744685c327bfa3f7396c",
+  "emulator_dirty": false,
+  "components_lock_sha256": "9ca71f25d155876c9f57d2db77ac4199c49264cd3a17dbb61c605baf611608ca",
+  "rustc": "rustc 1.96.0-nightly (362211dc2 2026-03-24)",
+  "trunk": "trunk 0.21.14",
+  "wasm_bindgen": "0.2.123",
+  "wasm_opt": "version_125",
+  "rustflags": "-C target-feature=+simd128 -C link-arg=-zstack-size=16777216",
+  "files": {
+    "THIRD-PARTY-NOTICES.txt": {
+      "bytes": 1826978,
+      "sha256": "28c94780706e7684f75948e04a1c0332db1ac6039cdf2cace53630ea8d64afc0"
+    },
+    "frontend-9a10ae41d56ecacf.js": {
+      "bytes": 102965,
+      "sha256": "daadc857fba649afee05105d4c3e529d7f665912b0548563b6ff2809f4443a5f"
+    },
+    "frontend-9a10ae41d56ecacf_bg.wasm": {
+      "bytes": 7190037,
+      "sha256": "2ad45cc3c665632ee8fec521819cc6f783dd41c6077a84fdd4fdf6a0d3b84da5"
+    },
+    "index.html": {
+      "bytes": 21398,
+      "sha256": "ae4ae29f1370c86a5104b8d5c9dc6037b32773b4fcdc0eda576ccf734207118b"
+    },
+    "psoxide-app-icon-99e5b83a2cf87470.png": {
+      "bytes": 107591,
+      "sha256": "d8fa0e8bf3d84897b5a83ff03a5c74506cc3d975009629af15bda2a8b62172d9"
+    },
+    "snippets/frontend-aebe9231459ec4d1/inline0.js": {
+      "bytes": 1933,
+      "sha256": "b01462236278fd2edd26e371e633ab1b1c06df8fbc3f549b8bb7923078c5a0c0"
+    },
+    "snippets/frontend-aebe9231459ec4d1/inline1.js": {
+      "bytes": 1430,
+      "sha256": "5521d3f54cfadb67070c78b27986d8d7086b3601e62e3a512645026fa68ef9b8"
+    },
+    "snippets/frontend-aebe9231459ec4d1/inline2.js": {
+      "bytes": 137,
+      "sha256": "0c40dee7defc54528447a1f51a3867c084df246f4ae28fe9da078266e78145d0"
+    },
+    "snippets/frontend-aebe9231459ec4d1/inline3.js": {
+      "bytes": 5371,
+      "sha256": "82dc21e5e00f9252f36ffce74110c5f75ae725cd5cd931a866bd22cf27ea4de2"
+    }
+  },
+  "total_bytes": 9257840
+}

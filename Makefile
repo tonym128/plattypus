@@ -22,7 +22,7 @@ DUCKSTATION_APPIMAGES ?= $(DUCKSTATION_APPIMAGE) \
                          $(HOME)/Downloads/DuckStation-x64.AppImage \
                          $(HOME)/Applications/DuckStation.AppImage
 
-.PHONY: all exe disc clean run test help check-media video-bench video-bench-build
+.PHONY: all exe disc clean run test help check-media video-bench video-bench-build web
 
 all: disc
 
@@ -31,6 +31,7 @@ help:
 	@echo "  make exe         - Compile PSX-EXE (MIPS R3000 bare-metal binary)"
 	@echo "  make disc        - Master bootable PS1 disc image (dist/plattypus.{bin,cue})"
 	@echo "  make test        - Run automated host-side game logic test suite"
+	@echo "  make web         - Serve Plattypus Web Arcade on http://localhost:8080"
 	@echo "  make run         - Run disc in DuckStation, RetroArch, or EMULATOR=... emulator"
 	@echo ""
 	@echo "Emulator selection for 'make run' (first match wins):"
@@ -44,6 +45,12 @@ help:
 	@echo "Video performance options:"
 	@echo "  RUNS=N     - repeat the measurement N times and report the median (default 1)"
 	@echo "  SECONDS=N  - wall-clock budget per run (default 150; a full run takes ~60s)"
+
+web:
+	@mkdir -p $(ROOT)/web/roms
+	@cp $(DIST)/plattypus.exe $(DIST)/plattypus.cue $(DIST)/plattypus.bin $(ROOT)/web/roms/ 2>/dev/null || true
+	@echo "Serving Plattypus Web Arcade on http://localhost:8080 ..."
+	@python3 -m http.server 8080 --directory $(ROOT)/web
 
 test:
 	cargo run --manifest-path $(ROOT)/tools/test_game_logic/Cargo.toml
