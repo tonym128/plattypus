@@ -256,6 +256,7 @@ impl VideoPlayer {
     }
 
     pub fn start_video(&mut self, kind: VideoKind) {
+        crate::audio::AudioManager::stop_all();
         psx_rt::tty::println("[VIDEO] start_video() called");
         self.kind = kind;
         self.reset_for_playback();

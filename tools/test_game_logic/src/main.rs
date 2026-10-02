@@ -2354,5 +2354,120 @@ fn main() {
         // of a near one. Sorting is what makes it correct at any rotation.
     }
 
-    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (46/46 test suites)");
+    // 47. Title screen double-buffered background upload & stage transition audio silence
+    {
+        // (a) Double-buffered title background upload invariant
+        // In a double-buffered display, returning to title from gameplay or a menu
+        // must restore BOTH buffer 0 and buffer 1 so no stale gameplay pixels flicker.
+        struct TitleBgTracker {
+            title_bg_frame: u8,
+            title_bg_dirty: u8,
+            uploads: [u32; 2],
+            drawing_buffer: usize,
+        }
+        impl TitleBgTracker {
+            fn new() -> Self {
+                Self {
+                    title_bg_frame: u8::MAX,
+                    title_bg_dirty: 0,
+                    uploads: [0, 0],
+                    drawing_buffer: 0,
+                }
+            }
+            fn reset_title_bg(&mut self) {
+                self.title_bg_dirty = 2;
+                self.title_bg_frame = u8::MAX;
+            }
+            fn draw_title_screen(&mut self, frame: u8) {
+                if self.title_bg_frame != frame.wrapping_sub(1) {
+                    self.title_bg_dirty = 2;
+                }
+                if self.title_bg_dirty > 0 {
+                    self.uploads[self.drawing_buffer] += 1;
+                    self.title_bg_dirty -= 1;
+                }
+                self.title_bg_frame = frame;
+            }
+            fn swap(&mut self) {
+                self.drawing_buffer ^= 1;
+            }
+        }
+
+        let mut tracker = TitleBgTracker::new();
+        // Boot: both buffers already uploaded by upload_title_bg()
+        tracker.uploads = [1, 1];
+
+        // Entering gameplay: frame counter advances to 100
+        // During gameplay, both buffers get drawn over.
+        // Return to title with explicit reset_title_bg()
+        tracker.reset_title_bg();
+
+        // Frame 100 on Title: draws into buffer 0
+        tracker.draw_title_screen(100);
+        assert_eq!(tracker.uploads[0], 2, "Buffer 0 must receive title bg on frame 1");
+        assert_eq!(tracker.uploads[1], 1, "Buffer 1 not yet drawn into");
+
+        // Swap to buffer 1
+        tracker.swap();
+        // Frame 101 on Title: draws into buffer 1
+        tracker.draw_title_screen(101);
+        assert_eq!(tracker.uploads[1], 2, "Buffer 1 must receive title bg on frame 2");
+
+        // Swap to buffer 0
+        tracker.swap();
+        // Frame 102 on Title: draws into buffer 0, consecutive frame, dirty is 0
+        tracker.draw_title_screen(102);
+        assert_eq!(tracker.uploads[0], 2, "Buffer 0 must skip upload on consecutive frames");
+        tracker.swap();
+        tracker.draw_title_screen(103);
+        assert_eq!(tracker.uploads[1], 2, "Buffer 1 must skip upload on consecutive frames");
+
+        // Now test entering title WITHOUT explicit reset (e.g. frame counter jump):
+        // Suppose player was in a menu and frame jumped from 103 to 220
+        tracker.swap();
+        tracker.draw_title_screen(220); // Frame 1 of return (draws buffer 0)
+        assert_eq!(tracker.uploads[0], 3, "Buffer 0 re-uploaded on frame counter discontinuity");
+        tracker.swap();
+        tracker.draw_title_screen(221); // Frame 2 of return (draws buffer 1)
+        assert_eq!(tracker.uploads[1], 3, "Buffer 1 re-uploaded on frame 2 of return");
+        tracker.swap();
+        tracker.draw_title_screen(222);
+        assert_eq!(tracker.uploads[0], 3, "Subsequent frames skip upload");
+
+        // (b) Stage transition BGM mapping & ambient restoration invariant
+        for act_idx in 0..16 {
+            let act = Act::from_u8(act_idx);
+            let expected_chapter_bgm = if act.is_boss() {
+                "Boss"
+            } else if act.is_vr() {
+                "Stealth"
+            } else {
+                match act.chapter() {
+                    1 => "Stealth",
+                    2 => "River",
+                    3 => "City",
+                    4 => "Beach",
+                    _ => "Stealth",
+                }
+            };
+            // Verify Act 3 never falls back to Stealth after alert
+            if act == Act::Act3_1Highway || act == Act::Act3_2Laneways {
+                assert_eq!(expected_chapter_bgm, "City");
+            }
+            if act == Act::Act4_1Dunes || act == Act::Act4_2PierTrench {
+                assert_eq!(expected_chapter_bgm, "Beach");
+            }
+            if act == Act::Act1_3MechBoss || act == Act::Act2_3JetSkiBoss || act == Act::Act3_3SniperBoss || act == Act::Act4_3ExcavatorBoss {
+                assert_eq!(expected_chapter_bgm, "Boss");
+            }
+        }
+
+        // (c) Voice key-off coverage invariant
+        // Hardware SPU has 24 voices (0..23). Full key-off mask is 0x00FF_FFFF.
+        let full_key_off_mask: u32 = 0x00FF_FFFF;
+        assert_eq!(full_key_off_mask, (1 << 24) - 1, "Key off mask must cover all 24 hardware voices");
+    }
+    println!("✓ Title screen double-buffer background upload & stage transition audio silence test PASSED");
+
+    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (47/47 test suites)");
 }

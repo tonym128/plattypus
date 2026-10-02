@@ -248,7 +248,7 @@ impl AudioManager {
                 Some(v) => v,
                 None => continue,
             };
-            voice.configure_sample(addr, rate, *vol, Adsr::sample());
+            voice.configure_sample(addr, rate, *vol, Adsr::sample_one_shot());
         }
 
 
@@ -314,6 +314,9 @@ impl AudioManager {
                 TITLE_MUSIC_PLAYING = false;
             }
 
+            // Key off previous music synthesizer voices so no hanging notes drone across track changes
+            Voice::key_off(VOICE_BASS.mask() | VOICE_LEAD.mask() | VOICE_HARMONY.mask() | VOICE_DRUM.mask());
+
             AUDIO_STATE.current_track = track;
             AUDIO_STATE.seq_step = 0;
             AUDIO_STATE.tempo_counter = 0;
@@ -333,11 +336,6 @@ impl AudioManager {
                 VOICE_TITLE.set_loop_addr(ADDR_TITLE_MUSIC);
                 Voice::key_on(VOICE_TITLE.mask());
                 TITLE_MUSIC_PLAYING = true;
-            }
-
-            // Mute music voices if track is None
-            if track == BgmTrack::None {
-                Voice::key_off(VOICE_BASS.mask() | VOICE_LEAD.mask() | VOICE_HARMONY.mask() | VOICE_DRUM.mask());
             }
         }
     }
@@ -565,6 +563,29 @@ impl AudioManager {
     /// Stop CD-DA playback.
     pub fn stop_cdda() {
         cdrom::stop();
+    }
+
+    /// Stop all audio: CDDA playback, SPU voice key-offs on all 24 channels,
+    /// and reset sequencer state. Ensures no lingering tunes or sounds from
+    /// the previous stage bleed into the next stage or title screen.
+    pub fn stop_all() {
+        unsafe {
+            // Stop CD-DA playback
+            Self::stop_cdda();
+
+            // Key off every SPU voice (0..24) to fire release envelopes
+            Voice::key_off(0x00FF_FFFF);
+            Voice::clear_ended(0x00FF_FFFF);
+
+            // If title voice was playing, ensure flag is cleared
+            TITLE_MUSIC_PLAYING = false;
+
+            // Reset all sequencer and chime states
+            AUDIO_STATE.current_track = BgmTrack::None;
+            AUDIO_STATE.seq_step = 0;
+            AUDIO_STATE.tempo_counter = 0;
+            AUDIO_STATE.chime_timer = 0;
+        }
     }
 
     /// Pause CD-DA playback. The drive holds its position, so the music picks

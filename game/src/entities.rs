@@ -737,10 +737,18 @@ impl EntityManager {
     /// restore a fixed Act 1 track, so expiring an alert in Act 2-2 or 4-2
     /// left the wrong music playing for the rest of the stage.
     fn ambient_bgm(&self) -> BgmTrack {
-        match self.act {
-            Act::Act2_1Rapids | Act::Act2_2Mangroves | Act::Act2_3JetSkiBoss => BgmTrack::River,
-            Act::Act4_1Dunes | Act::Act4_2PierTrench | Act::Act4_3ExcavatorBoss => BgmTrack::Beach,
-            _ => BgmTrack::Stealth,
+        if self.act.is_boss() {
+            BgmTrack::Boss
+        } else if self.act.is_vr() {
+            BgmTrack::Stealth
+        } else {
+            match self.act.chapter() {
+                1 => BgmTrack::Stealth,
+                2 => BgmTrack::River,
+                3 => BgmTrack::City,
+                4 => BgmTrack::Beach,
+                _ => BgmTrack::Stealth,
+            }
         }
     }
 

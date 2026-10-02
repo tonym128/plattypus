@@ -188,6 +188,7 @@ impl Game {
         match self.state {
             GameState::Title => {
                 if self.idle_timer == 0 {
+                    AudioManager::stop_all();
                     AudioManager::play_cdda_title();
                     AudioManager::reset_cdda_tracking();
                 }
@@ -288,8 +289,7 @@ impl Game {
                         self.start_new_campaign();
                     } else if just_circle {
                         AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
-                        self.state = GameState::Title;
-                        self.idle_timer = 0;
+                        self.return_to_title();
                     }
                 }
 
@@ -321,8 +321,7 @@ impl Game {
                         }
                         AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                     } else if just_circle {
-                        self.state = GameState::Title;
-                        self.idle_timer = 0;
+                        self.return_to_title();
                         AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                     } else if just_cross || just_start {
                         AudioManager::stop_cdda();
@@ -354,8 +353,7 @@ impl Game {
                         self.vr_selection = if self.vr_selection == 3 { 0 } else { self.vr_selection + 1 };
                         AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                     } else if just_circle {
-                        self.state = GameState::Title;
-                        self.idle_timer = 0;
+                        self.return_to_title();
                         AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                     } else if just_cross || just_start {
                         let vr_act = match self.vr_selection {
@@ -382,8 +380,7 @@ impl Game {
                         self.options_selection = if self.options_selection == 4 { 0 } else { self.options_selection + 1 };
                         AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                     } else if just_circle {
-                        self.state = GameState::Title;
-                        self.idle_timer = 0;
+                        self.return_to_title();
                         AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                     } else if just_left || just_right {
                         match self.options_selection {
@@ -505,8 +502,7 @@ impl Game {
                 let any_button = is_connected && buttons.bits() != 0;
                 if any_button {
                     self.load_act(Act::Act1_1Drainage);
-                    self.state = GameState::Title;
-                    self.idle_timer = 0;
+                    self.return_to_title();
                 } else {
                     *timer += 1;
 
@@ -629,13 +625,11 @@ impl Game {
                             }
                             Act::Act4_1Dunes => {
                                 self.load_act(Act::Act1_1Drainage);
-                                self.state = GameState::Title;
-                                self.idle_timer = 0;
+                                self.return_to_title();
                             }
                             _ => {
                                 self.load_act(Act::Act1_1Drainage);
-                                self.state = GameState::Title;
-                                self.idle_timer = 0;
+                                self.return_to_title();
                             }
                         }
                     }
@@ -785,6 +779,7 @@ impl Game {
                     if self.platty.health == 0 {
                         self.idle_timer = 0;
                         self.state = GameState::GameOver;
+                        AudioManager::stop_all();
                         AudioManager::play_hit();
                         self.prev_buttons = ButtonState::NONE;
                         return;
@@ -821,6 +816,7 @@ impl Game {
                             // A VR clear never advances the campaign; the sims
                             // have no place in the linear order.
                             self.commit_progress(None);
+                            AudioManager::stop_all();
                             AudioManager::play_fanfare();
                             self.state = GameState::VrMenu;
                         } else if self.level.act == Act::Act4_3ExcavatorBoss {
@@ -872,6 +868,7 @@ impl Game {
                         } else {
                             self.commit_progress(Some(self.level.act));
                             self.state = GameState::StageClear;
+                            AudioManager::stop_all();
                             AudioManager::play_fanfare();
                         }
                     }
@@ -943,8 +940,7 @@ impl Game {
             GameState::Ending { codename } => {
                 if just_start || just_cross {
                     self.load_act(Act::Act1_1Drainage);
-                    self.state = GameState::Title;
-                    self.idle_timer = 0;
+                    self.return_to_title();
                 }
 
                 self.renderer.begin_frame();
@@ -966,8 +962,7 @@ impl Game {
                 } else if return_to_title {
                     // Abort to Title Screen
                     self.load_act(Act::Act1_1Drainage);
-                    self.state = GameState::Title;
-                    self.idle_timer = 0;
+                    self.return_to_title();
                     self.prev_buttons = ButtonState::NONE;
                 }
 
@@ -1012,8 +1007,7 @@ impl Game {
                         _ => {
                             // Abort mission to title screen
                             self.load_act(Act::Act1_1Drainage);
-                            self.state = GameState::Title;
-                            self.idle_timer = 0;
+                            self.return_to_title();
                         }
                     }
                     self.prev_buttons = buttons;
@@ -1031,7 +1025,15 @@ impl Game {
         self.prev_buttons = buttons;
     }
 
+    fn return_to_title(&mut self) {
+        self.state = GameState::Title;
+        self.idle_timer = 0;
+        self.renderer.reset_title_bg();
+        AudioManager::stop_all();
+    }
+
     fn load_act(&mut self, act: Act) {
+        AudioManager::stop_all();
         self.level = Level::new(act);
         self.platty.reset_position(self.level.player_start_x, self.level.player_start_z);
         self.entities.load_act(act);

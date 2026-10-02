@@ -233,6 +233,9 @@ pub struct Renderer {
     /// in the framebuffer, so it is re-uploaded whenever this is not the
     /// previous frame's counter -- see `draw_title_screen`.
     title_bg_frame: Cell<u8>,
+    /// Number of double-buffered framebuffer halves that still need the
+    /// title background uploaded after returning from gameplay or a submenu.
+    title_bg_dirty: Cell<u8>,
     /// Quads still allowed to be submitted this frame.
     ///
     /// The traversal walks every visible Z row and, inside each row, every
@@ -294,8 +297,17 @@ impl Renderer {
             // title frame happens to match this, skipping the re-upload is
             // still correct.
             title_bg_frame: Cell::new(u8::MAX),
+            title_bg_dirty: Cell::new(0),
             quad_budget: Cell::new(QUAD_BUDGET),
         }
+    }
+
+    /// Request an upload of the title screen background to both framebuffer
+    /// halves. Double-buffered VRAM requires both halves to be restored over
+    /// two successive frames after returning from gameplay or menus.
+    pub fn reset_title_bg(&self) {
+        self.title_bg_dirty.set(2);
+        self.title_bg_frame.set(u8::MAX);
     }
 
     pub fn apply_display_offset(&self) {
@@ -2534,17 +2546,20 @@ impl Renderer {
     ) {
         // The background is the framebuffer's own content (see `title_bg`), so
         // it is re-uploaded whenever the title screen was not the previous
-        // screen drawn. Gameplay, the cutscene cards and the video decoder all
-        // paint over the framebuffer and none of them can call back in here;
-        // the frame counter breaking is the only signal this module gets, and
-        // consecutive title frames skip the upload entirely.
+        // screen drawn. Because the PS1 is double-buffered (two framebuffer halves),
+        // returning to the title screen requires re-uploading to BOTH buffers
+        // over the first two frames so neither buffer retains stale gameplay remnants.
         if self.title_bg_frame.get() != frame.wrapping_sub(1) {
+            self.title_bg_dirty.set(2);
+        }
+        if self.title_bg_dirty.get() > 0 {
             // SAFETY: GP0(0xA0) writes VRAM directly; the target is the
             // framebuffer half `begin_frame` just selected as the draw target,
             // so the half being scanned out is untouched.
             unsafe {
                 crate::title_bg::upload_title_bg_to(self.fb.buffer_y(self.fb.drawing));
             }
+            self.title_bg_dirty.set(self.title_bg_dirty.get() - 1);
         }
         self.title_bg_frame.set(frame);
 
