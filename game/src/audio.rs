@@ -206,6 +206,7 @@ static mut ADDR_SINE: SpuAddr = SpuAddr::new(0x1000);
 static mut ADDR_TITLE_MUSIC: SpuAddr = SpuAddr::new(0x1000);
 static mut TITLE_MUSIC_PLAYING: bool = false;
 static mut CDDA_WAS_PLAYING: bool = false;
+static mut CURRENT_CDDA_TRACK: u8 = 0;
 
 impl AudioManager {
     pub fn init() {
@@ -611,13 +612,27 @@ impl AudioManager {
         Voice::key_on(VOICE_SELECT.mask());
     }
 
-    /// Play CD-DA track 2 (title music).
+    /// Play CD-DA track 2 (title music - "King of the Yarra").
     pub fn play_cdda_title() {
+        unsafe {
+            CURRENT_CDDA_TRACK = 2;
+        }
         cdrom::play_track(2);
+    }
+
+    /// Play CD-DA track 3 (credits song - "Below the Reeds").
+    pub fn play_cdda_credits() {
+        unsafe {
+            CURRENT_CDDA_TRACK = 3;
+        }
+        cdrom::play_track(3);
     }
 
     /// Stop CD-DA playback.
     pub fn stop_cdda() {
+        unsafe {
+            CURRENT_CDDA_TRACK = 0;
+        }
         cdrom::stop();
     }
 
@@ -651,9 +666,21 @@ impl AudioManager {
     }
 
     /// Resume CD-DA after [`Self::pause_cdda`]. The CD-ROM has no separate
-    /// resume command; re-issuing play for the same track continues it.
+    /// resume command; re-issuing play for the active track continues it.
     pub fn resume_cdda() {
-        cdrom::play_track(2);
+        let track = unsafe {
+            if CURRENT_CDDA_TRACK != 0 {
+                CURRENT_CDDA_TRACK
+            } else {
+                2
+            }
+        };
+        cdrom::play_track(track);
+    }
+
+    /// Return the active CD-DA track index (0 = stopped, 2 = title, 3 = credits).
+    pub fn current_cdda_track() -> u8 {
+        unsafe { CURRENT_CDDA_TRACK }
     }
 
     /// Check if CD-DA is currently playing.

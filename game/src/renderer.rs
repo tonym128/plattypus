@@ -4077,6 +4077,7 @@ impl Renderer {
         &self,
         save_data: &crate::save::SaveData,
         selected_opt: usize,
+        sound_test_track: u8,
         card_state: crate::save::LoadOutcome,
     ) {
         // Tactical dark steel background
@@ -4095,6 +4096,7 @@ impl Renderer {
             "LANGUAGE / LANGUE",
             "VIDEO STANDARD",
             "SCREEN V-CENTER",
+            "SOUND TEST",
         ];
 
         let costume_str = match save_data.selected_costume {
@@ -4123,20 +4125,26 @@ impl Renderer {
             _ => "< AUTO (BIOS) >",
         };
 
-        let opt_values = [costume_str, wire_str, lang_str, video_str, ""];
+        let sound_str = match sound_test_track {
+            0 => "< TITLE THEME >",
+            1 => "< CREDITS >",
+            _ => "< MUTE / OFF >",
+        };
 
-        for i in 0..5 {
-            let y = 35 + (i as i16 * 26);
+        let opt_values = [costume_str, wire_str, lang_str, video_str, "", sound_str];
+
+        for i in 0..6 {
+            let y = 34 + (i as i16 * 22);
             let is_sel = selected_opt == i;
             let bg = if is_sel { (20, 60, 48) } else { (12, 18, 24) };
-            gpu::draw_rect_flat(20, y, 280, 24, bg.0, bg.1, bg.2);
-            gpu::draw_rect_flat(22, y + 2, 276, 20, bg.0 / 2, bg.1 / 2, bg.2 / 2);
+            gpu::draw_rect_flat(20, y, 280, 20, bg.0, bg.1, bg.2);
+            gpu::draw_rect_flat(22, y + 2, 276, 16, bg.0 / 2, bg.1 / 2, bg.2 / 2);
 
             let cursor = if is_sel { ">" } else { " " };
-            self.font.draw_text(24, y + 5, cursor, (255, 235, 80));
+            self.font.draw_text(24, y + 4, cursor, (255, 235, 80));
             self.draw_text_clamped(
                 34,
-                y + 5,
+                y + 4,
                 opt_labels[i],
                 if is_sel {
                     (255, 255, 255)
@@ -4154,10 +4162,10 @@ impl Renderer {
                 off_buf[3] = (abs_val / 10) as u8 + b'0';
                 off_buf[4] = (abs_val % 10) as u8 + b'0';
                 if let Ok(st) = core::str::from_utf8(&off_buf[..9]) {
-                    self.draw_text_clamped(204, y + 5, st, (100, 230, 255));
+                    self.draw_text_clamped(204, y + 4, st, (100, 230, 255));
                 }
             } else {
-                self.draw_text_clamped(180, y + 5, opt_values[i], (120, 255, 160));
+                self.draw_text_clamped(180, y + 4, opt_values[i], (120, 255, 160));
             }
         }
 
@@ -4225,9 +4233,39 @@ impl Renderer {
                     (255, 230, 80),
                 );
             }
-            _ => {
+            4 => {
                 self.draw_text_clamped(26, 192, "Shift the picture vertically.", (180, 200, 220));
                 self.draw_text_clamped(26, 205, "DPAD LEFT/RIGHT: Shift Scanlines", (255, 230, 80));
+            }
+            _ => {
+                let is_completed = save_data.unlocked_act >= crate::save::CAMPAIGN_ACT_COUNT;
+                if is_completed {
+                    self.draw_text_clamped(
+                        26,
+                        192,
+                        "CD-DA Jukebox: Title & Credits tracks.",
+                        (180, 200, 220),
+                    );
+                    self.draw_text_clamped(
+                        26,
+                        205,
+                        "DPAD LEFT/RIGHT: Switch audio track",
+                        (255, 230, 80),
+                    );
+                } else {
+                    self.draw_text_clamped(
+                        26,
+                        192,
+                        "Complete campaign to unlock Credits song.",
+                        (180, 200, 220),
+                    );
+                    self.draw_text_clamped(
+                        26,
+                        205,
+                        "DPAD LEFT/RIGHT: Switch audio track",
+                        (255, 230, 80),
+                    );
+                }
             }
         }
         // A save the game could not read is still on the card, and the next

@@ -109,6 +109,7 @@ pub struct Game {
     /// opened. `memcard.status` cannot answer this: it is a self-clearing
     /// message, not a card state.
     pub card_present: bool,
+    pub sound_test_track: u8,
 }
 
 impl Game {
@@ -159,6 +160,7 @@ impl Game {
             stage_start_takedowns: 0,
             stage_start_damage: 0,
             card_present,
+            sound_test_track: 0,
         };
         game.apply_save_preferences();
         game
@@ -432,19 +434,20 @@ impl Game {
                 if is_connected {
                     if just_up {
                         self.options_selection = if self.options_selection == 0 {
-                            4
+                            5
                         } else {
                             self.options_selection - 1
                         };
                         AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                     } else if just_down {
-                        self.options_selection = if self.options_selection == 4 {
+                        self.options_selection = if self.options_selection == 5 {
                             0
                         } else {
                             self.options_selection + 1
                         };
                         AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                     } else if just_circle {
+                        self.sound_test_track = 0;
                         self.return_to_title();
                         AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                     } else if just_left || just_right {
@@ -506,10 +509,7 @@ impl Game {
                                 AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                             }
                             4 => {
-                                // Screen V-Center Offset (-16..16 scanlines). The
-                                // horizontal axis is loaded and applied but has
-                                // no editor: the options screen has five fixed
-                                // rows and no field for X (UX-14c).
+                                // Screen V-Center Offset (-16..16 scanlines).
                                 let limit = crate::save::SCREEN_OFFSET_LIMIT;
                                 if just_left {
                                     self.save_data.screen_offset_y =
@@ -522,6 +522,31 @@ impl Game {
                                 self.save_card();
                                 AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                             }
+                            5 => {
+                                // Sound Test: 0 = Title ("King of the Yarra"), 1 = Credits ("Below the Reeds"), 2 = Off
+                                let is_completed = campaign_completed(self.save_data.unlocked_act);
+                                if is_completed {
+                                    self.sound_test_track = if just_right {
+                                        (self.sound_test_track + 1) % 3
+                                    } else {
+                                        if self.sound_test_track == 0 {
+                                            2
+                                        } else {
+                                            self.sound_test_track - 1
+                                        }
+                                    };
+                                } else {
+                                    // Credits track is locked until campaign completion
+                                    self.sound_test_track =
+                                        if self.sound_test_track == 0 { 2 } else { 0 };
+                                }
+                                match self.sound_test_track {
+                                    0 => AudioManager::play_cdda_title(),
+                                    1 if is_completed => AudioManager::play_cdda_credits(),
+                                    _ => AudioManager::stop_cdda(),
+                                }
+                                AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
+                            }
                             _ => {}
                         }
                     }
@@ -531,6 +556,7 @@ impl Game {
                 self.renderer.draw_options_menu(
                     &self.save_data,
                     self.options_selection,
+                    self.sound_test_track,
                     self.memcard.last_load,
                 );
                 // All five rows above write the card, so the status has to be
@@ -579,7 +605,7 @@ impl Game {
                 let finished = self.video.update(&pad, &self.prev_buttons);
                 if finished {
                     self.video.stop();
-                    AudioManager::play_fanfare();
+                    AudioManager::play_cdda_credits();
                     self.state = GameState::MissionDebriefing { timer: 0, codename };
                 } else {
                     self.video.present(&mut self.renderer);
@@ -1110,6 +1136,9 @@ impl Game {
                 );
             }
             GameState::Ending { codename } => {
+                if !AudioManager::is_cdda_playing() && AudioManager::current_cdda_track() != 3 {
+                    AudioManager::play_cdda_credits();
+                }
                 if just_start || just_cross {
                     self.load_act(Act::Act1_1Drainage);
                     self.return_to_title();
@@ -1224,6 +1253,7 @@ impl Game {
     }
 
     fn return_to_title(&mut self) {
+        self.sound_test_track = 0;
         self.state = GameState::Title;
         self.idle_timer = 0;
         self.renderer.reset_title_bg();
