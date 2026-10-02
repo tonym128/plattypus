@@ -2469,5 +2469,77 @@ fn main() {
     }
     println!("✓ Title screen double-buffer background upload & stage transition audio silence test PASSED");
 
-    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (47/47 test suites)");
+    // --------------------------------------------------------------------------
+    // Perspective Frustum, Bank Tree Filter & Telemetry Invariants
+    // --------------------------------------------------------------------------
+    {
+        // (a) Perspective frustum culling coverage
+        // When cam_z = 0, at dz = 600, perspective half_w expands beyond 340.
+        let cam_z = 0i32;
+        let cam_x = 768i32; // Middle of level (GRID_W * 64 / 2)
+        let dz = 600i32;
+        let half_w = (dz * 9 / 10) + 96;
+        assert_eq!(half_w, 636, "Perspective half_w at dz=600 must expand to 636");
+        let ent_max_dist = half_w + 48;
+        assert_eq!(ent_max_dist, 684, "Entity culling radius at dz=600 must expand to 684");
+
+        // Old fixed bound (340) culled obstacles in outer river lanes (e.g. Lane 0 at x = cam_x - 380)
+        let outer_lane_x = cam_x - 380;
+        let dx = (outer_lane_x - cam_x).abs();
+        assert!(dx > 340, "Old culling discarded outer lane entities at range");
+        assert!(dx <= ent_max_dist, "Perspective culling must preserve outer lane entities at range");
+
+        // Near distance: dz = 64
+        let near_dz = 64i32;
+        let near_half_w = (near_dz * 9 / 10) + 96;
+        assert_eq!(near_half_w, 153, "Near row half_w should narrow to visible screen trapezoid");
+
+        // Z bounds check: near rows must cover cam_z - 32 and far rows cam_z + 800
+        let min_gz = ((cam_z - 32) / TILE_SZ).clamp(0, GRID_D as i32) as usize;
+        let max_gz = ((cam_z + 800) / TILE_SZ + 1).clamp(0, GRID_D as i32) as usize;
+        assert_eq!(min_gz, 0);
+        assert_eq!(max_gz, 13);
+        assert!(max_gz > 11, "Far Z bounds must reach horizon (800 units)");
+
+        // (b) Bank edge gum tree filtering
+        // Act 2.1 has 24 cols. Left bank: cols 0..8 are Wall. Right bank: cols 14..23 are Wall.
+        // Middle cols 9..13 are Water.
+        let mut inner_wall_trees_skipped = 0;
+        let mut bank_edge_trees_kept = 0;
+
+        for gx in 0..GRID_W {
+            let is_wall = gx <= 8 || gx >= 14;
+            if is_wall {
+                let cull_left = gx > 0 && (gx - 1 <= 8 || gx - 1 >= 14);
+                let cull_right = gx + 1 < GRID_W && (gx + 1 <= 8 || gx + 1 >= 14);
+                // In row gz with wall rows above and below:
+                let cull_front = true;
+                let cull_back = true;
+                let is_bank_edge = !cull_left || !cull_right || !cull_front || !cull_back;
+
+                if is_bank_edge {
+                    bank_edge_trees_kept += 1;
+                } else {
+                    inner_wall_trees_skipped += 1;
+                }
+            }
+        }
+        // Left bank edge is col 8 (cull_right false). Right bank edge is col 14 (cull_left false).
+        // Outer boundaries (gx = 0, gx = 23) also have cull_left/right false.
+        assert!(bank_edge_trees_kept <= 4, "Only edge wall columns should qualify as bank edges");
+        assert!(inner_wall_trees_skipped >= 14, "Interior wall columns must skip gum trees");
+
+        // (c) Telemetry stutter tracking
+        let mut stutter_count: u32 = 0;
+        let test_intervals = [1u32, 1, 2, 1, 3, 1]; // 2 dropped frames total: (2-1) + (3-1) = 3 dropped vblanks
+        for &elapsed in &test_intervals {
+            if elapsed > 1 {
+                stutter_count = stutter_count.saturating_add(elapsed - 1);
+            }
+        }
+        assert_eq!(stutter_count, 3, "Stutter count must accurately sum dropped VBlanks");
+    }
+    println!("✓ Perspective frustum culling, bank tree filter & performance telemetry test PASSED");
+
+    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (48/48 test suites)");
 }

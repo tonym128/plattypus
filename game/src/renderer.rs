@@ -244,14 +244,22 @@ pub struct Renderer {
     /// what the hardware sustains. A budget makes the cost bounded no matter
     /// what the level contains, and `begin_frame` refills it.
     quad_budget: Cell<i32>,
+    /// VBlanks elapsed for the last completed frame (1 = 60fps NTSC / 50fps PAL).
+    pub vblanks_per_frame: u32,
+    /// Cumulative count of dropped VBlanks / frame stutters.
+    pub stutter_count: u32,
+    /// Total quads drawn in the preceding frame.
+    pub quads_drawn: i32,
+    /// VBlank counter at the start of the previous frame.
+    prev_vblank: u32,
 }
 
 /// Quads the renderer may submit in one frame.
 ///
 /// A PS1 sustains roughly 2,000-5,000 textured Gouraud triangles at 30 fps,
-/// so 1,100 quads leaves headroom for the two-sided cases and the HUD while
-/// staying inside the budget for the heaviest real act.
-const QUAD_BUDGET: i32 = 1_100;
+/// so 1,600 quads leaves plenty of headroom for the two-sided cases and the HUD
+/// while keeping water and heavy stages bounded at 60 fps.
+const QUAD_BUDGET: i32 = 1_600;
 
 /// Beyond this distance an actor is drawn as a single billboard box instead of
 /// its full model. A sentry is five boxes and Platty is twenty, so distant
@@ -260,9 +268,6 @@ const ACTOR_LOD_DISTANCE: i32 = 320;
 
 /// Distance past which environmental tile detail is skipped beyond the floor.
 const TILE_LOD_DISTANCE: i32 = 480;
-
-/// Quads a single box costs: six faces.
-const BOX_FACE_QUADS: i32 = 6;
 
 impl Renderer {
     pub fn new() -> Self {
@@ -299,6 +304,10 @@ impl Renderer {
             title_bg_frame: Cell::new(u8::MAX),
             title_bg_dirty: Cell::new(0),
             quad_budget: Cell::new(QUAD_BUDGET),
+            vblanks_per_frame: 1,
+            stutter_count: 0,
+            quads_drawn: 0,
+            prev_vblank: 0,
         }
     }
 
@@ -321,7 +330,19 @@ impl Renderer {
 
     pub fn begin_frame(&mut self) {
         psx_rt::interrupts::wait_vblank();
+        let now = psx_rt::interrupts::vblank_count();
+        let elapsed = if self.prev_vblank == 0 {
+            1
+        } else {
+            now.wrapping_sub(self.prev_vblank)
+        };
+        self.prev_vblank = now;
+        self.vblanks_per_frame = elapsed;
+        if elapsed > 1 {
+            self.stutter_count = self.stutter_count.saturating_add(elapsed - 1);
+        }
         self.fb.swap();
+        self.quads_drawn = QUAD_BUDGET - self.quad_budget.get();
         self.quad_budget.set(QUAD_BUDGET);
     }
 
@@ -415,24 +436,24 @@ impl Renderer {
             self.draw_vision_cones(entities);
         }
 
-        // Row-based depth sorting (far to near) to eliminate clipping
-        let min_gx = ((self.cam_x - 320) / TILE_SZ).clamp(0, GRID_W as i32) as usize;
-        let max_gx = ((self.cam_x + 320) / TILE_SZ + 1).clamp(0, GRID_W as i32) as usize;
-        let min_gz = ((self.cam_z + 80) / TILE_SZ).clamp(0, GRID_D as i32) as usize;
-        let max_gz = ((self.cam_z + 680) / TILE_SZ + 1).clamp(0, GRID_D as i32) as usize;
+        // Row-based depth sorting (far to near) with perspective frustum culling
+        let min_gz = ((self.cam_z - 32) / TILE_SZ).clamp(0, GRID_D as i32) as usize;
+        let max_gz = ((self.cam_z + 768) / TILE_SZ + 1).clamp(0, GRID_D as i32) as usize;
 
         for gz in (min_gz..max_gz).rev() {
-            // Once the frame's quads are spent, stop walking rows.
-            if !self.budget_available() {
-                break;
-            }
             let row_z_min = (gz as i32) * TILE_SZ;
             let row_z_max = ((gz + 1) as i32) * TILE_SZ;
             // Rows past the LOD distance draw the bare floor and nothing else.
             let detail = self.dist_to(self.cam_x, row_z_min) <= TILE_LOD_DISTANCE;
 
+            let dz = (row_z_min - self.cam_z).max(48);
+            let half_w = (dz * 9 / 10) + 96;
+            let row_min_gx = ((self.cam_x - half_w) / TILE_SZ).clamp(0, GRID_W as i32) as usize;
+            let row_max_gx = ((self.cam_x + half_w) / TILE_SZ + 1).clamp(0, GRID_W as i32) as usize;
+            let ent_max_dist = half_w + 48;
+
             // 1. Draw environmental tiles in this row
-            for gx in min_gx..max_gx {
+            for gx in row_min_gx..row_max_gx {
                 if !self.budget_available() {
                     break;
                 }
@@ -442,62 +463,75 @@ impl Renderer {
                 self.draw_cell(level, cell, gx, gz, wx, wz, frame, detail);
             }
 
-            // 2. Draw entities situated in this row (with horizontal frustum culling)
-            for s in entities.sentries.iter() {
-                if s.active && (s.x - self.cam_x).abs() < 340 && s.z >= row_z_min && s.z < row_z_max {
-                    self.draw_sentry(s, entities.frame);
+            // 2. Draw entities situated in this row (with perspective frustum culling)
+            match level.act.chapter() {
+                1 => {
+                    for s in entities.sentries.iter() {
+                        if s.active && (s.x - self.cam_x).abs() <= ent_max_dist && s.z >= row_z_min && s.z < row_z_max {
+                            self.draw_sentry(s, entities.frame);
+                        }
+                    }
+                    for d in entities.drones.iter() {
+                        if d.active && (d.x - self.cam_x).abs() <= ent_max_dist && d.z >= row_z_min && d.z < row_z_max {
+                            self.draw_drone(d, frame);
+                        }
+                    }
+                    for c in entities.power_conduits.iter() {
+                        if c.active && (c.x - self.cam_x).abs() <= ent_max_dist && c.z >= row_z_min && c.z < row_z_max {
+                            self.draw_power_conduit(c, frame);
+                        }
+                    }
+                    let mech = &entities.boss_mech;
+                    if mech.active && mech.z >= row_z_min && mech.z < row_z_max {
+                        self.draw_searchlight_mech(mech, frame);
+                    }
                 }
-            }
-            for d in entities.drones.iter() {
-                if d.active && (d.x - self.cam_x).abs() < 340 && d.z >= row_z_min && d.z < row_z_max {
-                    self.draw_drone(d, frame);
+                2 => {
+                    if level.act == Act::Act2_3JetSkiBoss {
+                        let jetski = &entities.boss_jetski;
+                        if jetski.active && jetski.z >= row_z_min && jetski.z < row_z_max {
+                            self.draw_jetski_boss(jetski, frame);
+                        }
+                    } else {
+                        for obs in entities.river_obstacles.iter() {
+                            if obs.active && (obs.x - self.cam_x).abs() <= ent_max_dist && obs.z >= row_z_min && obs.z < row_z_max {
+                                self.draw_river_obstacle(obs, frame);
+                            }
+                        }
+                    }
                 }
-            }
-            for c in entities.power_conduits.iter() {
-                if c.active && (c.x - self.cam_x).abs() < 340 && c.z >= row_z_min && c.z < row_z_max {
-                    self.draw_power_conduit(c, frame);
+                3 => {
+                    for v in entities.vehicles.iter() {
+                        if v.active && (v.x - self.cam_x).abs() <= ent_max_dist && v.z >= row_z_min && v.z < row_z_max {
+                            self.draw_vehicle(v);
+                        }
+                    }
+                    let sniper = &entities.boss_sniper;
+                    if sniper.active && sniper.z >= row_z_min && sniper.z < row_z_max {
+                        self.draw_sniper_kookaburra(sniper, frame);
+                    }
                 }
-            }
-            let mech = &entities.boss_mech;
-            if mech.active && mech.z >= row_z_min && mech.z < row_z_max {
-                self.draw_searchlight_mech(mech, frame);
-            }
-            let jetski = &entities.boss_jetski;
-            if jetski.active && jetski.z >= row_z_min && jetski.z < row_z_max {
-                self.draw_jetski_boss(jetski, frame);
-            }
-            let sniper = &entities.boss_sniper;
-            if sniper.active && sniper.z >= row_z_min && sniper.z < row_z_max {
-                self.draw_sniper_kookaburra(sniper, frame);
-            }
-            let exc = &entities.boss_excavator;
-            if exc.active && exc.z >= row_z_min && exc.z < row_z_max {
-                self.draw_excavator_boss(exc, frame);
-            }
-            for obs in entities.river_obstacles.iter() {
-                if obs.active && (obs.x - self.cam_x).abs() < 340 && obs.z >= row_z_min && obs.z < row_z_max {
-                    self.draw_river_obstacle(obs, frame);
-                }
-            }
-            for v in entities.vehicles.iter() {
-                if v.active && (v.x - self.cam_x).abs() < 340 && v.z >= row_z_min && v.z < row_z_max {
-                    self.draw_vehicle(v);
-                }
-            }
-            for p in entities.beach_platforms.iter() {
-                if p.active && (p.x - self.cam_x).abs() < 340 && p.z >= row_z_min && p.z < row_z_max {
-                    self.draw_beach_platform(p);
-                }
-            }
-            for crab in entities.beach_crabs.iter() {
-                if crab.active && (crab.x - self.cam_x).abs() < 340 && crab.z >= row_z_min && crab.z < row_z_max {
-                    self.draw_crab(crab, frame);
+                _ => {
+                    for p in entities.beach_platforms.iter() {
+                        if p.active && (p.x - self.cam_x).abs() <= ent_max_dist && p.z >= row_z_min && p.z < row_z_max {
+                            self.draw_beach_platform(p);
+                        }
+                    }
+                    for crab in entities.beach_crabs.iter() {
+                        if crab.active && (crab.x - self.cam_x).abs() <= ent_max_dist && crab.z >= row_z_min && crab.z < row_z_max {
+                            self.draw_crab(crab, frame);
+                        }
+                    }
+                    let exc = &entities.boss_excavator;
+                    if exc.active && exc.z >= row_z_min && exc.z < row_z_max {
+                        self.draw_excavator_boss(exc, frame);
+                    }
                 }
             }
 
             // 3. Draw Collectibles in this row
             for c in entities.collectibles.iter() {
-                if c.active && c.revealed && c.z >= row_z_min && c.z < row_z_max {
+                if c.active && c.revealed && (c.x - self.cam_x).abs() <= ent_max_dist && c.z >= row_z_min && c.z < row_z_max {
                     self.draw_collectible(c, frame);
                 }
             }
@@ -772,6 +806,21 @@ impl Renderer {
                 let cull_front = gz > 0 && level.get_cell(gx, gz - 1) == CellType::Wall;
                 let cull_back = gz + 1 < GRID_D && level.get_cell(gx, gz + 1) == CellType::Wall;
 
+                let is_bank_edge = !cull_left || !cull_right || !cull_front || !cull_back;
+                // Distant rows past LOD distance only need the visible bank edge silhouette
+                if !detail && !is_bank_edge {
+                    return;
+                }
+                // Deep interior tiles buried 2+ cells inside solid rock are occluded by plateau edges
+                if !is_bank_edge
+                    && gx >= 2
+                    && gx + 2 < GRID_W
+                    && level.get_cell(gx - 2, gz) == CellType::Wall
+                    && level.get_cell(gx + 2, gz) == CellType::Wall
+                {
+                    return;
+                }
+
                 match act.chapter() {
                     2 => {
                         // Bushland riverbank: mossy bank + gum tree
@@ -780,8 +829,9 @@ impl Renderer {
                             cull_left, cull_right, cull_front, cull_back,
                         );
                         // A gum tree is roughly 18 quads, the most expensive
-                        // tile prop in the game, and unreadable at range.
-                        if detail && (gx + gz) % 2 == 0 {
+                        // tile prop in the game, and unreadable at range. Only
+                        // spawn trees on bank edges facing open space/river.
+                        if detail && is_bank_edge && (gx + gz) % 2 == 0 {
                             self.draw_gum_tree(wx, wz);
                         }
                     }
@@ -874,21 +924,23 @@ impl Renderer {
         };
         self.draw_quad_3d_textured_gouraud(v0, v1, v2, v3, TextureId::RiverWater, FaceDirection::Top, tint);
 
-        // Animated foam ripples
-        if is_current || act.chapter() == 4 {
+        // Animated foam ripples (LOD: alternating tiles within near distance)
+        if (is_current || act.chapter() == 4) && ((wx / TILE_SZ) + (wz / TILE_SZ)) % 2 == 0 && self.dist_to(wx, wz) <= 280 {
             let foam_z = (wz + ((frame as i32 * 3) % TILE_SZ)) as i16;
-            let p0 = scene::project_vertex(Vec3I16::new(wx as i16 + 8, y - 1, foam_z));
-            let p1 = scene::project_vertex(Vec3I16::new(wx as i16 + 56, y - 1, foam_z));
-            if p0.sz > 20 && p1.sz > 20 {
+            let p0 = scene::project_vertex_scheduled(Vec3I16::new(wx as i16 + 8, y - 1, foam_z));
+            let p1 = scene::project_vertex_scheduled(Vec3I16::new(wx as i16 + 56, y - 1, foam_z));
+            if sz_in_front(p0.sz) && sz_in_front(p1.sz) {
                 gpu::draw_line_mono(p0.sx, p0.sy, p1.sx, p1.sy, 220, 240, 255);
             }
         }
     }
 
     fn draw_grass_clump(&self, wx: i32, wz: i32) {
-        let p0 = scene::project_vertex(Vec3I16::new((wx - 12) as i16, 0, wz as i16));
-        let p1 = scene::project_vertex(Vec3I16::new((wx + 12) as i16, 0, wz as i16));
-        let p2 = scene::project_vertex(Vec3I16::new(wx as i16, -22, wz as i16));
+        let [p0, p1, p2] = scene::project_triangle_scheduled(
+            Vec3I16::new((wx - 12) as i16, 0, wz as i16),
+            Vec3I16::new((wx + 12) as i16, 0, wz as i16),
+            Vec3I16::new(wx as i16, -22, wz as i16),
+        );
         if p0.sz > 20 && p1.sz > 20 && p2.sz > 20 {
             gpu::draw_tri_flat([(p0.sx, p0.sy), (p1.sx, p1.sy), (p2.sx, p2.sy)], 50, 135, 60);
         }
@@ -925,7 +977,6 @@ impl Renderer {
         if !self.budget_available() {
             return;
         }
-        self.spend_quads(BOX_FACE_QUADS);
         self.draw_box_3d_textured(wx, wz, w, h, d, TextureId::Crate, col);
     }
 
@@ -940,78 +991,8 @@ impl Renderer {
         texture: TextureId,
         col: (u8, u8, u8),
     ) {
-        let x0 = wx as i16;
-        let x1 = (wx + w) as i16;
-        let y0 = -h as i16;
-        let y1 = 0i16;
-        let z0 = wz as i16;
-        let z1 = (wz + d) as i16;
-
-        // 1. BACK FACE (facing +Z away from camera)
-        self.draw_quad_3d_textured_gouraud(
-            Vec3I16::new(x1, y0, z1),
-            Vec3I16::new(x0, y0, z1),
-            Vec3I16::new(x1, y1, z1),
-            Vec3I16::new(x0, y1, z1),
-            texture,
-            FaceDirection::Back,
-            col,
-        );
-
-        // 2. BOTTOM FACE (facing +Y, ground shadow)
-        self.draw_quad_3d_textured_gouraud(
-            Vec3I16::new(x0, y1, z0),
-            Vec3I16::new(x1, y1, z0),
-            Vec3I16::new(x0, y1, z1),
-            Vec3I16::new(x1, y1, z1),
-            texture,
-            FaceDirection::Bottom,
-            col,
-        );
-
-        // 3. LEFT FACE (facing -X)
-        self.draw_quad_3d_textured_gouraud(
-            Vec3I16::new(x0, y0, z1),
-            Vec3I16::new(x0, y0, z0),
-            Vec3I16::new(x0, y1, z1),
-            Vec3I16::new(x0, y1, z0),
-            texture,
-            FaceDirection::Left,
-            col,
-        );
-
-        // 4. RIGHT FACE (facing +X)
-        self.draw_quad_3d_textured_gouraud(
-            Vec3I16::new(x1, y0, z0),
-            Vec3I16::new(x1, y0, z1),
-            Vec3I16::new(x1, y1, z0),
-            Vec3I16::new(x1, y1, z1),
-            texture,
-            FaceDirection::Right,
-            col,
-        );
-
-        // 5. TOP FACE (lit by overhead sunlight)
-        self.draw_quad_3d_textured_gouraud(
-            Vec3I16::new(x0, y0, z1),
-            Vec3I16::new(x1, y0, z1),
-            Vec3I16::new(x0, y0, z0),
-            Vec3I16::new(x1, y0, z0),
-            texture,
-            FaceDirection::Top,
-            col,
-        );
-
-        // 6. FRONT FACE (facing -Z towards camera - drawn LAST to eliminate sorting artifacts)
-        self.draw_quad_3d_textured_gouraud(
-            Vec3I16::new(x0, y0, z0),
-            Vec3I16::new(x1, y0, z0),
-            Vec3I16::new(x0, y1, z0),
-            Vec3I16::new(x1, y1, z0),
-            texture,
-            FaceDirection::Front,
-            col,
-        );
+        let rot = Mat3I16::rotate_y(0);
+        self.draw_model_box_textured(wx, 0, wz, 0, -h, 0, w, h, d, &rot, Some(texture), col);
     }
 
     /// Render a wall box with hidden-face culling against adjacent solid wall cells.
@@ -1032,7 +1013,6 @@ impl Renderer {
         if !self.budget_available() {
             return;
         }
-        self.spend_quads(BOX_FACE_QUADS);
 
         let x0 = wx as i16;
         let x1 = (wx + w) as i16;
@@ -1041,67 +1021,111 @@ impl Renderer {
         let z0 = wz as i16;
         let z1 = (wz + d) as i16;
 
-        // 1. BACK FACE (facing +Z away from camera)
-        if !cull_back {
-            self.draw_quad_3d_textured_gouraud(
-                Vec3I16::new(x1, y0, z1),
+        let (bank, uvs) = texture.uv_and_bank();
+        let clut_word = self.textures.clut_words[bank as usize];
+        let tpage_word = self.textures.tpage_word;
+
+        // Interior plateau tile (all 4 surrounding walls solid): only top face can be visible
+        if cull_left && cull_right && cull_front && cull_back {
+            let [p2, p3, p0] = scene::project_triangle_scheduled(
                 Vec3I16::new(x0, y0, z1),
-                Vec3I16::new(x1, y1, z1),
-                Vec3I16::new(x0, y1, z1),
-                texture,
-                FaceDirection::Back,
-                col,
+                Vec3I16::new(x1, y0, z1),
+                Vec3I16::new(x0, y0, z0),
             );
+            if !sz_in_front(p0.sz) || !sz_in_front(p2.sz) || !sz_in_front(p3.sz) {
+                return;
+            }
+            if winding_cross((p2.sx, p2.sy), (p3.sx, p3.sy), (p0.sx, p0.sy)) <= 0 {
+                return;
+            }
+            let p1 = scene::project_vertex_scheduled(Vec3I16::new(x1, y0, z0));
+            if !sz_in_front(p1.sz) {
+                return;
+            }
+            if !self.budget_available() {
+                return;
+            }
+            self.spend_quads(1);
+            let colors = gouraud_face_colors(FaceDirection::Top, col);
+            gpu::draw_quad_textured_gouraud(
+                [(p2.sx, p2.sy), (p3.sx, p3.sy), (p0.sx, p0.sy), (p1.sx, p1.sy)],
+                uvs, colors, clut_word, tpage_word,
+            );
+            return;
+        }
+
+        // Exposed bank cliff: project 8 corners via scheduled GTE batches
+        let [p0, p1, p2] = scene::project_triangle_scheduled(
+            Vec3I16::new(x0, y0, z0),
+            Vec3I16::new(x1, y0, z0),
+            Vec3I16::new(x0, y0, z1),
+        );
+        let [p3, p4, p5] = scene::project_triangle_scheduled(
+            Vec3I16::new(x1, y0, z1),
+            Vec3I16::new(x0, y1, z0),
+            Vec3I16::new(x1, y1, z0),
+        );
+        let p6 = scene::project_vertex_scheduled(Vec3I16::new(x0, y1, z1));
+        let p7 = scene::project_vertex_scheduled(Vec3I16::new(x1, y1, z1));
+
+        // 1. BACK FACE (facing +Z away from camera)
+        if !cull_back && sz_in_front(p3.sz) && sz_in_front(p2.sz) && sz_in_front(p7.sz) && sz_in_front(p6.sz) {
+            if winding_cross((p3.sx, p3.sy), (p2.sx, p2.sy), (p7.sx, p7.sy)) > 0 && self.budget_available() {
+                self.spend_quads(1);
+                let colors = gouraud_face_colors(FaceDirection::Back, col);
+                gpu::draw_quad_textured_gouraud(
+                    [(p3.sx, p3.sy), (p2.sx, p2.sy), (p7.sx, p7.sy), (p6.sx, p6.sy)],
+                    uvs, colors, clut_word, tpage_word,
+                );
+            }
         }
 
         // 2. LEFT FACE (facing -X)
-        if !cull_left {
-            self.draw_quad_3d_textured_gouraud(
-                Vec3I16::new(x0, y0, z1),
-                Vec3I16::new(x0, y0, z0),
-                Vec3I16::new(x0, y1, z1),
-                Vec3I16::new(x0, y1, z0),
-                texture,
-                FaceDirection::Left,
-                col,
-            );
+        if !cull_left && sz_in_front(p2.sz) && sz_in_front(p0.sz) && sz_in_front(p6.sz) && sz_in_front(p4.sz) {
+            if winding_cross((p2.sx, p2.sy), (p0.sx, p0.sy), (p6.sx, p6.sy)) > 0 && self.budget_available() {
+                self.spend_quads(1);
+                let colors = gouraud_face_colors(FaceDirection::Left, col);
+                gpu::draw_quad_textured_gouraud(
+                    [(p2.sx, p2.sy), (p0.sx, p0.sy), (p6.sx, p6.sy), (p4.sx, p4.sy)],
+                    uvs, colors, clut_word, tpage_word,
+                );
+            }
         }
 
         // 3. RIGHT FACE (facing +X)
-        if !cull_right {
-            self.draw_quad_3d_textured_gouraud(
-                Vec3I16::new(x1, y0, z0),
-                Vec3I16::new(x1, y0, z1),
-                Vec3I16::new(x1, y1, z0),
-                Vec3I16::new(x1, y1, z1),
-                texture,
-                FaceDirection::Right,
-                col,
-            );
+        if !cull_right && sz_in_front(p1.sz) && sz_in_front(p3.sz) && sz_in_front(p5.sz) && sz_in_front(p7.sz) {
+            if winding_cross((p1.sx, p1.sy), (p3.sx, p3.sy), (p5.sx, p5.sy)) > 0 && self.budget_available() {
+                self.spend_quads(1);
+                let colors = gouraud_face_colors(FaceDirection::Right, col);
+                gpu::draw_quad_textured_gouraud(
+                    [(p1.sx, p1.sy), (p3.sx, p3.sy), (p5.sx, p5.sy), (p7.sx, p7.sy)],
+                    uvs, colors, clut_word, tpage_word,
+                );
+            }
         }
 
         // 4. TOP FACE (lit by overhead sunlight)
-        self.draw_quad_3d_textured_gouraud(
-            Vec3I16::new(x0, y0, z1),
-            Vec3I16::new(x1, y0, z1),
-            Vec3I16::new(x0, y0, z0),
-            Vec3I16::new(x1, y0, z0),
-            texture,
-            FaceDirection::Top,
-            col,
-        );
+        if sz_in_front(p2.sz) && sz_in_front(p3.sz) && sz_in_front(p0.sz) && sz_in_front(p1.sz) {
+            if winding_cross((p2.sx, p2.sy), (p3.sx, p3.sy), (p0.sx, p0.sy)) > 0 && self.budget_available() {
+                self.spend_quads(1);
+                let colors = gouraud_face_colors(FaceDirection::Top, col);
+                gpu::draw_quad_textured_gouraud(
+                    [(p2.sx, p2.sy), (p3.sx, p3.sy), (p0.sx, p0.sy), (p1.sx, p1.sy)],
+                    uvs, colors, clut_word, tpage_word,
+                );
+            }
+        }
 
         // 5. FRONT FACE (facing -Z towards camera - drawn LAST to eliminate sorting artifacts)
-        if !cull_front {
-            self.draw_quad_3d_textured_gouraud(
-                Vec3I16::new(x0, y0, z0),
-                Vec3I16::new(x1, y0, z0),
-                Vec3I16::new(x0, y1, z0),
-                Vec3I16::new(x1, y1, z0),
-                texture,
-                FaceDirection::Front,
-                col,
-            );
+        if !cull_front && sz_in_front(p0.sz) && sz_in_front(p1.sz) && sz_in_front(p4.sz) && sz_in_front(p5.sz) {
+            if winding_cross((p0.sx, p0.sy), (p1.sx, p1.sy), (p4.sx, p4.sy)) > 0 && self.budget_available() {
+                self.spend_quads(1);
+                let colors = gouraud_face_colors(FaceDirection::Front, col);
+                gpu::draw_quad_textured_gouraud(
+                    [(p0.sx, p0.sy), (p1.sx, p1.sy), (p4.sx, p4.sy), (p5.sx, p5.sy)],
+                    uvs, colors, clut_word, tpage_word,
+                );
+            }
         }
     }
 
@@ -1123,7 +1147,6 @@ impl Renderer {
         if !self.budget_available() {
             return;
         }
-        self.spend_quads(BOX_FACE_QUADS);
         self.draw_model_box_textured(wx, wy, wz, lx, ly, lz, w, h, d, rot, None, col);
     }
 
@@ -1154,21 +1177,37 @@ impl Renderer {
             (lx + w, ly + h, lz + d), // 7: Bottom, Front, Right
         ];
 
+        let is_identity = rot.m[0][0] == 4096 && rot.m[1][1] == 4096 && rot.m[2][2] == 4096
+            && rot.m[0][1] == 0 && rot.m[0][2] == 0 && rot.m[1][0] == 0;
+
         let mut world_pts = [Vec3I16::ZERO; 8];
-        for (i, c) in corners.iter().enumerate() {
-            let t = rot.transform(Vec3I16::new(c.0 as i16, c.1 as i16, c.2 as i16));
-            world_pts[i] = Vec3I16::new(
-                (wx + t[0]) as i16,
-                (wy + t[1]) as i16,
-                (wz + t[2]) as i16,
-            );
+        if is_identity {
+            for (i, c) in corners.iter().enumerate() {
+                world_pts[i] = Vec3I16::new(
+                    (wx + c.0) as i16,
+                    (wy + c.1) as i16,
+                    (wz + c.2) as i16,
+                );
+            }
+        } else {
+            for (i, c) in corners.iter().enumerate() {
+                let t = rot.transform(Vec3I16::new(c.0 as i16, c.1 as i16, c.2 as i16));
+                world_pts[i] = Vec3I16::new(
+                    (wx + t[0]) as i16,
+                    (wy + t[1]) as i16,
+                    (wz + t[2]) as i16,
+                );
+            }
         }
 
+        // Project the 8 box corners via scheduled GTE batches instead of re-projecting per face
+        let [p0, p1, p2] = scene::project_triangle_scheduled(world_pts[0], world_pts[1], world_pts[2]);
+        let [p3, p4, p5] = scene::project_triangle_scheduled(world_pts[3], world_pts[4], world_pts[5]);
+        let p6 = scene::project_vertex_scheduled(world_pts[6]);
+        let p7 = scene::project_vertex_scheduled(world_pts[7]);
+        let proj = [p0, p1, p2, p3, p4, p5, p6, p7];
+
         if self.wireframe {
-            let mut proj = [scene::project_vertex(world_pts[0]); 8];
-            for i in 1..8 {
-                proj[i] = scene::project_vertex(world_pts[i]);
-            }
             const EDGES: [(usize, usize); 12] = [
                 (0, 1), (1, 3), (3, 2), (2, 0),
                 (4, 5), (5, 7), (7, 6), (6, 4),
@@ -1191,53 +1230,85 @@ impl Renderer {
         let r_col = ((col.0 as u16 * 60 / 100) as u8, (col.1 as u16 * 60 / 100) as u8, (col.2 as u16 * 60 / 100) as u8);
         let bot_col = ((col.0 as u16 * 45 / 100) as u8, (col.1 as u16 * 45 / 100) as u8, (col.2 as u16 * 45 / 100) as u8);
 
-        // Faces are emitted back-to-front. The order used to be fixed, so on a
-        // `rotate_y`-transformed box the back face was drawn before the left and
-        // right faces and overwrote them on roughly half of all rotations.
-        // Sorting by the face centre's distance from the camera restores the
-        // painter's algorithm within the box; there is no depth buffer to fall
-        // back on.
-        let face_depth = |a: usize, b: usize, c: usize, dd: usize| -> i32 {
-            let z = (world_pts[a].z as i32 + world_pts[b].z as i32
-                + world_pts[c].z as i32 + world_pts[dd].z as i32) / 4;
-            let dz = z - self.cam_z;
-            if dz < 0 { -dz } else { dz }
-        };
-        // (corner quad, direction, base colour) sorted by descending depth.
+        // Faces are emitted back-to-front. Unrotated boxes follow a fixed topological
+        // order, avoiding 6 closure evaluations and insertion sort.
         let mut faces: [(usize, usize, usize, usize, FaceDirection, (u8, u8, u8)); 6] = [
-            (2, 3, 0, 1, FaceDirection::Top, col),
-            (3, 2, 7, 6, FaceDirection::Front, f_col),
             (0, 1, 4, 5, FaceDirection::Back, b_col),
+            (4, 5, 6, 7, FaceDirection::Bottom, bot_col),
             (2, 0, 6, 4, FaceDirection::Left, l_col),
             (1, 3, 5, 7, FaceDirection::Right, r_col),
-            (4, 5, 6, 7, FaceDirection::Bottom, bot_col),
+            (2, 3, 0, 1, FaceDirection::Top, col),
+            (3, 2, 7, 6, FaceDirection::Front, f_col),
         ];
-        // Insertion sort by descending depth: six elements, and this runs per
-        // box, so the constant factor matters more than asymptotics.
-        for i in 1..faces.len() {
-            let mut j = i;
-            while j > 0
-                && face_depth(
-                    faces[j].0, faces[j].1, faces[j].2, faces[j].3,
-                ) > face_depth(
-                    faces[j - 1].0, faces[j - 1].1, faces[j - 1].2, faces[j - 1].3,
-                )
-            {
-                faces.swap(j, j - 1);
-                j -= 1;
+
+        if !is_identity {
+            let face_depth = |a: usize, b: usize, c: usize, dd: usize| -> i32 {
+                let z = (world_pts[a].z as i32 + world_pts[b].z as i32
+                    + world_pts[c].z as i32 + world_pts[dd].z as i32) / 4;
+                let dz = z - self.cam_z;
+                if dz < 0 { -dz } else { dz }
+            };
+            for i in 1..faces.len() {
+                let mut j = i;
+                while j > 0
+                    && face_depth(
+                        faces[j].0, faces[j].1, faces[j].2, faces[j].3,
+                    ) > face_depth(
+                        faces[j - 1].0, faces[j - 1].1, faces[j - 1].2, faces[j - 1].3,
+                    )
+                {
+                    faces.swap(j, j - 1);
+                    j -= 1;
+                }
             }
         }
 
         if let Some(tex) = texture {
+            let (bank, uvs) = tex.uv_and_bank();
+            let clut_word = self.textures.clut_words[bank as usize];
+            let tpage_word = self.textures.tpage_word;
             for f in faces.iter() {
-                self.draw_quad_3d_textured_gouraud(
-                    world_pts[f.0], world_pts[f.1], world_pts[f.2], world_pts[f.3], tex, f.4, f.5,
+                let p0 = proj[f.0];
+                let p1 = proj[f.1];
+                let p2 = proj[f.2];
+                let p3 = proj[f.3];
+                if !sz_in_front(p0.sz) || !sz_in_front(p1.sz) || !sz_in_front(p2.sz) || !sz_in_front(p3.sz) {
+                    continue;
+                }
+                if winding_cross((p0.sx, p0.sy), (p1.sx, p1.sy), (p2.sx, p2.sy)) <= 0 {
+                    continue;
+                }
+                if !self.budget_available() {
+                    continue;
+                }
+                self.spend_quads(1);
+                let colors = gouraud_face_colors(f.4, f.5);
+                gpu::draw_quad_textured_gouraud(
+                    [(p0.sx, p0.sy), (p1.sx, p1.sy), (p2.sx, p2.sy), (p3.sx, p3.sy)],
+                    uvs,
+                    colors,
+                    clut_word,
+                    tpage_word,
                 );
             }
         } else {
             for f in faces.iter() {
-                Self::draw_quad_3d(
-                    world_pts[f.0], world_pts[f.1], world_pts[f.2], world_pts[f.3],
+                let p0 = proj[f.0];
+                let p1 = proj[f.1];
+                let p2 = proj[f.2];
+                let p3 = proj[f.3];
+                if !sz_in_front(p0.sz) || !sz_in_front(p1.sz) || !sz_in_front(p2.sz) || !sz_in_front(p3.sz) {
+                    continue;
+                }
+                if winding_cross((p0.sx, p0.sy), (p1.sx, p1.sy), (p2.sx, p2.sy)) <= 0 {
+                    continue;
+                }
+                if !self.budget_available() {
+                    continue;
+                }
+                self.spend_quads(1);
+                gpu::draw_quad_flat(
+                    [(p0.sx, p0.sy), (p1.sx, p1.sy), (p2.sx, p2.sy), (p3.sx, p3.sy)],
                     f.5.0, f.5.1, f.5.2,
                 );
             }
@@ -1256,12 +1327,8 @@ impl Renderer {
         face_dir: FaceDirection,
         base_tint: (u8, u8, u8),
     ) {
-        let p0 = scene::project_vertex(v0);
-        let p1 = scene::project_vertex(v1);
-        let p2 = scene::project_vertex(v2);
-        let p3 = scene::project_vertex(v3);
-
-        if !sz_in_front(p0.sz) || !sz_in_front(p1.sz) || !sz_in_front(p2.sz) || !sz_in_front(p3.sz) {
+        let [p0, p1, p2] = scene::project_triangle_scheduled(v0, v1, v2);
+        if !sz_in_front(p0.sz) || !sz_in_front(p1.sz) || !sz_in_front(p2.sz) {
             return;
         }
 
@@ -1269,6 +1336,16 @@ impl Renderer {
         if winding_cross((p0.sx, p0.sy), (p1.sx, p1.sy), (p2.sx, p2.sy)) <= 0 {
             return;
         }
+
+        let p3 = scene::project_vertex_scheduled(v3);
+        if !sz_in_front(p3.sz) {
+            return;
+        }
+
+        if !self.budget_available() {
+            return;
+        }
+        self.spend_quads(1);
 
         let (bank, uvs) = texture.uv_and_bank();
         let clut_word = self.textures.clut_words[bank as usize];
@@ -1287,17 +1364,18 @@ impl Renderer {
     /// Project and render a 3D quad using native PS1 GPU hardware flat quad GP0(0x28).
     #[inline]
     pub fn draw_quad_3d(v0: Vec3I16, v1: Vec3I16, v2: Vec3I16, v3: Vec3I16, r: u8, g: u8, b: u8) {
-        let p0 = scene::project_vertex(v0);
-        let p1 = scene::project_vertex(v1);
-        let p2 = scene::project_vertex(v2);
-        let p3 = scene::project_vertex(v3);
-
-        if !sz_in_front(p0.sz) || !sz_in_front(p1.sz) || !sz_in_front(p2.sz) || !sz_in_front(p3.sz) {
+        let [p0, p1, p2] = scene::project_triangle_scheduled(v0, v1, v2);
+        if !sz_in_front(p0.sz) || !sz_in_front(p1.sz) || !sz_in_front(p2.sz) {
             return;
         }
 
         // Screen-space backface culling check
         if winding_cross((p0.sx, p0.sy), (p1.sx, p1.sy), (p2.sx, p2.sy)) <= 0 {
+            return;
+        }
+
+        let p3 = scene::project_vertex_scheduled(v3);
+        if !sz_in_front(p3.sz) {
             return;
         }
 
@@ -1344,9 +1422,11 @@ impl Renderer {
             let r_x = sx + ((sin_1_3_12(right_ang) as i32 * 180) >> 12) as i16;
             let r_z = sz + ((cos_1_3_12(right_ang) as i32 * 180) >> 12) as i16;
 
-            let p_origin = scene::project_vertex(Vec3I16::new(sx, 1, sz));
-            let p_left = scene::project_vertex(Vec3I16::new(l_x, 1, l_z));
-            let p_right = scene::project_vertex(Vec3I16::new(r_x, 1, r_z));
+            let [p_origin, p_left, p_right] = scene::project_triangle_scheduled(
+                Vec3I16::new(sx, 1, sz),
+                Vec3I16::new(l_x, 1, l_z),
+                Vec3I16::new(r_x, 1, r_z),
+            );
 
             if p_origin.sz > 20 && p_left.sz > 20 && p_right.sz > 20 {
                 let (cr, cg, cb) = if s.see_player {
@@ -2028,6 +2108,21 @@ impl Renderer {
         let oy = obs.y;
         let oz = obs.z;
 
+        if self.dist_to(ox, oz) > ACTOR_LOD_DISTANCE {
+            let col = match obs.kind {
+                RiverObstacleType::TreeLog => (110, 65, 35),
+                RiverObstacleType::LowBranch => (95, 55, 30),
+                RiverObstacleType::TigerSnake => (230, 200, 30),
+                RiverObstacleType::GiantSpider => (130, 85, 45),
+                RiverObstacleType::RiverTuber => (255, 60, 140),
+                RiverObstacleType::PaddleBoarder => (40, 190, 220),
+                RiverObstacleType::Swimmer => (220, 180, 140),
+                RiverObstacleType::Koala => (120, 70, 40),
+            };
+            self.draw_model_box(ox, oy, oz, -12, -8, -12, 24, 8, 24, &rot, col);
+            return;
+        }
+
         match obs.kind {
             RiverObstacleType::TreeLog => {
                 // Fallen river gum log across lane
@@ -2211,7 +2306,7 @@ impl Renderer {
             if !p.active {
                 continue;
             }
-            let proj = scene::project_vertex(Vec3I16::new(p.x as i16, p.y as i16, p.z as i16));
+            let proj = scene::project_vertex_scheduled(Vec3I16::new(p.x as i16, p.y as i16, p.z as i16));
             if proj.sz > 20 && proj.sx >= 0 && proj.sx < SCREEN_W && proj.sy >= 0 && proj.sy < SCREEN_H {
                 gpu::draw_rect_flat(proj.sx, proj.sy, p.size as u16, p.size as u16, p.color.0, p.color.1, p.color.2);
             }
@@ -2878,6 +2973,15 @@ impl Renderer {
             self.draw_text_clamped(26, 213, warn, (255, 150, 100));
         }
         self.draw_text_clamped(26, 222, "CIRCLE: RETURN TO TITLE SCREEN", (130, 180, 210));
+
+        let mut stut_buf = [b'S', b'T', b'U', b'T', b':', b' ', b'0', b'0', b'0'];
+        let stut = self.stutter_count.min(999);
+        stut_buf[6] = (stut / 100) as u8 + b'0';
+        stut_buf[7] = ((stut / 10) % 10) as u8 + b'0';
+        stut_buf[8] = (stut % 10) as u8 + b'0';
+        if let Ok(st) = core::str::from_utf8(&stut_buf[..9]) {
+            self.draw_text_clamped(228, 222, st, (100, 200, 220));
+        }
     }
 
     pub fn draw_debriefing_screen(

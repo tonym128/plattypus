@@ -356,11 +356,15 @@ impl Game {
                         self.return_to_title();
                         AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                     } else if just_cross || just_start {
-                        let vr_act = match self.vr_selection {
-                            0 => Act::VrSneaking,
-                            1 => Act::VrCqc,
-                            2 => Act::VrSonar,
-                            _ => Act::VrSpeed,
+                        let vr_act = if buttons.is_held(button::SQUARE) {
+                            Act::Act2_1Rapids
+                        } else {
+                            match self.vr_selection {
+                                0 => Act::VrSneaking,
+                                1 => Act::VrCqc,
+                                2 => Act::VrSonar,
+                                _ => Act::VrSpeed,
+                            }
                         };
                         self.load_act(vr_act);
                         self.state = GameState::Playing;
@@ -879,6 +883,10 @@ impl Game {
                     self.renderer.draw_hud(&self.platty, &self.entities, &self.level, self.frame);
 
                     self.draw_save_status_osd();
+
+                    if self.frame % 60 == 0 {
+                        self.log_performance_telemetry();
+                    }
                 }
             }
             GameState::InGameCodec => {
@@ -1297,6 +1305,40 @@ impl Game {
 
         // Footer helper
         self.renderer.font.draw_text(box_x + 24, box_y + box_h as i16 - 18, "CROSS/START: SELECT   O: RESUME", (100, 140, 160));
+    }
+
+    fn log_performance_telemetry(&self) {
+        psx_rt::tty::print("[METRIC] act=");
+        psx_rt::tty::print(self.level.act.stage_label());
+        psx_rt::tty::print(" vb=");
+        let mut buf = [0u8; 16];
+        psx_rt::tty::print(Self::format_u32(self.renderer.vblanks_per_frame, &mut buf));
+        psx_rt::tty::print(" quads=");
+        psx_rt::tty::print(Self::format_u32(self.renderer.quads_drawn.max(0) as u32, &mut buf));
+        psx_rt::tty::print(" stutters=");
+        psx_rt::tty::println(Self::format_u32(self.renderer.stutter_count, &mut buf));
+    }
+
+    fn format_u32(val: u32, buf: &mut [u8]) -> &str {
+        if val == 0 {
+            buf[0] = b'0';
+            return core::str::from_utf8(&buf[..1]).unwrap_or("0");
+        }
+        let mut v = val;
+        let mut len = 0;
+        while v > 0 && len < buf.len() {
+            buf[len] = (v % 10) as u8 + b'0';
+            v /= 10;
+            len += 1;
+        }
+        let mut i = 0;
+        let mut j = len.saturating_sub(1);
+        while i < j {
+            buf.swap(i, j);
+            i += 1;
+            j -= 1;
+        }
+        core::str::from_utf8(&buf[..len]).unwrap_or("0")
     }
 }
 
