@@ -63,6 +63,7 @@
             <select id="disc-select" class="select-tool" title="Select Game Disc Format">
               <option value="../roms/plattypus.exe">🚀 Fast Boot (Standalone EXE - 614 KB)</option>
               <option value="../roms/plattypus.bin">💿 Master CD-ROM (Full Audio & FMVs - 29 MB)</option>
+              <option value="../roms/plattypus.iso">📀 Compact Disc ISO (Data Track - 2 MB)</option>
             </select>
             <button id="btn-reset" class="btn-tool" title="Cold Boot / Reset PS1">🔄 Reset</button>
             <button id="btn-mute" class="btn-tool" title="Mute/Unmute Audio">🔊 Audio</button>
@@ -357,6 +358,16 @@
 
           <div class="download-card">
             <div>
+              <h4>Cooked PS1 ISO (.ISO)</h4>
+              <p>Standard 2048-byte Mode 1 ISO filesystem. Compact disc image compatible with universal optical disc loaders.</p>
+            </div>
+            <a href="roms/plattypus.iso" download="plattypus.iso" class="btn-download" style="background: linear-gradient(90deg, #6366f1 0%, #4f46e5 100%);">
+              ⬇ Download plattypus.iso (2 MB)
+            </a>
+          </div>
+
+          <div class="download-card">
+            <div>
               <h4>Master Bootable CD (.CUE / .BIN)</h4>
               <p>Mastered Red Book CD image including CDDA Audio soundtrack and 15fps MDEC/XA cinematic sequences.</p>
             </div>
@@ -369,6 +380,12 @@
               </a>
             </div>
           </div>
+        </div>
+
+        <div style="margin-top: 1.5rem; padding: 1.25rem; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px;">
+          <p style="margin: 0; color: #93c5fd; font-size: 0.95rem; line-height: 1.6;">
+            📦 <strong>Official GitHub Releases:</strong> Pre-packaged archives with verified SHA-256 checksums, packaging artwork, and full release notes are published at the <a href="https://github.com/tonym128/plattypus/releases" target="_blank" style="color: #60a5fa; text-decoration: underline; font-weight: bold;">GitHub Releases Page</a>.
+          </p>
         </div>
 
         <h4 style="margin-top: 2rem;">Hardware Installation Instructions</h4>

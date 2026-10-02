@@ -22,14 +22,15 @@ DUCKSTATION_APPIMAGES ?= $(DUCKSTATION_APPIMAGE) \
                          $(HOME)/Downloads/DuckStation-x64.AppImage \
                          $(HOME)/Applications/DuckStation.AppImage
 
-.PHONY: all exe disc clean run test help check-media video-bench video-bench-build web
+.PHONY: all exe disc iso clean run test help check-media video-bench video-bench-build web
 
-all: disc
+all: disc iso
 
 help:
 	@echo "Plattypus (PSX / PSoXide) Build Targets:"
 	@echo "  make exe         - Compile PSX-EXE (MIPS R3000 bare-metal binary)"
 	@echo "  make disc        - Master bootable PS1 disc image (dist/plattypus.{bin,cue})"
+	@echo "  make iso         - Master cooked PS1 ISO image (dist/plattypus.iso)"
 	@echo "  make test        - Run automated host-side game logic test suite"
 	@echo "  make web         - Serve Plattypus Web Arcade on http://localhost:8080"
 	@echo "  make run         - Run disc in DuckStation, RetroArch, or EMULATOR=... emulator"
@@ -48,7 +49,7 @@ help:
 
 web:
 	@mkdir -p $(ROOT)/web/roms
-	@cp $(DIST)/plattypus.exe $(DIST)/plattypus.cue $(DIST)/plattypus.bin $(ROOT)/web/roms/ 2>/dev/null || true
+	@cp $(DIST)/plattypus.exe $(DIST)/plattypus.cue $(DIST)/plattypus.bin $(DIST)/plattypus.iso $(ROOT)/web/roms/ 2>/dev/null || true
 	@echo "Serving Plattypus Web Arcade on http://localhost:8080 ..."
 	@python3 -m http.server 8080 --directory $(ROOT)/web
 
@@ -77,6 +78,15 @@ exe:
 	cd $(GAME_DIR) && cargo build --release
 	@cp $(GAME_EXE) $(DIST)/plattypus.exe
 	@echo "BUILT PSX-EXE -> $(DIST)/plattypus.exe"
+
+iso: exe
+	@mkdir -p $(DIST)
+	cargo run --release --manifest-path $(MKISOPSX)/Cargo.toml -- \
+		--exe $(DIST)/plattypus.exe \
+		--out $(DIST)/plattypus.iso \
+		--volume PLATTYPUS \
+		--iso
+	@echo "SUCCESS! Cooked PS1 ISO Mastered: $(DIST)/plattypus.iso"
 
 disc: exe check-media
 	@mkdir -p $(DIST)
