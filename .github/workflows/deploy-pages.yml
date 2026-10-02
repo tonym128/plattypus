@@ -3,6 +3,8 @@ name: Deploy Web Arcade to GitHub Pages
 on:
   push:
     branches: [main, master]
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 permissions:
@@ -24,10 +26,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install MIPS bare-metal toolchain
+      - name: Install MIPS bare-metal toolchain & media tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y binutils-mipsel-linux-gnu
+          sudo apt-get install -y binutils-mipsel-linux-gnu ffmpeg
 
       - name: Show toolchain
         run: rustup show

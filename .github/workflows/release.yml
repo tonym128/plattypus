@@ -2,14 +2,17 @@ name: Build and Publish Release
 
 on:
   push:
+    branches:
+      - main
+      - master
     tags:
       - 'v*'
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Release Tag (e.g. v1.0.0)'
+        description: 'Release Tag (e.g. v1.0.1)'
         required: true
-        default: 'v1.0.0'
+        default: 'v1.0.1'
       draft:
         description: 'Create Draft Release'
         type: boolean
@@ -29,24 +32,55 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Install MIPS bare-metal toolchain & zip
+      - name: Determine Version & Release Action
+        id: check_release
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag_name }}"
+            SHOULD_RELEASE=true
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            SHOULD_RELEASE=true
+          else
+            # Triggered by push to branch (main/master)
+            VERSION=$(grep -m1 '^version' game/Cargo.toml | cut -d '"' -f2)
+            TAG="v${VERSION}"
+            if git rev-parse "$TAG" >/dev/null 2>&1 || git ls-remote --tags origin "refs/tags/$TAG" | grep -q "$TAG"; then
+              echo "Tag $TAG already exists on repository. Skipping automated release."
+              SHOULD_RELEASE=false
+            else
+              echo "New version detected ($TAG). Tagging and creating release!"
+              SHOULD_RELEASE=true
+            fi
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "should_release=$SHOULD_RELEASE" >> $GITHUB_OUTPUT
+
+      - name: Install MIPS bare-metal toolchain, zip & ffmpeg
+        if: steps.check_release.outputs.should_release == 'true'
         run: |
           sudo apt-get update
-          sudo apt-get install -y binutils-mipsel-linux-gnu zip
+          sudo apt-get install -y binutils-mipsel-linux-gnu zip ffmpeg
 
       - name: Show toolchain
+        if: steps.check_release.outputs.should_release == 'true'
         run: rustup show
 
       - name: Run game logic test suite
+        if: steps.check_release.outputs.should_release == 'true'
         run: make test
 
       - name: Build PSX-EXE, Master Disc, and Cooked ISO
+        if: steps.check_release.outputs.should_release == 'true'
         run: |
           make disc
           make iso
 
       - name: Package Master Disc Zip & Checksums
+        if: steps.check_release.outputs.should_release == 'true'
         working-directory: dist
         run: |
           cp ../web/assets/MANUAL.md ./MANUAL.md
@@ -55,33 +89,36 @@ jobs:
           sha256sum plattypus.iso plattypus.exe plattypus.bin plattypus.cue plattypus-ps1-master-disc.zip > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
-      - name: Determine Release Tag
-        id: vars
+      - name: Create and Push Git Tag
+        if: steps.check_release.outputs.should_release == 'true'
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ github.event.inputs.tag_name }}" >> $GITHUB_OUTPUT
-          else
-            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          TAG="${{ steps.check_release.outputs.tag }}"
+          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" -m "Plattypus PS1 Release $TAG"
+            git push origin "$TAG"
           fi
 
       - name: Create GitHub Release and Upload Artifacts
+        if: steps.check_release.outputs.should_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.vars.outputs.tag }}
-          name: "Plattypus PS1 - ${{ steps.vars.outputs.tag }}"
+          tag_name: ${{ steps.check_release.outputs.tag }}
+          name: "Plattypus PS1 - ${{ steps.check_release.outputs.tag }}"
           draft: ${{ github.event.inputs.draft || false }}
           prerelease: ${{ github.event.inputs.prerelease || false }}
           generate_release_notes: true
           body: |
-            ### 🎮 Plattypus (Sony PlayStation 1) - Release ${{ steps.vars.outputs.tag }}
+            ### 🎮 Plattypus (Sony PlayStation 1) - Release ${{ steps.check_release.outputs.tag }}
 
             Tactical Espionage Action built from scratch for bare-metal Sony PlayStation 1 hardware using Rust and PSoXide.
 
             #### 📦 Downloads Included:
-            - **`plattypus.iso`** (2 MB): Standard 2048-byte Mode 1 cooked ISO image for optical disc emulators and universal loaders.
-            - **`plattypus-ps1-master-disc.zip`** (29 MB): Complete Red Book CD-ROM disc image (`.bin` + `.cue`) featuring full streaming CD-DA stereo music tracks, 15fps MDEC/XA cinematic videos, manual, and printable packaging art.
-            - **`plattypus.bin` & `plattypus.cue`**: Raw multi-track disc image for burning to CD-R or loading in DuckStation / RetroArch.
-            - **`plattypus.exe`** (614 KB): Standalone MIPS R3000 bare-metal executable for fast serial/network side-loading (Unirom/Caetla).
+            - **`plattypus.bin` & `plattypus.cue`** (59 MB): Complete Red Book multi-track disc image for burning to CD-R or loading in DuckStation / RetroArch / Mednafen. Includes Track 1 Data, Track 2 Title Music (*King of the Yarra*), Track 3 Credits Music (*Below the Reeds*), and 15 fps MDEC/CD-XA video cutscenes.
+            - **`plattypus.iso`** (2 MB): Standard 2048-byte Mode 1 cooked ISO image for optical disc emulators (XStation, PSIO) and universal disc loaders.
+            - **`plattypus-ps1-master-disc.zip`** (60 MB): Complete packaged master release archive containing `.bin`, `.cue`, digital manual, and high-resolution jewel case artwork.
+            - **`plattypus.exe`** (616 KB): Standalone MIPS R3000 bare-metal executable for fast serial/network side-loading (Unirom/Caetla).
             - **`SHA256SUMS.txt`**: Cryptographic integrity hashes for all release binaries.
 
             #### 🕹️ Play Online in Your Browser:
