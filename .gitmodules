@@ -1,4 +1,0 @@
-[submodule "psoxide"]
-	path = psoxide
-	url = https://github.com/EBonura/PSoXide.git
-	branch = mdec_video
