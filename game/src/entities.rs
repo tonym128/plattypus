@@ -355,8 +355,7 @@ pub const EXCAVATOR_DEATH_FRAMES: u16 = 120;
 
 /// X offset of each engine relative to the machine's centre, so the player can
 /// tell which one they are about to hit.
-pub const EXCAVATOR_ENGINE_OFFSETS: [(i32, i32); EXCAVATOR_ENGINES] =
-    [(-90, 0), (0, -70), (90, 0)];
+pub const EXCAVATOR_ENGINE_OFFSETS: [(i32, i32); EXCAVATOR_ENGINES] = [(-90, 0), (0, -70), (90, 0)];
 
 impl ExcavatorBoss {
     pub const fn empty() -> Self {
@@ -386,7 +385,10 @@ impl ExcavatorBoss {
     pub fn is_vulnerable(&self) -> bool {
         self.active
             && !self.is_defeated()
-            && matches!(self.state, ExcavatorState::Venting(_) | ExcavatorState::Exposed)
+            && matches!(
+                self.state,
+                ExcavatorState::Venting(_) | ExcavatorState::Exposed
+            )
     }
 
     /// Index of an active, surviving engine within striking distance of a world position, if any.
@@ -430,12 +432,12 @@ impl ExcavatorBoss {
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum CollectibleType {
-    YabbyRation,   // Restores health +1 heart
-    ChaffBattery,  // Powers electro-bill
-    LetterPage,    // Intelligence intel from parents
-    BuriedYabby,   // Hidden ration, requires electro pulse
-    StarYabby,     // Mario 64 star yabby in Act 4
-    CardboardBox,  // "The Bill Box" tactical concealment disguise!
+    YabbyRation,  // Restores health +1 heart
+    ChaffBattery, // Powers electro-bill
+    LetterPage,   // Intelligence intel from parents
+    BuriedYabby,  // Hidden ration, requires electro pulse
+    StarYabby,    // Mario 64 star yabby in Act 4
+    CardboardBox, // "The Bill Box" tactical concealment disguise!
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -692,7 +694,18 @@ impl EntityManager {
         }
     }
 
-    pub fn spawn_particle(&mut self, x: i32, y: i32, z: i32, vx: i16, vy: i16, vz: i16, life: u8, color: (u8, u8, u8), size: u8) {
+    pub fn spawn_particle(
+        &mut self,
+        x: i32,
+        y: i32,
+        z: i32,
+        vx: i16,
+        vy: i16,
+        vz: i16,
+        life: u8,
+        color: (u8, u8, u8),
+        size: u8,
+    ) {
         for p in self.particles.iter_mut() {
             if !p.active {
                 *p = Particle3D {
@@ -796,18 +809,24 @@ impl EntityManager {
     // ACT 1-1: DRAINAGE OUTFLOW
     // -------------------------------------------------------------------------
     fn load_act1_1(&mut self) {
-        self.spawn_sentry(0, 5 * TILE_SZ, 3 * TILE_SZ, &[
-            (5 * TILE_SZ, 3 * TILE_SZ),
-            (5 * TILE_SZ, 12 * TILE_SZ),
-        ]);
-        self.spawn_sentry(1, 15 * TILE_SZ, 4 * TILE_SZ, &[
-            (15 * TILE_SZ, 4 * TILE_SZ),
-            (20 * TILE_SZ, 4 * TILE_SZ),
-        ]);
-        self.spawn_sentry(2, 17 * TILE_SZ, 18 * TILE_SZ, &[
-            (17 * TILE_SZ, 18 * TILE_SZ),
-            (17 * TILE_SZ, 12 * TILE_SZ),
-        ]);
+        self.spawn_sentry(
+            0,
+            5 * TILE_SZ,
+            3 * TILE_SZ,
+            &[(5 * TILE_SZ, 3 * TILE_SZ), (5 * TILE_SZ, 12 * TILE_SZ)],
+        );
+        self.spawn_sentry(
+            1,
+            15 * TILE_SZ,
+            4 * TILE_SZ,
+            &[(15 * TILE_SZ, 4 * TILE_SZ), (20 * TILE_SZ, 4 * TILE_SZ)],
+        );
+        self.spawn_sentry(
+            2,
+            17 * TILE_SZ,
+            18 * TILE_SZ,
+            &[(17 * TILE_SZ, 18 * TILE_SZ), (17 * TILE_SZ, 12 * TILE_SZ)],
+        );
 
         self.searchlights[0] = Searchlight {
             active: true,
@@ -828,29 +847,65 @@ impl EntityManager {
             radius: 55,
         };
 
-        self.spawn_item(0, CollectibleType::YabbyRation, 4 * TILE_SZ, 7 * TILE_SZ, true);
-        self.spawn_item(1, CollectibleType::LetterPage, 11 * TILE_SZ, 3 * TILE_SZ, true);
-        self.spawn_item(2, CollectibleType::YabbyRation, 14 * TILE_SZ, 18 * TILE_SZ, true);
-        self.spawn_item(3, CollectibleType::BuriedYabby, 3 * TILE_SZ, 12 * TILE_SZ, false);
-        self.spawn_item(4, CollectibleType::CardboardBox, 10 * TILE_SZ, 8 * TILE_SZ, true);
+        self.spawn_item(
+            0,
+            CollectibleType::YabbyRation,
+            4 * TILE_SZ,
+            7 * TILE_SZ,
+            true,
+        );
+        self.spawn_item(
+            1,
+            CollectibleType::LetterPage,
+            11 * TILE_SZ,
+            3 * TILE_SZ,
+            true,
+        );
+        self.spawn_item(
+            2,
+            CollectibleType::YabbyRation,
+            14 * TILE_SZ,
+            18 * TILE_SZ,
+            true,
+        );
+        self.spawn_item(
+            3,
+            CollectibleType::BuriedYabby,
+            3 * TILE_SZ,
+            12 * TILE_SZ,
+            false,
+        );
+        self.spawn_item(
+            4,
+            CollectibleType::CardboardBox,
+            10 * TILE_SZ,
+            8 * TILE_SZ,
+            true,
+        );
     }
 
     // -------------------------------------------------------------------------
     // ACT 1-2: RESEARCH BARRACKS & LASER GRID
     // -------------------------------------------------------------------------
     fn load_act1_2(&mut self) {
-        self.spawn_sentry(0, 3 * TILE_SZ, 6 * TILE_SZ, &[
-            (3 * TILE_SZ, 6 * TILE_SZ),
-            (3 * TILE_SZ, 16 * TILE_SZ),
-        ]);
-        self.spawn_sentry(1, 11 * TILE_SZ, 5 * TILE_SZ, &[
-            (11 * TILE_SZ, 5 * TILE_SZ),
-            (11 * TILE_SZ, 17 * TILE_SZ),
-        ]);
-        self.spawn_sentry(2, 19 * TILE_SZ, 6 * TILE_SZ, &[
-            (19 * TILE_SZ, 6 * TILE_SZ),
-            (19 * TILE_SZ, 16 * TILE_SZ),
-        ]);
+        self.spawn_sentry(
+            0,
+            3 * TILE_SZ,
+            6 * TILE_SZ,
+            &[(3 * TILE_SZ, 6 * TILE_SZ), (3 * TILE_SZ, 16 * TILE_SZ)],
+        );
+        self.spawn_sentry(
+            1,
+            11 * TILE_SZ,
+            5 * TILE_SZ,
+            &[(11 * TILE_SZ, 5 * TILE_SZ), (11 * TILE_SZ, 17 * TILE_SZ)],
+        );
+        self.spawn_sentry(
+            2,
+            19 * TILE_SZ,
+            6 * TILE_SZ,
+            &[(19 * TILE_SZ, 6 * TILE_SZ), (19 * TILE_SZ, 16 * TILE_SZ)],
+        );
 
         self.drones[0] = Drone {
             active: true,
@@ -875,11 +930,41 @@ impl EntityManager {
             orbit_radius: DRONE_ORBIT_RADIUS,
         };
 
-        self.spawn_item(0, CollectibleType::CardboardBox, 3 * TILE_SZ, 19 * TILE_SZ, true);
-        self.spawn_item(1, CollectibleType::YabbyRation, 3 * TILE_SZ, 5 * TILE_SZ, true);
-        self.spawn_item(2, CollectibleType::YabbyRation, 19 * TILE_SZ, 5 * TILE_SZ, true);
-        self.spawn_item(3, CollectibleType::LetterPage, 19 * TILE_SZ, 19 * TILE_SZ, true);
-        self.spawn_item(4, CollectibleType::BuriedYabby, 11 * TILE_SZ, 14 * TILE_SZ, false);
+        self.spawn_item(
+            0,
+            CollectibleType::CardboardBox,
+            3 * TILE_SZ,
+            19 * TILE_SZ,
+            true,
+        );
+        self.spawn_item(
+            1,
+            CollectibleType::YabbyRation,
+            3 * TILE_SZ,
+            5 * TILE_SZ,
+            true,
+        );
+        self.spawn_item(
+            2,
+            CollectibleType::YabbyRation,
+            19 * TILE_SZ,
+            5 * TILE_SZ,
+            true,
+        );
+        self.spawn_item(
+            3,
+            CollectibleType::LetterPage,
+            19 * TILE_SZ,
+            19 * TILE_SZ,
+            true,
+        );
+        self.spawn_item(
+            4,
+            CollectibleType::BuriedYabby,
+            11 * TILE_SZ,
+            14 * TILE_SZ,
+            false,
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -935,8 +1020,20 @@ impl EntityManager {
             spark_timer: 0,
         };
 
-        self.spawn_item(0, CollectibleType::YabbyRation, 3 * TILE_SZ + 32, 9 * TILE_SZ + 32, true);
-        self.spawn_item(1, CollectibleType::YabbyRation, 20 * TILE_SZ + 32, 9 * TILE_SZ + 32, true);
+        self.spawn_item(
+            0,
+            CollectibleType::YabbyRation,
+            3 * TILE_SZ + 32,
+            9 * TILE_SZ + 32,
+            true,
+        );
+        self.spawn_item(
+            1,
+            CollectibleType::YabbyRation,
+            20 * TILE_SZ + 32,
+            9 * TILE_SZ + 32,
+            true,
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -957,13 +1054,11 @@ impl EntityManager {
             (2, RiverObstacleType::LowBranch, 16 * TILE_SZ, 0),
             (3, RiverObstacleType::TigerSnake, 15 * TILE_SZ, 1),
             (4, RiverObstacleType::PaddleBoarder, 14 * TILE_SZ, 1),
-
             (0, RiverObstacleType::Swimmer, 12 * TILE_SZ, 0),
             (1, RiverObstacleType::GiantSpider, 11 * TILE_SZ, 0),
             (2, RiverObstacleType::RiverTuber, 10 * TILE_SZ, 1),
             (3, RiverObstacleType::TreeLog, 9 * TILE_SZ, 0),
             (4, RiverObstacleType::LowBranch, 8 * TILE_SZ, 0),
-
             (1, RiverObstacleType::TigerSnake, 6 * TILE_SZ, 1),
             (2, RiverObstacleType::PaddleBoarder, 5 * TILE_SZ, 1),
             (3, RiverObstacleType::Swimmer, 4 * TILE_SZ, 0),
@@ -986,10 +1081,34 @@ impl EntityManager {
             }
         }
 
-        self.spawn_item(0, CollectibleType::YabbyRation, lane_x[2], 19 * TILE_SZ, true);
-        self.spawn_item(1, CollectibleType::YabbyRation, lane_x[0], 13 * TILE_SZ, true);
-        self.spawn_item(2, CollectibleType::YabbyRation, lane_x[4], 10 * TILE_SZ, true);
-        self.spawn_item(3, CollectibleType::YabbyRation, lane_x[2], 7 * TILE_SZ, true);
+        self.spawn_item(
+            0,
+            CollectibleType::YabbyRation,
+            lane_x[2],
+            19 * TILE_SZ,
+            true,
+        );
+        self.spawn_item(
+            1,
+            CollectibleType::YabbyRation,
+            lane_x[0],
+            13 * TILE_SZ,
+            true,
+        );
+        self.spawn_item(
+            2,
+            CollectibleType::YabbyRation,
+            lane_x[4],
+            10 * TILE_SZ,
+            true,
+        );
+        self.spawn_item(
+            3,
+            CollectibleType::YabbyRation,
+            lane_x[2],
+            7 * TILE_SZ,
+            true,
+        );
         self.spawn_item(4, CollectibleType::LetterPage, lane_x[1], 3 * TILE_SZ, true);
     }
 
@@ -1036,16 +1155,48 @@ impl EntityManager {
         };
 
         // River ranger guard at dock
-        self.spawn_sentry(0, 19 * TILE_SZ, 14 * TILE_SZ, &[
-            (19 * TILE_SZ, 14 * TILE_SZ),
-            (19 * TILE_SZ, 19 * TILE_SZ),
-        ]);
+        self.spawn_sentry(
+            0,
+            19 * TILE_SZ,
+            14 * TILE_SZ,
+            &[(19 * TILE_SZ, 14 * TILE_SZ), (19 * TILE_SZ, 19 * TILE_SZ)],
+        );
 
-        self.spawn_item(0, CollectibleType::BuriedYabby, 4 * TILE_SZ, 12 * TILE_SZ, false);
-        self.spawn_item(1, CollectibleType::BuriedYabby, 10 * TILE_SZ, 4 * TILE_SZ, false);
-        self.spawn_item(2, CollectibleType::BuriedYabby, 16 * TILE_SZ, 17 * TILE_SZ, false);
-        self.spawn_item(3, CollectibleType::YabbyRation, 12 * TILE_SZ, 10 * TILE_SZ, true);
-        self.spawn_item(4, CollectibleType::LetterPage, 19 * TILE_SZ, 4 * TILE_SZ, true);
+        self.spawn_item(
+            0,
+            CollectibleType::BuriedYabby,
+            4 * TILE_SZ,
+            12 * TILE_SZ,
+            false,
+        );
+        self.spawn_item(
+            1,
+            CollectibleType::BuriedYabby,
+            10 * TILE_SZ,
+            4 * TILE_SZ,
+            false,
+        );
+        self.spawn_item(
+            2,
+            CollectibleType::BuriedYabby,
+            16 * TILE_SZ,
+            17 * TILE_SZ,
+            false,
+        );
+        self.spawn_item(
+            3,
+            CollectibleType::YabbyRation,
+            12 * TILE_SZ,
+            10 * TILE_SZ,
+            true,
+        );
+        self.spawn_item(
+            4,
+            CollectibleType::LetterPage,
+            19 * TILE_SZ,
+            4 * TILE_SZ,
+            true,
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -1091,8 +1242,20 @@ impl EntityManager {
             speed: 0,
         };
 
-        self.spawn_item(0, CollectibleType::YabbyRation, lane_x[0], 16 * TILE_SZ, true);
-        self.spawn_item(1, CollectibleType::YabbyRation, lane_x[4], 12 * TILE_SZ, true);
+        self.spawn_item(
+            0,
+            CollectibleType::YabbyRation,
+            lane_x[0],
+            16 * TILE_SZ,
+            true,
+        );
+        self.spawn_item(
+            1,
+            CollectibleType::YabbyRation,
+            lane_x[4],
+            12 * TILE_SZ,
+            true,
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -1100,17 +1263,94 @@ impl EntityManager {
     // -------------------------------------------------------------------------
     fn load_act3_1(&mut self) {
         let vehicles_data = [
-            (VehicleType::Taxi, 6 * TILE_SZ, 19 * TILE_SZ + 32, -3, 34, (240, 200, 30)),
-            (VehicleType::Sedan, 14 * TILE_SZ, 19 * TILE_SZ + 32, -2, 32, (40, 110, 220)),
-            (VehicleType::Taxi, 20 * TILE_SZ, 19 * TILE_SZ + 32, -3, 34, (240, 200, 30)),
-            (VehicleType::SportsCar, 10 * TILE_SZ, 18 * TILE_SZ + 32, -4, 30, (230, 45, 45)),
-            (VehicleType::Sedan, 18 * TILE_SZ, 18 * TILE_SZ + 32, -2, 32, (180, 180, 190)),
-            (VehicleType::Tram, 4 * TILE_SZ, 13 * TILE_SZ + 32, 2, 72, (30, 160, 70)),
-            (VehicleType::Tram, 16 * TILE_SZ, 14 * TILE_SZ + 32, -2, 72, (30, 160, 70)),
-            (VehicleType::Truck, 5 * TILE_SZ, 8 * TILE_SZ + 32, 2, 64, (210, 50, 40)),
-            (VehicleType::Sedan, 15 * TILE_SZ, 8 * TILE_SZ + 32, 3, 32, (50, 90, 160)),
-            (VehicleType::SportsCar, 8 * TILE_SZ, 7 * TILE_SZ + 32, 4, 30, (255, 230, 60)),
-            (VehicleType::Truck, 18 * TILE_SZ, 7 * TILE_SZ + 32, 2, 64, (60, 140, 200)),
+            (
+                VehicleType::Taxi,
+                6 * TILE_SZ,
+                19 * TILE_SZ + 32,
+                -3,
+                34,
+                (240, 200, 30),
+            ),
+            (
+                VehicleType::Sedan,
+                14 * TILE_SZ,
+                19 * TILE_SZ + 32,
+                -2,
+                32,
+                (40, 110, 220),
+            ),
+            (
+                VehicleType::Taxi,
+                20 * TILE_SZ,
+                19 * TILE_SZ + 32,
+                -3,
+                34,
+                (240, 200, 30),
+            ),
+            (
+                VehicleType::SportsCar,
+                10 * TILE_SZ,
+                18 * TILE_SZ + 32,
+                -4,
+                30,
+                (230, 45, 45),
+            ),
+            (
+                VehicleType::Sedan,
+                18 * TILE_SZ,
+                18 * TILE_SZ + 32,
+                -2,
+                32,
+                (180, 180, 190),
+            ),
+            (
+                VehicleType::Tram,
+                4 * TILE_SZ,
+                13 * TILE_SZ + 32,
+                2,
+                72,
+                (30, 160, 70),
+            ),
+            (
+                VehicleType::Tram,
+                16 * TILE_SZ,
+                14 * TILE_SZ + 32,
+                -2,
+                72,
+                (30, 160, 70),
+            ),
+            (
+                VehicleType::Truck,
+                5 * TILE_SZ,
+                8 * TILE_SZ + 32,
+                2,
+                64,
+                (210, 50, 40),
+            ),
+            (
+                VehicleType::Sedan,
+                15 * TILE_SZ,
+                8 * TILE_SZ + 32,
+                3,
+                32,
+                (50, 90, 160),
+            ),
+            (
+                VehicleType::SportsCar,
+                8 * TILE_SZ,
+                7 * TILE_SZ + 32,
+                4,
+                30,
+                (255, 230, 60),
+            ),
+            (
+                VehicleType::Truck,
+                18 * TILE_SZ,
+                7 * TILE_SZ + 32,
+                2,
+                64,
+                (60, 140, 200),
+            ),
         ];
 
         for (i, (kind, x, z, vx, len, col)) in vehicles_data.iter().enumerate() {
@@ -1127,28 +1367,58 @@ impl EntityManager {
             }
         }
 
-        self.spawn_item(0, CollectibleType::YabbyRation, 7 * TILE_SZ, 21 * TILE_SZ, true);
-        self.spawn_item(1, CollectibleType::YabbyRation, 12 * TILE_SZ, 16 * TILE_SZ, true);
-        self.spawn_item(2, CollectibleType::YabbyRation, 16 * TILE_SZ, 10 * TILE_SZ, true);
-        self.spawn_item(3, CollectibleType::LetterPage, 12 * TILE_SZ, 3 * TILE_SZ, true);
+        self.spawn_item(
+            0,
+            CollectibleType::YabbyRation,
+            7 * TILE_SZ,
+            21 * TILE_SZ,
+            true,
+        );
+        self.spawn_item(
+            1,
+            CollectibleType::YabbyRation,
+            12 * TILE_SZ,
+            16 * TILE_SZ,
+            true,
+        );
+        self.spawn_item(
+            2,
+            CollectibleType::YabbyRation,
+            16 * TILE_SZ,
+            10 * TILE_SZ,
+            true,
+        );
+        self.spawn_item(
+            3,
+            CollectibleType::LetterPage,
+            12 * TILE_SZ,
+            3 * TILE_SZ,
+            true,
+        );
     }
 
     // -------------------------------------------------------------------------
     // ACT 3-2: FLINDERS STREET LANEWAYS & ROOFTOPS
     // -------------------------------------------------------------------------
     fn load_act3_2(&mut self) {
-        self.spawn_sentry(0, 4 * TILE_SZ, 5 * TILE_SZ, &[
-            (4 * TILE_SZ, 5 * TILE_SZ),
-            (4 * TILE_SZ, 17 * TILE_SZ),
-        ]);
-        self.spawn_sentry(1, 10 * TILE_SZ, 6 * TILE_SZ, &[
-            (10 * TILE_SZ, 6 * TILE_SZ),
-            (10 * TILE_SZ, 16 * TILE_SZ),
-        ]);
-        self.spawn_sentry(2, 15 * TILE_SZ, 4 * TILE_SZ, &[
-            (15 * TILE_SZ, 4 * TILE_SZ),
-            (15 * TILE_SZ, 18 * TILE_SZ),
-        ]);
+        self.spawn_sentry(
+            0,
+            4 * TILE_SZ,
+            5 * TILE_SZ,
+            &[(4 * TILE_SZ, 5 * TILE_SZ), (4 * TILE_SZ, 17 * TILE_SZ)],
+        );
+        self.spawn_sentry(
+            1,
+            10 * TILE_SZ,
+            6 * TILE_SZ,
+            &[(10 * TILE_SZ, 6 * TILE_SZ), (10 * TILE_SZ, 16 * TILE_SZ)],
+        );
+        self.spawn_sentry(
+            2,
+            15 * TILE_SZ,
+            4 * TILE_SZ,
+            &[(15 * TILE_SZ, 4 * TILE_SZ), (15 * TILE_SZ, 18 * TILE_SZ)],
+        );
 
         self.searchlights[0] = Searchlight {
             active: true,
@@ -1172,10 +1442,34 @@ impl EntityManager {
             orbit_radius: DRONE_ORBIT_RADIUS,
         };
 
-        self.spawn_item(0, CollectibleType::CardboardBox, 4 * TILE_SZ, 19 * TILE_SZ, true);
-        self.spawn_item(1, CollectibleType::YabbyRation, 4 * TILE_SZ, 4 * TILE_SZ, true);
-        self.spawn_item(2, CollectibleType::YabbyRation, 10 * TILE_SZ, 18 * TILE_SZ, true);
-        self.spawn_item(3, CollectibleType::LetterPage, 19 * TILE_SZ, 10 * TILE_SZ, true);
+        self.spawn_item(
+            0,
+            CollectibleType::CardboardBox,
+            4 * TILE_SZ,
+            19 * TILE_SZ,
+            true,
+        );
+        self.spawn_item(
+            1,
+            CollectibleType::YabbyRation,
+            4 * TILE_SZ,
+            4 * TILE_SZ,
+            true,
+        );
+        self.spawn_item(
+            2,
+            CollectibleType::YabbyRation,
+            10 * TILE_SZ,
+            18 * TILE_SZ,
+            true,
+        );
+        self.spawn_item(
+            3,
+            CollectibleType::LetterPage,
+            19 * TILE_SZ,
+            10 * TILE_SZ,
+            true,
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -1197,8 +1491,20 @@ impl EntityManager {
             is_vulnerable: false,
         };
 
-        self.spawn_item(0, CollectibleType::YabbyRation, 7 * TILE_SZ, 10 * TILE_SZ, true);
-        self.spawn_item(1, CollectibleType::YabbyRation, 16 * TILE_SZ, 10 * TILE_SZ, true);
+        self.spawn_item(
+            0,
+            CollectibleType::YabbyRation,
+            7 * TILE_SZ,
+            10 * TILE_SZ,
+            true,
+        );
+        self.spawn_item(
+            1,
+            CollectibleType::YabbyRation,
+            16 * TILE_SZ,
+            10 * TILE_SZ,
+            true,
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -1257,13 +1563,37 @@ impl EntityManager {
             vx: 1,
         };
 
-        self.spawn_item(0, CollectibleType::StarYabby, 6 * TILE_SZ + 24, 16 * TILE_SZ + 24, true);
+        self.spawn_item(
+            0,
+            CollectibleType::StarYabby,
+            6 * TILE_SZ + 24,
+            16 * TILE_SZ + 24,
+            true,
+        );
         self.collectibles[0].y = -30;
-        self.spawn_item(1, CollectibleType::StarYabby, 10 * TILE_SZ + 28, 12 * TILE_SZ + 28, true);
+        self.spawn_item(
+            1,
+            CollectibleType::StarYabby,
+            10 * TILE_SZ + 28,
+            12 * TILE_SZ + 28,
+            true,
+        );
         self.collectibles[1].y = -48;
-        self.spawn_item(2, CollectibleType::StarYabby, 16 * TILE_SZ + 30, 8 * TILE_SZ + 30, true);
+        self.spawn_item(
+            2,
+            CollectibleType::StarYabby,
+            16 * TILE_SZ + 30,
+            8 * TILE_SZ + 30,
+            true,
+        );
         self.collectibles[2].y = -68;
-        self.spawn_item(3, CollectibleType::YabbyRation, 4 * TILE_SZ, 19 * TILE_SZ, true);
+        self.spawn_item(
+            3,
+            CollectibleType::YabbyRation,
+            4 * TILE_SZ,
+            19 * TILE_SZ,
+            true,
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -1330,10 +1660,34 @@ impl EntityManager {
             is_parasol: false,
         };
 
-        self.spawn_item(0, CollectibleType::StarYabby, 3 * TILE_SZ, 10 * TILE_SZ, true);
-        self.spawn_item(1, CollectibleType::StarYabby, 12 * TILE_SZ, 8 * TILE_SZ, true);
-        self.spawn_item(2, CollectibleType::StarYabby, 17 * TILE_SZ, 12 * TILE_SZ, true);
-        self.spawn_item(3, CollectibleType::LetterPage, 18 * TILE_SZ, 4 * TILE_SZ, true);
+        self.spawn_item(
+            0,
+            CollectibleType::StarYabby,
+            3 * TILE_SZ,
+            10 * TILE_SZ,
+            true,
+        );
+        self.spawn_item(
+            1,
+            CollectibleType::StarYabby,
+            12 * TILE_SZ,
+            8 * TILE_SZ,
+            true,
+        );
+        self.spawn_item(
+            2,
+            CollectibleType::StarYabby,
+            17 * TILE_SZ,
+            12 * TILE_SZ,
+            true,
+        );
+        self.spawn_item(
+            3,
+            CollectibleType::LetterPage,
+            18 * TILE_SZ,
+            4 * TILE_SZ,
+            true,
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -1357,8 +1711,20 @@ impl EntityManager {
             state: ExcavatorState::Shielded,
         };
 
-        self.spawn_item(0, CollectibleType::YabbyRation, 4 * TILE_SZ, 15 * TILE_SZ, true);
-        self.spawn_item(1, CollectibleType::YabbyRation, 19 * TILE_SZ, 15 * TILE_SZ, true);
+        self.spawn_item(
+            0,
+            CollectibleType::YabbyRation,
+            4 * TILE_SZ,
+            15 * TILE_SZ,
+            true,
+        );
+        self.spawn_item(
+            1,
+            CollectibleType::YabbyRation,
+            19 * TILE_SZ,
+            15 * TILE_SZ,
+            true,
+        );
     }
 
     fn spawn_sentry(&mut self, idx: usize, x: i32, z: i32, waypoints: &[(i32, i32)]) {
@@ -1626,7 +1992,10 @@ impl EntityManager {
 
                     if !obstructed {
                         // Close proximity hearing if player is running (and not inside a motionless box)
-                        let heard = dist_sq < (52 * 52) && !player_crawling && !player_sneaking && !(player_in_box && !player_moving);
+                        let heard = dist_sq < (52 * 52)
+                            && !player_crawling
+                            && !player_sneaking
+                            && !(player_in_box && !player_moving);
 
                         // Forward vector for angle (sin for X, cos for Z)
                         let fwd_x = sin_1_3_12(s.angle) as i32;
@@ -1767,7 +2136,9 @@ impl EntityManager {
                 // `panic = "abort"` makes an out-of-bounds index an
                 // unrecoverable lockup, so the write is bounded rather than
                 // relying on the array happening to be the same length.
-                if (self.frame.wrapping_add(i as u16 * 17) % 8) == 0 && spark_count < spark_pos.len() {
+                if (self.frame.wrapping_add(i as u16 * 17) % 8) == 0
+                    && spark_count < spark_pos.len()
+                {
                     spark_pos[spark_count] = (c.x, c.z);
                     spark_count += 1;
                 }
@@ -1791,13 +2162,26 @@ impl EntityManager {
         if shields_were_active
             && !self.boss_mech.shield_active
             && self.boss_mech.active
-            && !matches!(self.boss_mech.state, MechState::Venting(_) | MechState::Defeated(_))
+            && !matches!(
+                self.boss_mech.state,
+                MechState::Venting(_) | MechState::Defeated(_)
+            )
         {
             AudioManager::play_hit();
             AudioManager::play_alert();
             self.boss_mech.state = MechState::Venting(120);
             for _ in 0..6 {
-                self.spawn_particle(self.boss_mech.x, -28, self.boss_mech.z, 0, -3, 0, 30, (255, 140, 40), 4);
+                self.spawn_particle(
+                    self.boss_mech.x,
+                    -28,
+                    self.boss_mech.z,
+                    0,
+                    -3,
+                    0,
+                    30,
+                    (255, 140, 40),
+                    4,
+                );
             }
         }
 
@@ -1825,12 +2209,19 @@ impl EntityManager {
         self.boss_mech.right_beam_z = self.boss_mech.z + 100 + sweep_r_z;
 
         // Check if player is detected by searchlights
-        let in_trench = level.get_cell((player_x / TILE_SZ) as usize, (player_z / TILE_SZ) as usize) == CellType::AirDuct && player_crawling;
+        let in_trench = level
+            .get_cell((player_x / TILE_SZ) as usize, (player_z / TILE_SZ) as usize)
+            == CellType::AirDuct
+            && player_crawling;
         let in_tall_grass = level.is_tall_grass_at(player_x, player_z) && player_crawling;
         let hidden = in_trench || in_tall_grass;
 
-        let d_left = (player_x - self.boss_mech.left_beam_x).abs().max((player_z - self.boss_mech.left_beam_z).abs());
-        let d_right = (player_x - self.boss_mech.right_beam_x).abs().max((player_z - self.boss_mech.right_beam_z).abs());
+        let d_left = (player_x - self.boss_mech.left_beam_x)
+            .abs()
+            .max((player_z - self.boss_mech.left_beam_z).abs());
+        let d_right = (player_x - self.boss_mech.right_beam_x)
+            .abs()
+            .max((player_z - self.boss_mech.right_beam_z).abs());
         let player_spotted = !hidden && (d_left < 36 || d_right < 36);
 
         // Mech Stomp Cooldown
@@ -1850,7 +2241,10 @@ impl EntityManager {
                 }
                 self.boss_mech.leg_anim = ((self.frame / 6) % 4) as u8;
 
-                if player_spotted || (self.boss_mech.stomp_cooldown == 0 && (player_z - self.boss_mech.z).abs() < 180) {
+                if player_spotted
+                    || (self.boss_mech.stomp_cooldown == 0
+                        && (player_z - self.boss_mech.z).abs() < 180)
+                {
                     AudioManager::play_alert();
                     self.boss_mech.state = MechState::Targeting(40);
                     self.boss_mech.stomp_cooldown = 220;
@@ -1883,11 +2277,25 @@ impl EntityManager {
                             let ang = (i * 32) as u16;
                             let vx = (cos_1_3_12(ang) as i32 * 3) >> 12;
                             let vz = (sin_1_3_12(ang) as i32 * 3) >> 12;
-                            self.spawn_particle(self.boss_mech.x, -2, self.boss_mech.z, vx as i16, -1, vz as i16, 25, (140, 130, 120), 3);
+                            self.spawn_particle(
+                                self.boss_mech.x,
+                                -2,
+                                self.boss_mech.z,
+                                vx as i16,
+                                -1,
+                                vz as i16,
+                                25,
+                                (140, 130, 120),
+                                3,
+                            );
                         }
                     }
                 } else {
-                    let vent_time = if self.boss_mech.shield_active { 60 } else { 120 };
+                    let vent_time = if self.boss_mech.shield_active {
+                        60
+                    } else {
+                        120
+                    };
                     self.boss_mech.state = MechState::Venting(vent_time);
                 }
             }
@@ -1896,7 +2304,17 @@ impl EntityManager {
                     *t -= 1;
                     // Puffs of steam and glowing coolant core
                     if (self.frame % 6) == 0 {
-                        self.spawn_particle(self.boss_mech.x, -24, self.boss_mech.z - 20, 0, -2, -1, 20, (230, 230, 240), 3);
+                        self.spawn_particle(
+                            self.boss_mech.x,
+                            -24,
+                            self.boss_mech.z - 20,
+                            0,
+                            -2,
+                            -1,
+                            20,
+                            (230, 230, 240),
+                            3,
+                        );
                     }
                 } else {
                     self.boss_mech.state = MechState::Patrolling;
@@ -1908,7 +2326,7 @@ impl EntityManager {
                     // Chain explosions
                     if (self.frame % 8) == 0 {
                         let rx = self.boss_mech.x + (((self.frame as i32 * 13) % 40) - 20);
-                        let ry = -10 - (((self.frame as i32 * 7) % 30));
+                        let ry = -10 - ((self.frame as i32 * 7) % 30);
                         let rz = self.boss_mech.z + (((self.frame as i32 * 17) % 40) - 20);
                         self.spawn_particle(rx, ry, rz, 0, -3, 0, 30, (255, 120, 30), 4);
                         AudioManager::play_hit();
@@ -2018,7 +2436,17 @@ impl EntityManager {
         } else {
             // Smoke particles when stalled
             if (self.frame % 5) == 0 {
-                self.spawn_particle(self.boss_jetski.x, -16, self.boss_jetski.z, 0, -2, 0, 20, (180, 180, 190), 3);
+                self.spawn_particle(
+                    self.boss_jetski.x,
+                    -16,
+                    self.boss_jetski.z,
+                    0,
+                    -2,
+                    0,
+                    20,
+                    (180, 180, 190),
+                    3,
+                );
             }
             if self.boss_jetski.state_timer % 90 == 0 {
                 self.boss_jetski.is_stalled = false;
@@ -2058,8 +2486,13 @@ impl EntityManager {
 
             if self.boss_sniper.aim_timer >= 110 {
                 AudioManager::play_hit();
-                let in_vent = level.get_cell((player_x / TILE_SZ) as usize, (player_z / TILE_SZ) as usize) == CellType::AirDuct && player_crawling;
-                let laser_dist = (player_x - self.boss_sniper.laser_x).abs().max((player_z - self.boss_sniper.laser_z).abs());
+                let in_vent = level
+                    .get_cell((player_x / TILE_SZ) as usize, (player_z / TILE_SZ) as usize)
+                    == CellType::AirDuct
+                    && player_crawling;
+                let laser_dist = (player_x - self.boss_sniper.laser_x)
+                    .abs()
+                    .max((player_z - self.boss_sniper.laser_z).abs());
                 if laser_dist < 40 && !in_vent {
                     self.spawn_particle(player_x, -16, player_z, 0, -2, 0, 20, (255, 60, 60), 4);
                 }
@@ -2069,7 +2502,17 @@ impl EntityManager {
         } else {
             self.boss_sniper.aim_timer = self.boss_sniper.aim_timer.saturating_add(1);
             if (self.frame % 6) == 0 {
-                self.spawn_particle(self.boss_sniper.x, -52, self.boss_sniper.z, 0, -2, 0, 15, (255, 230, 80), 2);
+                self.spawn_particle(
+                    self.boss_sniper.x,
+                    -52,
+                    self.boss_sniper.z,
+                    0,
+                    -2,
+                    0,
+                    15,
+                    (255, 230, 80),
+                    2,
+                );
             }
             if self.boss_sniper.aim_timer >= 120 {
                 self.boss_sniper.is_vulnerable = false;
@@ -2160,41 +2603,93 @@ impl EntityManager {
     // VR TRAINING SIMULATOR LOADERS
     // -------------------------------------------------------------------------
     fn load_vr_sneaking(&mut self) {
-        self.spawn_sentry(0, 6 * TILE_SZ, 9 * TILE_SZ, &[
-            (6 * TILE_SZ, 9 * TILE_SZ),
-            (18 * TILE_SZ, 9 * TILE_SZ),
-        ]);
-        self.spawn_sentry(1, 18 * TILE_SZ, 15 * TILE_SZ, &[
-            (18 * TILE_SZ, 15 * TILE_SZ),
-            (6 * TILE_SZ, 15 * TILE_SZ),
-        ]);
+        self.spawn_sentry(
+            0,
+            6 * TILE_SZ,
+            9 * TILE_SZ,
+            &[(6 * TILE_SZ, 9 * TILE_SZ), (18 * TILE_SZ, 9 * TILE_SZ)],
+        );
+        self.spawn_sentry(
+            1,
+            18 * TILE_SZ,
+            15 * TILE_SZ,
+            &[(18 * TILE_SZ, 15 * TILE_SZ), (6 * TILE_SZ, 15 * TILE_SZ)],
+        );
 
-        self.spawn_item(0, CollectibleType::StarYabby, 12 * TILE_SZ, 4 * TILE_SZ, true);
-        self.spawn_item(1, CollectibleType::YabbyRation, 12 * TILE_SZ, 12 * TILE_SZ, true);
+        self.spawn_item(
+            0,
+            CollectibleType::StarYabby,
+            12 * TILE_SZ,
+            4 * TILE_SZ,
+            true,
+        );
+        self.spawn_item(
+            1,
+            CollectibleType::YabbyRation,
+            12 * TILE_SZ,
+            12 * TILE_SZ,
+            true,
+        );
     }
 
     fn load_vr_cqc(&mut self) {
-        self.spawn_sentry(0, 7 * TILE_SZ, 10 * TILE_SZ, &[
-            (7 * TILE_SZ, 10 * TILE_SZ),
-            (7 * TILE_SZ, 9 * TILE_SZ),
-        ]);
-        self.spawn_sentry(1, 12 * TILE_SZ, 10 * TILE_SZ, &[
-            (12 * TILE_SZ, 10 * TILE_SZ),
-            (12 * TILE_SZ, 9 * TILE_SZ),
-        ]);
-        self.spawn_sentry(2, 17 * TILE_SZ, 10 * TILE_SZ, &[
-            (17 * TILE_SZ, 10 * TILE_SZ),
-            (17 * TILE_SZ, 9 * TILE_SZ),
-        ]);
+        self.spawn_sentry(
+            0,
+            7 * TILE_SZ,
+            10 * TILE_SZ,
+            &[(7 * TILE_SZ, 10 * TILE_SZ), (7 * TILE_SZ, 9 * TILE_SZ)],
+        );
+        self.spawn_sentry(
+            1,
+            12 * TILE_SZ,
+            10 * TILE_SZ,
+            &[(12 * TILE_SZ, 10 * TILE_SZ), (12 * TILE_SZ, 9 * TILE_SZ)],
+        );
+        self.spawn_sentry(
+            2,
+            17 * TILE_SZ,
+            10 * TILE_SZ,
+            &[(17 * TILE_SZ, 10 * TILE_SZ), (17 * TILE_SZ, 9 * TILE_SZ)],
+        );
 
-        self.spawn_item(0, CollectibleType::CardboardBox, 12 * TILE_SZ, 19 * TILE_SZ, true);
+        self.spawn_item(
+            0,
+            CollectibleType::CardboardBox,
+            12 * TILE_SZ,
+            19 * TILE_SZ,
+            true,
+        );
     }
 
     fn load_vr_sonar(&mut self) {
-        self.spawn_item(0, CollectibleType::BuriedYabby, 4 * TILE_SZ, 10 * TILE_SZ, false);
-        self.spawn_item(1, CollectibleType::BuriedYabby, 16 * TILE_SZ, 10 * TILE_SZ, false);
-        self.spawn_item(2, CollectibleType::BuriedYabby, 8 * TILE_SZ, 18 * TILE_SZ, false);
-        self.spawn_item(3, CollectibleType::StarYabby, 18 * TILE_SZ, 5 * TILE_SZ, false);
+        self.spawn_item(
+            0,
+            CollectibleType::BuriedYabby,
+            4 * TILE_SZ,
+            10 * TILE_SZ,
+            false,
+        );
+        self.spawn_item(
+            1,
+            CollectibleType::BuriedYabby,
+            16 * TILE_SZ,
+            10 * TILE_SZ,
+            false,
+        );
+        self.spawn_item(
+            2,
+            CollectibleType::BuriedYabby,
+            8 * TILE_SZ,
+            18 * TILE_SZ,
+            false,
+        );
+        self.spawn_item(
+            3,
+            CollectibleType::StarYabby,
+            18 * TILE_SZ,
+            5 * TILE_SZ,
+            false,
+        );
     }
 
     fn load_vr_speed(&mut self) {
@@ -2217,7 +2712,19 @@ impl EntityManager {
             vx: -2,
         };
 
-        self.spawn_item(0, CollectibleType::StarYabby, 12 * TILE_SZ, 11 * TILE_SZ, true);
-        self.spawn_item(1, CollectibleType::YabbyRation, 12 * TILE_SZ, 5 * TILE_SZ, true);
+        self.spawn_item(
+            0,
+            CollectibleType::StarYabby,
+            12 * TILE_SZ,
+            11 * TILE_SZ,
+            true,
+        );
+        self.spawn_item(
+            1,
+            CollectibleType::YabbyRation,
+            12 * TILE_SZ,
+            5 * TILE_SZ,
+            true,
+        );
     }
 }

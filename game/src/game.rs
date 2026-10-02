@@ -2,11 +2,11 @@
 //! Integrates 3D GTE stealth gameplay, Soliton Radar, and CODEC radio communication.
 
 use crate::audio::AudioManager;
-use crate::codec::{CodecManager, INTRO_DIALOGUE, ACT1_1_DIALOGUE, get_act_dialogue};
+use crate::codec::{get_act_dialogue, CodecManager, ACT1_1_DIALOGUE, INTRO_DIALOGUE};
 use crate::dualshock::DualShockController;
 use crate::entities::EntityManager;
 use crate::level::{Act, Level, TILE_SZ};
-use crate::platypus::{PlayerState, Platypus};
+use crate::platypus::{Platypus, PlayerState};
 use crate::renderer::Renderer;
 use psx_gpu as gpu;
 use psx_pad::{button, AnalogSticks, ButtonState, PadMode, PadState};
@@ -44,20 +44,36 @@ pub enum GameState {
     Title,
     VrMenu,
     OptionsMenu,
-    MissionDebriefing { timer: u16, codename: crate::save::Codename },
+    MissionDebriefing {
+        timer: u16,
+        codename: crate::save::Codename,
+    },
     IntroVideo,
-    OutroVideo { codename: crate::save::Codename },
+    OutroVideo {
+        codename: crate::save::Codename,
+    },
     IntroCodec,
     StageIntroCodec,
     Playing,
     InGameCodec,
     StageClear,
-    Ending { codename: Option<crate::save::Codename> },
+    Ending {
+        codename: Option<crate::save::Codename>,
+    },
     GameOver,
     Paused,
-    AttractDemo { act: Act, timer: u16 },
-    BossIntroCutscene { act: Act, timer: u16 },
-    ChapterTitleCard { act: Act, timer: u16 },
+    AttractDemo {
+        act: Act,
+        timer: u16,
+    },
+    BossIntroCutscene {
+        act: Act,
+        timer: u16,
+    },
+    ChapterTitleCard {
+        act: Act,
+        timer: u16,
+    },
     StageSelect,
     ConfirmNewCampaign,
 }
@@ -103,11 +119,15 @@ impl Game {
         entities.load_act(Act::Act1_1Drainage);
         let renderer = Renderer::new();
         // Upload title screen background texture to VRAM
-        unsafe { crate::title_bg::upload_title_bg(); }
+        unsafe {
+            crate::title_bg::upload_title_bg();
+        }
         let codec = CodecManager::new();
         let video = crate::video::VideoPlayer::new();
         let mut memcard = crate::save::MemoryCardManager::new();
-        let save_data = memcard.load_from_slot1().unwrap_or_else(crate::save::SaveData::new);
+        let save_data = memcard
+            .load_from_slot1()
+            .unwrap_or_else(crate::save::SaveData::new);
         let card_present = probe_card_present();
 
         let mut dualshock = DualShockController::new();
@@ -166,24 +186,34 @@ impl Game {
         self.was_connected = is_connected;
 
         // Controller Disconnection Pause Screen during active gameplay
-        let is_gameplay = matches!(self.state, GameState::Playing | GameState::InGameCodec | GameState::Paused);
+        let is_gameplay = matches!(
+            self.state,
+            GameState::Playing | GameState::InGameCodec | GameState::Paused
+        );
         if !is_connected && is_gameplay {
             self.renderer.begin_frame();
-            self.renderer.draw_3d_scene(&self.level, &self.platty, &self.entities, self.frame);
-            self.renderer.draw_hud(&self.platty, &self.entities, &self.level, self.frame);
+            self.renderer
+                .draw_3d_scene(&self.level, &self.platty, &self.entities, self.frame);
+            self.renderer
+                .draw_hud(&self.platty, &self.entities, &self.level, self.frame);
             self.draw_controller_disconnected_overlay();
             self.prev_buttons = ButtonState::NONE;
             return;
         }
 
-        let just_start = buttons.is_held(button::START) && !self.prev_buttons.is_held(button::START);
-        let just_cross = buttons.is_held(button::CROSS) && !self.prev_buttons.is_held(button::CROSS);
-        let just_circle = buttons.is_held(button::CIRCLE) && !self.prev_buttons.is_held(button::CIRCLE);
-        let just_select = buttons.is_held(button::SELECT) && !self.prev_buttons.is_held(button::SELECT);
+        let just_start =
+            buttons.is_held(button::START) && !self.prev_buttons.is_held(button::START);
+        let just_cross =
+            buttons.is_held(button::CROSS) && !self.prev_buttons.is_held(button::CROSS);
+        let just_circle =
+            buttons.is_held(button::CIRCLE) && !self.prev_buttons.is_held(button::CIRCLE);
+        let just_select =
+            buttons.is_held(button::SELECT) && !self.prev_buttons.is_held(button::SELECT);
         let just_up = buttons.is_held(button::UP) && !self.prev_buttons.is_held(button::UP);
         let just_down = buttons.is_held(button::DOWN) && !self.prev_buttons.is_held(button::DOWN);
         let just_left = buttons.is_held(button::LEFT) && !self.prev_buttons.is_held(button::LEFT);
-        let just_right = buttons.is_held(button::RIGHT) && !self.prev_buttons.is_held(button::RIGHT);
+        let just_right =
+            buttons.is_held(button::RIGHT) && !self.prev_buttons.is_held(button::RIGHT);
 
         match self.state {
             GameState::Title => {
@@ -199,10 +229,18 @@ impl Game {
 
                 if self.idle_timer > 30 && is_connected {
                     if just_up {
-                        self.title_selection = if self.title_selection == 0 { max_selection } else { self.title_selection - 1 };
+                        self.title_selection = if self.title_selection == 0 {
+                            max_selection
+                        } else {
+                            self.title_selection - 1
+                        };
                         AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                     } else if just_down {
-                        self.title_selection = if self.title_selection >= max_selection { 0 } else { self.title_selection + 1 };
+                        self.title_selection = if self.title_selection >= max_selection {
+                            0
+                        } else {
+                            self.title_selection + 1
+                        };
                         AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                     } else if just_cross || just_start {
                         AudioManager::play_jump();
@@ -223,7 +261,8 @@ impl Game {
                                         // completion check and so was only
                                         // reachable by playing through.
                                         AudioManager::stop_cdda();
-                                        let act = Act::from_u8(pending_act(self.save_data.unlocked_act));
+                                        let act =
+                                            Act::from_u8(pending_act(self.save_data.unlocked_act));
                                         self.load_act(act);
                                         let briefing = get_act_dialogue(act);
                                         self.codec.start_conversation(briefing);
@@ -280,7 +319,8 @@ impl Game {
                 }
 
                 self.renderer.begin_frame();
-                self.renderer.draw_title_screen(self.frame, self.title_selection, &self.save_data);
+                self.renderer
+                    .draw_title_screen(self.frame, self.title_selection, &self.save_data);
             }
             GameState::ConfirmNewCampaign => {
                 self.idle_timer = self.idle_timer.saturating_add(1);
@@ -294,7 +334,8 @@ impl Game {
                 }
 
                 self.renderer.begin_frame();
-                self.renderer.draw_title_screen(self.frame, self.title_selection, &self.save_data);
+                self.renderer
+                    .draw_title_screen(self.frame, self.title_selection, &self.save_data);
                 self.draw_new_campaign_prompt();
             }
             GameState::StageSelect => {
@@ -328,7 +369,10 @@ impl Game {
                         let target_act = Act::from_u8(self.stage_selection as u8);
                         self.load_act(target_act);
                         if target_act.is_boss() {
-                            self.state = GameState::BossIntroCutscene { act: target_act, timer: 0 };
+                            self.state = GameState::BossIntroCutscene {
+                                act: target_act,
+                                timer: 0,
+                            };
                         } else {
                             let briefing = get_act_dialogue(target_act);
                             self.codec.start_conversation(briefing);
@@ -339,18 +383,26 @@ impl Game {
 
                 self.renderer.begin_frame();
                 self.renderer.draw_stage_select_menu(
-                self.stage_selection,
-                self.save_data.unlocked_act,
-                Some(&self.save_data),
-            );
+                    self.stage_selection,
+                    self.save_data.unlocked_act,
+                    Some(&self.save_data),
+                );
             }
             GameState::VrMenu => {
                 if is_connected {
                     if just_up {
-                        self.vr_selection = if self.vr_selection == 0 { 3 } else { self.vr_selection - 1 };
+                        self.vr_selection = if self.vr_selection == 0 {
+                            3
+                        } else {
+                            self.vr_selection - 1
+                        };
                         AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                     } else if just_down {
-                        self.vr_selection = if self.vr_selection == 3 { 0 } else { self.vr_selection + 1 };
+                        self.vr_selection = if self.vr_selection == 3 {
+                            0
+                        } else {
+                            self.vr_selection + 1
+                        };
                         AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                     } else if just_circle {
                         self.return_to_title();
@@ -373,15 +425,24 @@ impl Game {
                 }
 
                 self.renderer.begin_frame();
-                self.renderer.draw_vr_menu(self.vr_selection, self.save_data.vr_cleared);
+                self.renderer
+                    .draw_vr_menu(self.vr_selection, self.save_data.vr_cleared);
             }
             GameState::OptionsMenu => {
                 if is_connected {
                     if just_up {
-                        self.options_selection = if self.options_selection == 0 { 4 } else { self.options_selection - 1 };
+                        self.options_selection = if self.options_selection == 0 {
+                            4
+                        } else {
+                            self.options_selection - 1
+                        };
                         AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                     } else if just_down {
-                        self.options_selection = if self.options_selection == 4 { 0 } else { self.options_selection + 1 };
+                        self.options_selection = if self.options_selection == 4 {
+                            0
+                        } else {
+                            self.options_selection + 1
+                        };
                         AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                     } else if just_circle {
                         self.return_to_title();
@@ -394,7 +455,8 @@ impl Game {
                                 for _ in 0..3 {
                                     next_costume = (next_costume + 1) % 3;
                                     if next_costume == 0
-                                        || (next_costume == 1 && self.save_data.tuxedo_unlocked != 0)
+                                        || (next_costume == 1
+                                            && self.save_data.tuxedo_unlocked != 0)
                                         || (next_costume == 2 && self.save_data.camo_unlocked != 0)
                                     {
                                         break;
@@ -408,10 +470,17 @@ impl Game {
                             1 => {
                                 // Toggle Wireframe mode if unlocked
                                 if self.save_data.wireframe_unlocked != 0 {
-                                    self.save_data.wireframe_enabled = if self.save_data.wireframe_enabled == 0 { 1 } else { 0 };
+                                    self.save_data.wireframe_enabled =
+                                        if self.save_data.wireframe_enabled == 0 {
+                                            1
+                                        } else {
+                                            0
+                                        };
                                     self.apply_save_preferences();
                                     self.save_card();
-                                    AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
+                                    AudioManager::play_footstep(
+                                        crate::audio::SurfaceType::Concrete,
+                                    );
                                 }
                             }
                             2 => {
@@ -419,7 +488,11 @@ impl Game {
                                 if just_right {
                                     self.save_data.language = (self.save_data.language + 1) % 5;
                                 } else {
-                                    self.save_data.language = if self.save_data.language == 0 { 4 } else { self.save_data.language - 1 };
+                                    self.save_data.language = if self.save_data.language == 0 {
+                                        4
+                                    } else {
+                                        self.save_data.language - 1
+                                    };
                                 }
                                 self.apply_save_preferences();
                                 self.save_card();
@@ -439,9 +512,11 @@ impl Game {
                                 // rows and no field for X (UX-14c).
                                 let limit = crate::save::SCREEN_OFFSET_LIMIT;
                                 if just_left {
-                                    self.save_data.screen_offset_y = (self.save_data.screen_offset_y - 1).max(-limit);
+                                    self.save_data.screen_offset_y =
+                                        (self.save_data.screen_offset_y - 1).max(-limit);
                                 } else {
-                                    self.save_data.screen_offset_y = (self.save_data.screen_offset_y + 1).min(limit);
+                                    self.save_data.screen_offset_y =
+                                        (self.save_data.screen_offset_y + 1).min(limit);
                                 }
                                 self.apply_save_preferences();
                                 self.save_card();
@@ -453,17 +528,26 @@ impl Game {
                 }
 
                 self.renderer.begin_frame();
-                self.renderer.draw_options_menu(&self.save_data, self.options_selection, self.memcard.last_load);
+                self.renderer.draw_options_menu(
+                    &self.save_data,
+                    self.options_selection,
+                    self.memcard.last_load,
+                );
                 // All five rows above write the card, so the status has to be
                 // reported here too: it used to be drawn only while playing,
                 // and an options change on a cardless console failed silently.
                 self.draw_save_status_osd();
             }
-            GameState::MissionDebriefing { ref mut timer, codename } => {
+            GameState::MissionDebriefing {
+                ref mut timer,
+                codename,
+            } => {
                 *timer = timer.saturating_add(1);
 
                 if *timer > 45 && (just_cross || just_start) {
-                    self.state = GameState::Ending { codename: Some(codename) };
+                    self.state = GameState::Ending {
+                        codename: Some(codename),
+                    };
                 }
 
                 self.renderer.begin_frame();
@@ -501,7 +585,10 @@ impl Game {
                     self.video.present(&mut self.renderer);
                 }
             }
-            GameState::AttractDemo { ref mut act, ref mut timer } => {
+            GameState::AttractDemo {
+                ref mut act,
+                ref mut timer,
+            } => {
                 // Any button press returns to title (only if controller is connected)
                 let any_button = is_connected && buttons.bits() != 0;
                 if any_button {
@@ -522,7 +609,10 @@ impl Game {
                                 ButtonState::from_bits(button::CIRCLE | button::UP)
                             }
                         }
-                        Act::Act1_3MechBoss | Act::Act2_3JetSkiBoss | Act::Act3_3SniperBoss | Act::Act4_3ExcavatorBoss => {
+                        Act::Act1_3MechBoss
+                        | Act::Act2_3JetSkiBoss
+                        | Act::Act3_3SniperBoss
+                        | Act::Act4_3ExcavatorBoss => {
                             if *timer < 50 {
                                 ButtonState::from_bits(button::DOWN)
                             } else if *timer < 100 {
@@ -581,7 +671,12 @@ impl Game {
                         id_low: 0x41,
                     };
 
-                    self.platty.update(&demo_pad, ButtonState::NONE, &self.level, &mut self.entities);
+                    self.platty.update(
+                        &demo_pad,
+                        ButtonState::NONE,
+                        &self.level,
+                        &mut self.entities,
+                    );
                     self.platty.health = self.platty.max_health;
                     self.entities.update(
                         self.level.act,
@@ -600,12 +695,19 @@ impl Game {
                         self.platty.noise_radius,
                         &self.level,
                     );
-                    self.renderer.update_camera(self.platty.x, self.platty.y, self.platty.z);
+                    self.renderer
+                        .update_camera(self.platty.x, self.platty.y, self.platty.z);
 
                     // Render 3D Scene & HUD
                     self.renderer.begin_frame();
-                    self.renderer.draw_3d_scene(&self.level, &self.platty, &self.entities, self.frame);
-                    self.renderer.draw_hud(&self.platty, &self.entities, &self.level, self.frame);
+                    self.renderer.draw_3d_scene(
+                        &self.level,
+                        &self.platty,
+                        &self.entities,
+                        self.frame,
+                    );
+                    self.renderer
+                        .draw_hud(&self.platty, &self.entities, &self.level, self.frame);
 
                     // Cycle to next demo act every 180 frames (3 seconds)
                     if *timer >= 180 {
@@ -658,9 +760,21 @@ impl Game {
                 if just_cross || just_start {
                     if self.codec.on_action_button() {
                         if self.level.act.is_boss() {
-                            self.state = GameState::BossIntroCutscene { act: self.level.act, timer: 0 };
-                        } else if matches!(self.level.act, Act::Act1_1Drainage | Act::Act2_1Rapids | Act::Act3_1Highway | Act::Act4_1Dunes) {
-                            self.state = GameState::ChapterTitleCard { act: self.level.act, timer: 0 };
+                            self.state = GameState::BossIntroCutscene {
+                                act: self.level.act,
+                                timer: 0,
+                            };
+                        } else if matches!(
+                            self.level.act,
+                            Act::Act1_1Drainage
+                                | Act::Act2_1Rapids
+                                | Act::Act3_1Highway
+                                | Act::Act4_1Dunes
+                        ) {
+                            self.state = GameState::ChapterTitleCard {
+                                act: self.level.act,
+                                timer: 0,
+                            };
                             AudioManager::play_electro();
                         } else {
                             self.state = GameState::Playing;
@@ -684,7 +798,12 @@ impl Game {
                     AudioManager::play_jump();
                 } else {
                     self.renderer.begin_frame();
-                    self.renderer.draw_3d_scene(&self.level, &self.platty, &self.entities, self.frame);
+                    self.renderer.draw_3d_scene(
+                        &self.level,
+                        &self.platty,
+                        &self.entities,
+                        self.frame,
+                    );
                     self.renderer.draw_chapter_title_card(act, elapsed);
                 }
             }
@@ -699,9 +818,16 @@ impl Game {
                 // Smooth cinematic camera orbit around boss
                 let (bx, bz) = match act {
                     Act::Act1_3MechBoss => (self.entities.boss_mech.x, self.entities.boss_mech.z),
-                    Act::Act2_3JetSkiBoss => (self.entities.boss_jetski.x, self.entities.boss_jetski.z),
-                    Act::Act3_3SniperBoss => (self.entities.boss_sniper.x, self.entities.boss_sniper.z),
-                    Act::Act4_3ExcavatorBoss => (self.entities.boss_excavator.x, self.entities.boss_excavator.z),
+                    Act::Act2_3JetSkiBoss => {
+                        (self.entities.boss_jetski.x, self.entities.boss_jetski.z)
+                    }
+                    Act::Act3_3SniperBoss => {
+                        (self.entities.boss_sniper.x, self.entities.boss_sniper.z)
+                    }
+                    Act::Act4_3ExcavatorBoss => (
+                        self.entities.boss_excavator.x,
+                        self.entities.boss_excavator.z,
+                    ),
                     _ => (self.platty.x, self.platty.z),
                 };
 
@@ -717,7 +843,12 @@ impl Game {
                     AudioManager::play_alert();
                 } else {
                     self.renderer.begin_frame();
-                    self.renderer.draw_3d_scene(&self.level, &self.platty, &self.entities, self.frame);
+                    self.renderer.draw_3d_scene(
+                        &self.level,
+                        &self.platty,
+                        &self.entities,
+                        self.frame,
+                    );
                     self.renderer.draw_boss_title_card(act, elapsed);
                 }
             }
@@ -744,10 +875,12 @@ impl Game {
                     let is_submerged = self.platty.state == PlayerState::Submerged;
 
                     let prev_alert = self.entities.alert_state;
-                    self.mission_stats.play_time_frames = self.mission_stats.play_time_frames.saturating_add(1);
+                    self.mission_stats.play_time_frames =
+                        self.mission_stats.play_time_frames.saturating_add(1);
                     self.stage_time_frames = self.stage_time_frames.saturating_add(1);
 
-                    self.platty.update(&pad, self.prev_buttons, &self.level, &mut self.entities);
+                    self.platty
+                        .update(&pad, self.prev_buttons, &self.level, &mut self.entities);
                     self.entities.update(
                         self.level.act,
                         self.platty.x,
@@ -767,9 +900,13 @@ impl Game {
                     );
 
                     let was_alert = matches!(prev_alert, crate::entities::AlertState::Alert(_));
-                    let is_alert = matches!(self.entities.alert_state, crate::entities::AlertState::Alert(_));
+                    let is_alert = matches!(
+                        self.entities.alert_state,
+                        crate::entities::AlertState::Alert(_)
+                    );
                     if !was_alert && is_alert {
-                        self.mission_stats.alerts_count = self.mission_stats.alerts_count.saturating_add(1);
+                        self.mission_stats.alerts_count =
+                            self.mission_stats.alerts_count.saturating_add(1);
                         self.stage_alerts = self.stage_alerts.saturating_add(1);
                     }
 
@@ -777,7 +914,8 @@ impl Game {
                         self.renderer.screen_shake = self.platty.screen_shake as i16;
                         self.platty.screen_shake = 0;
                     }
-                    self.renderer.update_camera(self.platty.x, self.platty.y, self.platty.z);
+                    self.renderer
+                        .update_camera(self.platty.x, self.platty.y, self.platty.z);
 
                     // Check Game Over (health 0)
                     if self.platty.health == 0 {
@@ -803,8 +941,14 @@ impl Game {
                         }
                         Act::Act3_3SniperBoss => self.entities.boss_sniper.is_defeated(),
                         Act::Act4_3ExcavatorBoss => self.entities.boss_excavator.is_defeated(),
-                        Act::Act2_1Rapids => self.platty.z <= 3 * TILE_SZ || self.level.is_exit_at(self.platty.x, self.platty.z),
-                        Act::Act3_1Highway => self.platty.z <= 3 * TILE_SZ || self.level.is_exit_at(self.platty.x, self.platty.z),
+                        Act::Act2_1Rapids => {
+                            self.platty.z <= 3 * TILE_SZ
+                                || self.level.is_exit_at(self.platty.x, self.platty.z)
+                        }
+                        Act::Act3_1Highway => {
+                            self.platty.z <= 3 * TILE_SZ
+                                || self.level.is_exit_at(self.platty.x, self.platty.z)
+                        }
                         _ => self.level.is_exit_at(self.platty.x, self.platty.z),
                     };
 
@@ -858,12 +1002,18 @@ impl Game {
 
                             // Records for the mission just finished, matching
                             // the per-stage figures the rank is graded on.
-                            self.save_data.best_time_seconds = self.save_data.best_time_seconds.min(time_s);
-                            self.save_data.alerts_count = self.save_data.alerts_count.min(self.stage_alerts);
+                            self.save_data.best_time_seconds =
+                                self.save_data.best_time_seconds.min(time_s);
+                            self.save_data.alerts_count =
+                                self.save_data.alerts_count.min(self.stage_alerts);
 
                             let name_bytes = codename.name().as_bytes();
                             for (i, b) in self.save_data.best_codename.iter_mut().enumerate() {
-                                *b = if i < name_bytes.len() { name_bytes[i] } else { b' ' };
+                                *b = if i < name_bytes.len() {
+                                    name_bytes[i]
+                                } else {
+                                    b' '
+                                };
                             }
 
                             self.commit_progress(Some(self.level.act));
@@ -879,8 +1029,14 @@ impl Game {
 
                     // Render 3D World & HUD
                     self.renderer.begin_frame();
-                    self.renderer.draw_3d_scene(&self.level, &self.platty, &self.entities, self.frame);
-                    self.renderer.draw_hud(&self.platty, &self.entities, &self.level, self.frame);
+                    self.renderer.draw_3d_scene(
+                        &self.level,
+                        &self.platty,
+                        &self.entities,
+                        self.frame,
+                    );
+                    self.renderer
+                        .draw_hud(&self.platty, &self.entities, &self.level, self.frame);
 
                     self.draw_save_status_osd();
 
@@ -893,7 +1049,12 @@ impl Game {
                 self.codec.update();
                 match self.codec.mode {
                     crate::codec::CodecMode::Tuning => {
-                        if self.codec.handle_tuner_input(buttons, self.prev_buttons, self.level.act, self.card_present) {
+                        if self.codec.handle_tuner_input(
+                            buttons,
+                            self.prev_buttons,
+                            self.level.act,
+                            self.card_present,
+                        ) {
                             self.state = GameState::Playing;
                         }
                     }
@@ -935,7 +1096,10 @@ impl Game {
 
                 self.renderer.begin_frame();
                 let stage_time_s = self.stage_time_frames / self.frames_per_second();
-                let stage_takedowns = self.platty.takedowns.saturating_sub(self.stage_start_takedowns);
+                let stage_takedowns = self
+                    .platty
+                    .takedowns
+                    .saturating_sub(self.stage_start_takedowns);
                 self.renderer.draw_stage_clear(
                     self.level.act,
                     self.platty.score,
@@ -958,7 +1122,11 @@ impl Game {
                 // MGS Classic Game Over: "PLATTY? PLATTY? PLATTYYYYY!"
                 self.idle_timer = self.idle_timer.saturating_add(1);
                 let can_retry = self.idle_timer > 45 && (just_cross || just_start);
-                let return_to_title = self.idle_timer > 45 && (just_circle || just_select || buttons.is_held(button::TRIANGLE) && !self.prev_buttons.is_held(button::TRIANGLE));
+                let return_to_title = self.idle_timer > 45
+                    && (just_circle
+                        || just_select
+                        || buttons.is_held(button::TRIANGLE)
+                            && !self.prev_buttons.is_held(button::TRIANGLE));
 
                 if can_retry {
                     // Retry current stage cleanly
@@ -976,18 +1144,38 @@ impl Game {
 
                 self.renderer.begin_frame();
                 gpu::draw_rect_flat(0, 0, 320, 240, 16, 4, 4);
-                self.renderer.font.draw_text(115, 80, "GAME OVER", (255, 40, 40));
-                self.renderer.font.draw_text(60, 110, "BURROW HQ: PLATTY? PLATTYYYY!", (255, 220, 220));
+                self.renderer
+                    .font
+                    .draw_text(115, 80, "GAME OVER", (255, 40, 40));
+                self.renderer.font.draw_text(
+                    60,
+                    110,
+                    "BURROW HQ: PLATTY? PLATTYYYY!",
+                    (255, 220, 220),
+                );
                 if self.idle_timer > 45 {
-                    self.renderer.font.draw_text(42, 150, "CROSS: RETRY MISSION    TRIANGLE: TITLE", (255, 255, 255));
+                    self.renderer.font.draw_text(
+                        42,
+                        150,
+                        "CROSS: RETRY MISSION    TRIANGLE: TITLE",
+                        (255, 255, 255),
+                    );
                 }
             }
             GameState::Paused => {
                 if just_up {
-                    self.pause_selection = if self.pause_selection == 0 { 2 } else { self.pause_selection - 1 };
+                    self.pause_selection = if self.pause_selection == 0 {
+                        2
+                    } else {
+                        self.pause_selection - 1
+                    };
                     AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                 } else if just_down {
-                    self.pause_selection = if self.pause_selection >= 2 { 0 } else { self.pause_selection + 1 };
+                    self.pause_selection = if self.pause_selection >= 2 {
+                        0
+                    } else {
+                        self.pause_selection + 1
+                    };
                     AudioManager::play_footstep(crate::audio::SurfaceType::Concrete);
                 } else if just_circle {
                     // Quick unpause on CIRCLE
@@ -1024,8 +1212,10 @@ impl Game {
 
                 // Render background 3D Scene + HUD + Pause Tactical Overlay
                 self.renderer.begin_frame();
-                self.renderer.draw_3d_scene(&self.level, &self.platty, &self.entities, self.frame);
-                self.renderer.draw_hud(&self.platty, &self.entities, &self.level, self.frame);
+                self.renderer
+                    .draw_3d_scene(&self.level, &self.platty, &self.entities, self.frame);
+                self.renderer
+                    .draw_hud(&self.platty, &self.entities, &self.level, self.frame);
                 self.draw_pause_overlay(self.pause_selection);
             }
         }
@@ -1043,7 +1233,8 @@ impl Game {
     fn load_act(&mut self, act: Act) {
         AudioManager::stop_all();
         self.level = Level::new(act);
-        self.platty.reset_position(self.level.player_start_x, self.level.player_start_z);
+        self.platty
+            .reset_position(self.level.player_start_x, self.level.player_start_z);
         self.entities.load_act(act);
         self.stage_time_frames = 0;
         self.stage_alerts = 0;
@@ -1078,7 +1269,8 @@ impl Game {
         self.renderer.cam_y = self.platty.y + CAMERA_HEIGHT_OFFSET;
         self.renderer.cam_z = self.platty.z + CAMERA_TRAIL_OFFSET;
         self.renderer.screen_shake = 0;
-        self.renderer.update_camera(self.platty.x, self.platty.y, self.platty.z);
+        self.renderer
+            .update_camera(self.platty.x, self.platty.y, self.platty.z);
     }
 
     /// The video standard the player's `pal_mode` selects, with the BIOS
@@ -1170,7 +1362,10 @@ impl Game {
         // and this field is cumulative too, so the two are compared and never
         // summed -- the old `saturating_add` added a running total onto a
         // running total and grew it quadratically.
-        self.save_data.total_yabbies = self.save_data.total_yabbies.max(self.platty.yabbies_collected);
+        self.save_data.total_yabbies = self
+            .save_data
+            .total_yabbies
+            .max(self.platty.yabbies_collected);
         self.save_card();
     }
 
@@ -1196,23 +1391,33 @@ impl Game {
         match self.memcard.status {
             crate::save::SaveStatus::SaveSuccess => {
                 gpu::draw_rect_flat(96, 214, 128, 18, 10, 35, 20);
-                self.renderer.font.draw_text(102, 218, "MISSION PROGRESS SAVED", (120, 255, 140));
+                self.renderer
+                    .font
+                    .draw_text(102, 218, "MISSION PROGRESS SAVED", (120, 255, 140));
             }
             crate::save::SaveStatus::SaveErrorNoCard => {
                 gpu::draw_rect_flat(88, 214, 144, 18, 35, 10, 10);
-                self.renderer.font.draw_text(94, 218, "NO MEMORY CARD FOUND", (255, 160, 160));
+                self.renderer
+                    .font
+                    .draw_text(94, 218, "NO MEMORY CARD FOUND", (255, 160, 160));
             }
             crate::save::SaveStatus::SaveErrorUnformatted => {
                 gpu::draw_rect_flat(88, 214, 144, 18, 35, 25, 10);
-                self.renderer.font.draw_text(94, 218, "CARD IS UNFORMATTED", (255, 200, 100));
+                self.renderer
+                    .font
+                    .draw_text(94, 218, "CARD IS UNFORMATTED", (255, 200, 100));
             }
             crate::save::SaveStatus::SaveErrorCorrupt => {
                 gpu::draw_rect_flat(88, 214, 144, 18, 35, 18, 10);
-                self.renderer.font.draw_text(94, 218, "CARD IS UNREADABLE", (255, 170, 90));
+                self.renderer
+                    .font
+                    .draw_text(94, 218, "CARD IS UNREADABLE", (255, 170, 90));
             }
             crate::save::SaveStatus::SaveErrorFailed => {
                 gpu::draw_rect_flat(88, 214, 144, 18, 35, 10, 10);
-                self.renderer.font.draw_text(94, 218, "SAVE OPERATION FAILED", (255, 160, 160));
+                self.renderer
+                    .font
+                    .draw_text(94, 218, "SAVE OPERATION FAILED", (255, 160, 160));
             }
             // `SaveStatus::Saving` has no arm: `save_game` sets it and overwrites
             // it before it returns, so no reader can ever observe it. The old
@@ -1236,13 +1441,24 @@ impl Game {
         gpu::draw_rect_flat(box_x, box_y, 2, box_h, 220, 60, 60);
         gpu::draw_rect_flat(box_x + box_w as i16 - 2, box_y, 2, box_h, 220, 60, 60);
 
-        self.renderer.font.draw_text(box_x + 30, box_y + 12, "ERASE SAVED PROGRESS?", (255, 120, 110));
-        self.renderer
-            .font
-            .draw_text(box_x + 20, box_y + 30, "THIS RESTARTS FROM STAGE 1-1", (230, 220, 200));
-        self.renderer
-            .font
-            .draw_text(box_x + 14, box_y + 48, "CROSS: ERASE AND START     O: CANCEL", (255, 235, 120));
+        self.renderer.font.draw_text(
+            box_x + 30,
+            box_y + 12,
+            "ERASE SAVED PROGRESS?",
+            (255, 120, 110),
+        );
+        self.renderer.font.draw_text(
+            box_x + 20,
+            box_y + 30,
+            "THIS RESTARTS FROM STAGE 1-1",
+            (230, 220, 200),
+        );
+        self.renderer.font.draw_text(
+            box_x + 14,
+            box_y + 48,
+            "CROSS: ERASE AND START     O: CANCEL",
+            (255, 235, 120),
+        );
     }
 
     fn draw_controller_disconnected_overlay(&self) {
@@ -1260,10 +1476,30 @@ impl Game {
         gpu::draw_rect_flat(box_x + box_w as i16 - 2, box_y, 2, box_h, 220, 40, 40);
 
         // Header warning
-        self.renderer.font.draw_text(box_x + 22, box_y + 14, "! CONTROLLER DISCONNECTED !", (255, 60, 60));
-        self.renderer.font.draw_text(box_x + 18, box_y + 36, "PLEASE CONNECT A CONTROLLER", (220, 230, 240));
-        self.renderer.font.draw_text(box_x + 40, box_y + 50, "TO PORT 1 OR PORT 2", (220, 230, 240));
-        self.renderer.font.draw_text(box_x + 28, box_y + 68, "[ DUALSHOCK / DIGITAL PAD ]", (120, 180, 220));
+        self.renderer.font.draw_text(
+            box_x + 22,
+            box_y + 14,
+            "! CONTROLLER DISCONNECTED !",
+            (255, 60, 60),
+        );
+        self.renderer.font.draw_text(
+            box_x + 18,
+            box_y + 36,
+            "PLEASE CONNECT A CONTROLLER",
+            (220, 230, 240),
+        );
+        self.renderer.font.draw_text(
+            box_x + 40,
+            box_y + 50,
+            "TO PORT 1 OR PORT 2",
+            (220, 230, 240),
+        );
+        self.renderer.font.draw_text(
+            box_x + 28,
+            box_y + 68,
+            "[ DUALSHOCK / DIGITAL PAD ]",
+            (120, 180, 220),
+        );
     }
 
     fn draw_pause_overlay(&self, selection: usize) {
@@ -1282,13 +1518,11 @@ impl Game {
 
         // Header tab
         gpu::draw_rect_flat(box_x + 60, box_y - 6, 120, 14, 15, 45, 60);
-        self.renderer.font.draw_text(box_x + 78, box_y - 4, "MISSION PAUSED", (255, 230, 80));
+        self.renderer
+            .font
+            .draw_text(box_x + 78, box_y - 4, "MISSION PAUSED", (255, 230, 80));
 
-        let items = [
-            "RESUME OPERATION",
-            "RETRY MISSION",
-            "ABORT TO TITLE SCREEN",
-        ];
+        let items = ["RESUME OPERATION", "RETRY MISSION", "ABORT TO TITLE SCREEN"];
 
         for (i, label) in items.iter().enumerate() {
             let item_y = box_y + 24 + (i as i16 * 22);
@@ -1296,15 +1530,26 @@ impl Game {
 
             if is_sel {
                 gpu::draw_rect_flat(box_x + 12, item_y - 2, box_w - 24, 18, 20, 60, 80);
-                self.renderer.font.draw_text(box_x + 18, item_y + 2, ">", (255, 240, 100));
-                self.renderer.font.draw_text(box_x + 32, item_y + 2, label, (255, 255, 255));
+                self.renderer
+                    .font
+                    .draw_text(box_x + 18, item_y + 2, ">", (255, 240, 100));
+                self.renderer
+                    .font
+                    .draw_text(box_x + 32, item_y + 2, label, (255, 255, 255));
             } else {
-                self.renderer.font.draw_text(box_x + 32, item_y + 2, label, (140, 170, 190));
+                self.renderer
+                    .font
+                    .draw_text(box_x + 32, item_y + 2, label, (140, 170, 190));
             }
         }
 
         // Footer helper
-        self.renderer.font.draw_text(box_x + 24, box_y + box_h as i16 - 18, "CROSS/START: SELECT   O: RESUME", (100, 140, 160));
+        self.renderer.font.draw_text(
+            box_x + 24,
+            box_y + box_h as i16 - 18,
+            "CROSS/START: SELECT   O: RESUME",
+            (100, 140, 160),
+        );
     }
 
     fn log_performance_telemetry(&self) {
@@ -1314,7 +1559,10 @@ impl Game {
         let mut buf = [0u8; 16];
         psx_rt::tty::print(Self::format_u32(self.renderer.vblanks_per_frame, &mut buf));
         psx_rt::tty::print(" quads=");
-        psx_rt::tty::print(Self::format_u32(self.renderer.quads_drawn.max(0) as u32, &mut buf));
+        psx_rt::tty::print(Self::format_u32(
+            self.renderer.quads_drawn.max(0) as u32,
+            &mut buf,
+        ));
         psx_rt::tty::print(" stutters=");
         psx_rt::tty::println(Self::format_u32(self.renderer.stutter_count, &mut buf));
     }

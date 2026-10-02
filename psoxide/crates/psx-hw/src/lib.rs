@@ -21,6 +21,6 @@
 
 pub mod gpu;
 pub mod hash;
-pub mod memory;
 pub mod mdec;
+pub mod memory;
 pub mod sio;

@@ -151,7 +151,8 @@ fn parse_args() -> Result<Args, String> {
             }
             "--str-file" => {
                 str_files.push(PathBuf::from(
-                    it.next().ok_or_else(|| "--str-file takes a path".to_string())?,
+                    it.next()
+                        .ok_or_else(|| "--str-file takes a path".to_string())?,
                 ));
             }
             "--file" => {
@@ -161,7 +162,8 @@ fn parse_args() -> Result<Args, String> {
             }
             "--xa-file" => {
                 xa_files.push(PathBuf::from(
-                    it.next().ok_or_else(|| "--xa-file takes a path".to_string())?,
+                    it.next()
+                        .ok_or_else(|| "--xa-file takes a path".to_string())?,
                 ));
             }
             "--system-area" => {

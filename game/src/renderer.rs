@@ -12,24 +12,19 @@
 //! - Act 4: Coastal Beach 3D platformer, golden sand, surf, stepped rock ledges, bouncing parasols, beach crabs.
 
 use crate::entities::{
-    AlertState, BeachCrab, BeachPlatform, CityVehicle, Collectible, CollectibleType,
-    Drone, EntityManager, PowerConduit, RiverObstacle, RiverObstacleType,
-    SearchlightMech, Sentry, SentryState, VehicleType,
+    AlertState, BeachCrab, BeachPlatform, CityVehicle, Collectible, CollectibleType, Drone,
+    EntityManager, PowerConduit, RiverObstacle, RiverObstacleType, SearchlightMech, Sentry,
+    SentryState, VehicleType,
 };
 use crate::level::{Act, CellType, Level, GRID_D, GRID_W, TILE_SZ};
-use crate::platypus::{PlayerState, Platypus};
+use crate::platypus::{Platypus, PlayerState};
 
-use crate::texture::{FaceDirection, TextureAtlasManager, TextureId, gouraud_face_colors};
+use crate::texture::{gouraud_face_colors, FaceDirection, TextureAtlasManager, TextureId};
 
 use core::cell::Cell;
 
 use psx_font::{fonts::BASIC, FontAtlas};
-use psx_gpu::{
-    self as gpu,
-    framebuf::FrameBuffer,
-    material::BlendMode,
-    Resolution,
-};
+use psx_gpu::{self as gpu, framebuf::FrameBuffer, material::BlendMode, Resolution};
 use psx_gte::math::{Mat3I16, Vec3I16, Vec3I32};
 use psx_gte::scene;
 use psx_gte_core::transform::{cos_1_3_12, sin_1_3_12};
@@ -124,13 +119,7 @@ pub const fn center_text(width: u16, chars: u16) -> TextFit {
 ///
 /// Shared with the CODEC overlay, which renders from its own `&FontAtlas`
 /// rather than through [`Renderer`].
-pub fn draw_text_fitted(
-    font: &FontAtlas,
-    x: i16,
-    y: i16,
-    s: &str,
-    tint: (u8, u8, u8),
-) {
+pub fn draw_text_fitted(font: &FontAtlas, x: i16, y: i16, s: &str, tint: (u8, u8, u8)) {
     let fit = fit_text(x, font.text_width(s), s.chars().count() as u16);
     font.draw_text_with_spacing(fit.x, y, s, fit.spacing, tint);
 }
@@ -202,12 +191,12 @@ pub const fn winding_cross(a: (i16, i16), b: (i16, i16), c: (i16, i16)) -> i32 {
 const FRAMEBUFFER_STRIDE: u16 = SCREEN_H as u16;
 
 const VRAM_LAYOUT: [VramRect; 6] = [
-    VramRect::new(0, 0, SCREEN_W as u16, FRAMEBUFFER_STRIDE),                        // framebuffer A
-    VramRect::new(0, FRAMEBUFFER_STRIDE, SCREEN_W as u16, FRAMEBUFFER_STRIDE),        // framebuffer B
-    VramRect::new(320, 0, 16, 128),   // font atlas (4bpp, 64x128 texels)
-    VramRect::new(320, 256, 2, 1),    // font CLUT
-    VramRect::new(384, 0, 16, 80),    // texture atlas (4bpp, 64x80 texels)
-    VramRect::new(384, 256, 80, 1),   // five 16-entry atlas CLUT banks
+    VramRect::new(0, 0, SCREEN_W as u16, FRAMEBUFFER_STRIDE), // framebuffer A
+    VramRect::new(0, FRAMEBUFFER_STRIDE, SCREEN_W as u16, FRAMEBUFFER_STRIDE), // framebuffer B
+    VramRect::new(320, 0, 16, 128),                           // font atlas (4bpp, 64x128 texels)
+    VramRect::new(320, 256, 2, 1),                            // font CLUT
+    VramRect::new(384, 0, 16, 80),                            // texture atlas (4bpp, 64x80 texels)
+    VramRect::new(384, 256, 80, 1),                           // five 16-entry atlas CLUT banks
 ];
 
 const _: () = assert!(
@@ -367,7 +356,11 @@ impl Renderer {
     fn dist_to(&self, x: i32, z: i32) -> i32 {
         let dx = (x - self.cam_x).abs();
         let dz = (z - self.cam_z).abs();
-        if dx > dz { dx } else { dz }
+        if dx > dz {
+            dx
+        } else {
+            dz
+        }
     }
 
     /// Draw `s` at `x`, keeping the run inside the screen. See [`fit_text`]
@@ -393,7 +386,11 @@ impl Renderer {
         self.cam_z += (target_z - self.cam_z) / 4;
 
         if self.screen_shake > 0 {
-            let shake = if (self.screen_shake & 1) != 0 { self.screen_shake } else { -self.screen_shake };
+            let shake = if (self.screen_shake & 1) != 0 {
+                self.screen_shake
+            } else {
+                -self.screen_shake
+            };
             self.cam_x += shake as i32;
             self.cam_z += (shake / 2) as i32;
             self.screen_shake -= 1;
@@ -424,9 +421,9 @@ impl Renderer {
         // Clear backdrop tailored to stage atmosphere
         match level.act.chapter() {
             1 => gpu::draw_rect_flat(0, 0, 320, 240, 10, 14, 20), // Dark military compound
-            2 => gpu::draw_rect_flat(0, 0, 320, 240, 16, 40, 24),  // Yarra forest canopy
-            3 => gpu::draw_rect_flat(0, 0, 320, 240, 14, 16, 28),      // Melbourne night sky
-            _ => gpu::draw_rect_flat(0, 0, 320, 240, 50, 130, 210),   // Coastal ocean sky
+            2 => gpu::draw_rect_flat(0, 0, 320, 240, 16, 40, 24), // Yarra forest canopy
+            3 => gpu::draw_rect_flat(0, 0, 320, 240, 14, 16, 28), // Melbourne night sky
+            _ => gpu::draw_rect_flat(0, 0, 320, 240, 50, 130, 210), // Coastal ocean sky
         }
 
         // Draw ground searchlights & vision cones on floor (Blended)
@@ -467,17 +464,29 @@ impl Renderer {
             match level.act.chapter() {
                 1 => {
                     for s in entities.sentries.iter() {
-                        if s.active && (s.x - self.cam_x).abs() <= ent_max_dist && s.z >= row_z_min && s.z < row_z_max {
+                        if s.active
+                            && (s.x - self.cam_x).abs() <= ent_max_dist
+                            && s.z >= row_z_min
+                            && s.z < row_z_max
+                        {
                             self.draw_sentry(s, entities.frame);
                         }
                     }
                     for d in entities.drones.iter() {
-                        if d.active && (d.x - self.cam_x).abs() <= ent_max_dist && d.z >= row_z_min && d.z < row_z_max {
+                        if d.active
+                            && (d.x - self.cam_x).abs() <= ent_max_dist
+                            && d.z >= row_z_min
+                            && d.z < row_z_max
+                        {
                             self.draw_drone(d, frame);
                         }
                     }
                     for c in entities.power_conduits.iter() {
-                        if c.active && (c.x - self.cam_x).abs() <= ent_max_dist && c.z >= row_z_min && c.z < row_z_max {
+                        if c.active
+                            && (c.x - self.cam_x).abs() <= ent_max_dist
+                            && c.z >= row_z_min
+                            && c.z < row_z_max
+                        {
                             self.draw_power_conduit(c, frame);
                         }
                     }
@@ -494,7 +503,11 @@ impl Renderer {
                         }
                     } else {
                         for obs in entities.river_obstacles.iter() {
-                            if obs.active && (obs.x - self.cam_x).abs() <= ent_max_dist && obs.z >= row_z_min && obs.z < row_z_max {
+                            if obs.active
+                                && (obs.x - self.cam_x).abs() <= ent_max_dist
+                                && obs.z >= row_z_min
+                                && obs.z < row_z_max
+                            {
                                 self.draw_river_obstacle(obs, frame);
                             }
                         }
@@ -502,7 +515,11 @@ impl Renderer {
                 }
                 3 => {
                     for v in entities.vehicles.iter() {
-                        if v.active && (v.x - self.cam_x).abs() <= ent_max_dist && v.z >= row_z_min && v.z < row_z_max {
+                        if v.active
+                            && (v.x - self.cam_x).abs() <= ent_max_dist
+                            && v.z >= row_z_min
+                            && v.z < row_z_max
+                        {
                             self.draw_vehicle(v);
                         }
                     }
@@ -513,12 +530,20 @@ impl Renderer {
                 }
                 _ => {
                     for p in entities.beach_platforms.iter() {
-                        if p.active && (p.x - self.cam_x).abs() <= ent_max_dist && p.z >= row_z_min && p.z < row_z_max {
+                        if p.active
+                            && (p.x - self.cam_x).abs() <= ent_max_dist
+                            && p.z >= row_z_min
+                            && p.z < row_z_max
+                        {
                             self.draw_beach_platform(p);
                         }
                     }
                     for crab in entities.beach_crabs.iter() {
-                        if crab.active && (crab.x - self.cam_x).abs() <= ent_max_dist && crab.z >= row_z_min && crab.z < row_z_max {
+                        if crab.active
+                            && (crab.x - self.cam_x).abs() <= ent_max_dist
+                            && crab.z >= row_z_min
+                            && crab.z < row_z_max
+                        {
                             self.draw_crab(crab, frame);
                         }
                     }
@@ -531,7 +556,12 @@ impl Renderer {
 
             // 3. Draw Collectibles in this row
             for c in entities.collectibles.iter() {
-                if c.active && c.revealed && (c.x - self.cam_x).abs() <= ent_max_dist && c.z >= row_z_min && c.z < row_z_max {
+                if c.active
+                    && c.revealed
+                    && (c.x - self.cam_x).abs() <= ent_max_dist
+                    && c.z >= row_z_min
+                    && c.z < row_z_max
+                {
                     self.draw_collectible(c, frame);
                 }
             }
@@ -587,7 +617,8 @@ impl Renderer {
                 continue;
             }
             let p = scene::project_vertex(Vec3I16::new(s.x as i16, -22, s.z as i16));
-            if p.sz > 20 && p.sx >= 10 && p.sx < SCREEN_W - 10 && p.sy >= 10 && p.sy < SCREEN_H - 10 {
+            if p.sz > 20 && p.sx >= 10 && p.sx < SCREEN_W - 10 && p.sy >= 10 && p.sy < SCREEN_H - 10
+            {
                 // Tactical cyan brackets '[' and ']' around sentry silhouette
                 gpu::draw_rect_flat(p.sx - 12, p.sy - 16, 2, 32, 40, 240, 255);
                 gpu::draw_rect_flat(p.sx + 10, p.sy - 16, 2, 32, 40, 240, 255);
@@ -597,7 +628,11 @@ impl Renderer {
                 gpu::draw_rect_flat(p.sx + 6, p.sy + 14, 6, 2, 40, 240, 255);
 
                 // Pulsing red/white heartbeat dot at sentry chest
-                let pulse = if (frame / 3) % 2 == 0 { (255, 50, 50) } else { (255, 200, 200) };
+                let pulse = if (frame / 3) % 2 == 0 {
+                    (255, 50, 50)
+                } else {
+                    (255, 200, 200)
+                };
                 gpu::draw_rect_flat(p.sx - 2, p.sy - 4, 4, 4, pulse.0, pulse.1, pulse.2);
 
                 self.draw_text_clamped(p.sx - 16, p.sy - 26, "SENTRY", (60, 230, 255));
@@ -610,7 +645,8 @@ impl Renderer {
                 continue;
             }
             let p = scene::project_vertex(Vec3I16::new(d.x as i16, d.y as i16, d.z as i16));
-            if p.sz > 20 && p.sx >= 10 && p.sx < SCREEN_W - 10 && p.sy >= 10 && p.sy < SCREEN_H - 10 {
+            if p.sz > 20 && p.sx >= 10 && p.sx < SCREEN_W - 10 && p.sy >= 10 && p.sy < SCREEN_H - 10
+            {
                 gpu::draw_rect_flat(p.sx - 8, p.sy - 8, 16, 2, 60, 230, 255);
                 gpu::draw_rect_flat(p.sx - 8, p.sy + 6, 16, 2, 60, 230, 255);
                 gpu::draw_rect_flat(p.sx - 8, p.sy - 8, 2, 16, 60, 230, 255);
@@ -625,7 +661,8 @@ impl Renderer {
                 continue;
             }
             let p = scene::project_vertex(Vec3I16::new(c.x as i16, (c.y - 8) as i16, c.z as i16));
-            if p.sz > 20 && p.sx >= 10 && p.sx < SCREEN_W - 10 && p.sy >= 10 && p.sy < SCREEN_H - 10 {
+            if p.sz > 20 && p.sx >= 10 && p.sx < SCREEN_W - 10 && p.sy >= 10 && p.sy < SCREEN_H - 10
+            {
                 let spark = if (frame / 2) % 2 == 0 { 255 } else { 180 };
                 gpu::draw_rect_flat(p.sx - 4, p.sy - 4, 8, 8, spark, spark, 60);
                 gpu::draw_rect_flat(p.sx - 2, p.sy - 2, 4, 4, 255, 255, 220);
@@ -651,7 +688,12 @@ impl Renderer {
                     let wx = (gx as i32) * TILE_SZ + 32;
                     let wz = (gz as i32) * TILE_SZ + 32;
                     let p = scene::project_vertex(Vec3I16::new(wx as i16, -14, wz as i16));
-                    if p.sz > 20 && p.sx >= 10 && p.sx < SCREEN_W - 10 && p.sy >= 10 && p.sy < SCREEN_H - 10 {
+                    if p.sz > 20
+                        && p.sx >= 10
+                        && p.sx < SCREEN_W - 10
+                        && p.sy >= 10
+                        && p.sy < SCREEN_H - 10
+                    {
                         gpu::draw_rect_flat(p.sx - 10, p.sy - 10, 20, 2, 80, 240, 255);
                         gpu::draw_rect_flat(p.sx - 10, p.sy + 8, 20, 2, 80, 240, 255);
                         gpu::draw_rect_flat(p.sx - 10, p.sy - 10, 2, 20, 80, 240, 255);
@@ -666,10 +708,46 @@ impl Renderer {
     fn draw_gum_tree(&self, wx: i32, wz: i32) {
         let rot = Mat3I16::rotate_y(0);
         // Tall eucalyptus trunk
-        self.draw_model_box(wx + 26, 0, wz + 26, -5, -46, -5, 10, 46, 10, &rot, (175, 170, 155));
+        self.draw_model_box(
+            wx + 26,
+            0,
+            wz + 26,
+            -5,
+            -46,
+            -5,
+            10,
+            46,
+            10,
+            &rot,
+            (175, 170, 155),
+        );
         // Gum leaf canopy
-        self.draw_model_box(wx + 26, 0, wz + 26, -18, -66, -18, 36, 22, 36, &rot, (45, 100, 48));
-        self.draw_model_box(wx + 26, 0, wz + 26, -12, -76, -12, 24, 12, 24, &rot, (65, 130, 60));
+        self.draw_model_box(
+            wx + 26,
+            0,
+            wz + 26,
+            -18,
+            -66,
+            -18,
+            36,
+            22,
+            36,
+            &rot,
+            (45, 100, 48),
+        );
+        self.draw_model_box(
+            wx + 26,
+            0,
+            wz + 26,
+            -12,
+            -76,
+            -12,
+            24,
+            12,
+            24,
+            &rot,
+            (65, 130, 60),
+        );
     }
 
     fn draw_streetlamp(&self, wx: i32, wz: i32) {
@@ -679,7 +757,19 @@ impl Renderer {
         // Overhanging lamp arm
         self.draw_model_box(wx + 8, 0, wz + 8, -2, -54, 2, 4, 4, 10, &rot, (45, 50, 58));
         // Glowing warm yellow light fixture
-        self.draw_model_box(wx + 8, 0, wz + 8, -3, -51, 8, 6, 4, 6, &rot, (255, 245, 140));
+        self.draw_model_box(
+            wx + 8,
+            0,
+            wz + 8,
+            -3,
+            -51,
+            8,
+            6,
+            4,
+            6,
+            &rot,
+            (255, 245, 140),
+        );
         // Warm light puddle on asphalt
         let lp = scene::project_vertex(Vec3I16::new((wx + 8) as i16, 0, (wz + 14) as i16));
         if lp.sz > 20 {
@@ -690,10 +780,46 @@ impl Renderer {
     fn draw_palm_tree(&self, wx: i32, wz: i32) {
         let rot = Mat3I16::rotate_y(0);
         // Curved brown trunk
-        self.draw_model_box(wx + 28, 0, wz + 28, -4, -42, -4, 8, 42, 8, &rot, (140, 95, 55));
+        self.draw_model_box(
+            wx + 28,
+            0,
+            wz + 28,
+            -4,
+            -42,
+            -4,
+            8,
+            42,
+            8,
+            &rot,
+            (140, 95, 55),
+        );
         // Tropical palm fronds canopy
-        self.draw_model_box(wx + 28, 0, wz + 28, -22, -50, -22, 44, 10, 44, &rot, (42, 165, 58));
-        self.draw_model_box(wx + 28, 0, wz + 28, -14, -56, -14, 28, 8, 28, &rot, (70, 200, 80));
+        self.draw_model_box(
+            wx + 28,
+            0,
+            wz + 28,
+            -22,
+            -50,
+            -22,
+            44,
+            10,
+            44,
+            &rot,
+            (42, 165, 58),
+        );
+        self.draw_model_box(
+            wx + 28,
+            0,
+            wz + 28,
+            -14,
+            -56,
+            -14,
+            28,
+            8,
+            28,
+            &rot,
+            (70, 200, 80),
+        );
     }
 
     /// `detail` is false for rows past [`TILE_LOD_DISTANCE`], where only the
@@ -712,9 +838,9 @@ impl Renderer {
     ) {
         let act = level.act;
         let (floor_r, floor_g, floor_b) = match act.chapter() {
-            1 => (30, 38, 44),   // Dark tarmac / concrete
-            2 => (25, 75, 40),   // Lush Yarra riverbank moss & grass
-            3 => (48, 52, 58),   // City asphalt road
+            1 => (30, 38, 44),    // Dark tarmac / concrete
+            2 => (25, 75, 40),    // Lush Yarra riverbank moss & grass
+            3 => (48, 52, 58),    // City asphalt road
             _ => (220, 200, 145), // Warm coastal sand
         };
 
@@ -766,10 +892,20 @@ impl Renderer {
                     Vec3I16::new((wx + 58) as i16, 0, (wz + 60) as i16),
                     Vec3I16::new((wx + 6) as i16, 0, (wz + 6) as i16),
                     Vec3I16::new((wx + 58) as i16, 0, (wz + 6) as i16),
-                    sr, sg, sb,
+                    sr,
+                    sg,
+                    sb,
                 );
                 // 48x48x48 cargo crate with texture & Gouraud shading
-                self.draw_box_3d_textured(wx + 8, wz + 8, 48, 48, 48, TextureId::Crate, (180, 180, 180));
+                self.draw_box_3d_textured(
+                    wx + 8,
+                    wz + 8,
+                    48,
+                    48,
+                    48,
+                    TextureId::Crate,
+                    (180, 180, 180),
+                );
             }
             CellType::Container => {
                 self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b, act);
@@ -779,23 +915,33 @@ impl Renderer {
                     Vec3I16::new((wx + 64) as i16, 0, (wz + 64) as i16),
                     Vec3I16::new(wx as i16, 0, wz as i16),
                     Vec3I16::new((wx + 64) as i16, 0, wz as i16),
-                    sr, sg, sb,
+                    sr,
+                    sg,
+                    sb,
                 );
                 let (c_tex, c_col, h) = match act.chapter() {
                     1 => (TextureId::ConcreteWall, (150, 150, 150), 70),
                     2 => (TextureId::RiverLog, (140, 140, 140), 64),
                     3 => (TextureId::CityBrick, (160, 160, 160), 110), // Giant illuminated skyscraper!
-                    _ => (TextureId::RockCliff, (160, 160, 160), 55), // Stepped sandcliff
+                    _ => (TextureId::RockCliff, (160, 160, 160), 55),  // Stepped sandcliff
                 };
                 self.draw_box_3d_textured(wx + 2, wz + 2, 60, h, 60, c_tex, c_col);
 
                 // Add glowing windows and beacons on city skyscrapers
                 if act.chapter() == 3 && detail {
-                    let win_col = if (wx / 64) % 2 == 0 { (255, 230, 110) } else { (100, 210, 255) };
+                    let win_col = if (wx / 64) % 2 == 0 {
+                        (255, 230, 110)
+                    } else {
+                        (100, 210, 255)
+                    };
                     self.draw_box_3d(wx + 10, wz + 4, 12, 16, 2, win_col);
                     self.draw_box_3d(wx + 38, wz + 4, 12, 16, 2, win_col);
                     if gz % 2 == 0 {
-                        let beacon_col = if (frame / 16) % 2 == 0 { (255, 40, 40) } else { (255, 120, 40) };
+                        let beacon_col = if (frame / 16) % 2 == 0 {
+                            (255, 40, 40)
+                        } else {
+                            (255, 120, 40)
+                        };
                         self.draw_box_3d(wx + 26, wz + 26, 8, 12, 8, beacon_col);
                     }
                 }
@@ -825,8 +971,17 @@ impl Renderer {
                     2 => {
                         // Bushland riverbank: mossy bank + gum tree
                         self.draw_wall_box_textured(
-                            wx, wz, 64, 32, 64, TextureId::GumLeaves, (140, 140, 140),
-                            cull_left, cull_right, cull_front, cull_back,
+                            wx,
+                            wz,
+                            64,
+                            32,
+                            64,
+                            TextureId::GumLeaves,
+                            (140, 140, 140),
+                            cull_left,
+                            cull_right,
+                            cull_front,
+                            cull_back,
                         );
                         // A gum tree is roughly 18 quads, the most expensive
                         // tile prop in the game, and unreadable at range. Only
@@ -837,20 +992,47 @@ impl Renderer {
                     }
                     1 => {
                         self.draw_wall_box_textured(
-                            wx, wz, 64, 80, 64, TextureId::ConcreteWall, (150, 150, 150),
-                            cull_left, cull_right, cull_front, cull_back,
+                            wx,
+                            wz,
+                            64,
+                            80,
+                            64,
+                            TextureId::ConcreteWall,
+                            (150, 150, 150),
+                            cull_left,
+                            cull_right,
+                            cull_front,
+                            cull_back,
                         );
                     }
                     3 => {
                         self.draw_wall_box_textured(
-                            wx, wz, 64, 80, 64, TextureId::CityBrick, (160, 160, 160),
-                            cull_left, cull_right, cull_front, cull_back,
+                            wx,
+                            wz,
+                            64,
+                            80,
+                            64,
+                            TextureId::CityBrick,
+                            (160, 160, 160),
+                            cull_left,
+                            cull_right,
+                            cull_front,
+                            cull_back,
                         );
                     }
                     _ => {
                         self.draw_wall_box_textured(
-                            wx, wz, 64, 60, 64, TextureId::RockCliff, (160, 160, 160),
-                            cull_left, cull_right, cull_front, cull_back,
+                            wx,
+                            wz,
+                            64,
+                            60,
+                            64,
+                            TextureId::RockCliff,
+                            (160, 160, 160),
+                            cull_left,
+                            cull_right,
+                            cull_front,
+                            cull_back,
                         );
                     }
                 }
@@ -863,10 +1045,20 @@ impl Renderer {
                     Vec3I16::new((wx + 58) as i16, 0, (wz + 60) as i16),
                     Vec3I16::new((wx + 6) as i16, 0, (wz + 6) as i16),
                     Vec3I16::new((wx + 58) as i16, 0, (wz + 6) as i16),
-                    sr, sg, sb,
+                    sr,
+                    sg,
+                    sb,
                 );
                 // Low ventilation shaft passable only when crawling
-                self.draw_box_3d_textured(wx + 8, wz + 8, 48, 24, 48, TextureId::MetalGrate, (150, 150, 150));
+                self.draw_box_3d_textured(
+                    wx + 8,
+                    wz + 8,
+                    48,
+                    24,
+                    48,
+                    TextureId::MetalGrate,
+                    (150, 150, 150),
+                );
             }
             CellType::LaserTripwire => {
                 self.draw_floor_tile(wx, wz, floor_r, floor_g, floor_b, act);
@@ -901,7 +1093,15 @@ impl Renderer {
             3 => TextureId::CityAsphalt,
             _ => TextureId::BeachSand,
         };
-        self.draw_quad_3d_textured_gouraud(v0, v1, v2, v3, floor_tex, FaceDirection::Top, (r, g, b));
+        self.draw_quad_3d_textured_gouraud(
+            v0,
+            v1,
+            v2,
+            v3,
+            floor_tex,
+            FaceDirection::Top,
+            (r, g, b),
+        );
     }
 
     fn draw_water_tile(&self, wx: i32, wz: i32, act: Act, frame: u8, is_current: bool) {
@@ -922,10 +1122,21 @@ impl Renderer {
                 }
             }
         };
-        self.draw_quad_3d_textured_gouraud(v0, v1, v2, v3, TextureId::RiverWater, FaceDirection::Top, tint);
+        self.draw_quad_3d_textured_gouraud(
+            v0,
+            v1,
+            v2,
+            v3,
+            TextureId::RiverWater,
+            FaceDirection::Top,
+            tint,
+        );
 
         // Animated foam ripples (LOD: alternating tiles within near distance)
-        if (is_current || act.chapter() == 4) && ((wx / TILE_SZ) + (wz / TILE_SZ)) % 2 == 0 && self.dist_to(wx, wz) <= 280 {
+        if (is_current || act.chapter() == 4)
+            && ((wx / TILE_SZ) + (wz / TILE_SZ)) % 2 == 0
+            && self.dist_to(wx, wz) <= 280
+        {
             let foam_z = (wz + ((frame as i32 * 3) % TILE_SZ)) as i16;
             let p0 = scene::project_vertex_scheduled(Vec3I16::new(wx as i16 + 8, y - 1, foam_z));
             let p1 = scene::project_vertex_scheduled(Vec3I16::new(wx as i16 + 56, y - 1, foam_z));
@@ -942,7 +1153,12 @@ impl Renderer {
             Vec3I16::new(wx as i16, -22, wz as i16),
         );
         if p0.sz > 20 && p1.sz > 20 && p2.sz > 20 {
-            gpu::draw_tri_flat([(p0.sx, p0.sy), (p1.sx, p1.sy), (p2.sx, p2.sy)], 50, 135, 60);
+            gpu::draw_tri_flat(
+                [(p0.sx, p0.sy), (p1.sx, p1.sy), (p2.sx, p2.sy)],
+                50,
+                135,
+                60,
+            );
         }
     }
 
@@ -1048,8 +1264,16 @@ impl Renderer {
             self.spend_quads(1);
             let colors = gouraud_face_colors(FaceDirection::Top, col);
             gpu::draw_quad_textured_gouraud(
-                [(p2.sx, p2.sy), (p3.sx, p3.sy), (p0.sx, p0.sy), (p1.sx, p1.sy)],
-                uvs, colors, clut_word, tpage_word,
+                [
+                    (p2.sx, p2.sy),
+                    (p3.sx, p3.sy),
+                    (p0.sx, p0.sy),
+                    (p1.sx, p1.sy),
+                ],
+                uvs,
+                colors,
+                clut_word,
+                tpage_word,
             );
             return;
         }
@@ -1069,61 +1293,131 @@ impl Renderer {
         let p7 = scene::project_vertex_scheduled(Vec3I16::new(x1, y1, z1));
 
         // 1. BACK FACE (facing +Z away from camera)
-        if !cull_back && sz_in_front(p3.sz) && sz_in_front(p2.sz) && sz_in_front(p7.sz) && sz_in_front(p6.sz) {
-            if winding_cross((p3.sx, p3.sy), (p2.sx, p2.sy), (p7.sx, p7.sy)) > 0 && self.budget_available() {
+        if !cull_back
+            && sz_in_front(p3.sz)
+            && sz_in_front(p2.sz)
+            && sz_in_front(p7.sz)
+            && sz_in_front(p6.sz)
+        {
+            if winding_cross((p3.sx, p3.sy), (p2.sx, p2.sy), (p7.sx, p7.sy)) > 0
+                && self.budget_available()
+            {
                 self.spend_quads(1);
                 let colors = gouraud_face_colors(FaceDirection::Back, col);
                 gpu::draw_quad_textured_gouraud(
-                    [(p3.sx, p3.sy), (p2.sx, p2.sy), (p7.sx, p7.sy), (p6.sx, p6.sy)],
-                    uvs, colors, clut_word, tpage_word,
+                    [
+                        (p3.sx, p3.sy),
+                        (p2.sx, p2.sy),
+                        (p7.sx, p7.sy),
+                        (p6.sx, p6.sy),
+                    ],
+                    uvs,
+                    colors,
+                    clut_word,
+                    tpage_word,
                 );
             }
         }
 
         // 2. LEFT FACE (facing -X)
-        if !cull_left && sz_in_front(p2.sz) && sz_in_front(p0.sz) && sz_in_front(p6.sz) && sz_in_front(p4.sz) {
-            if winding_cross((p2.sx, p2.sy), (p0.sx, p0.sy), (p6.sx, p6.sy)) > 0 && self.budget_available() {
+        if !cull_left
+            && sz_in_front(p2.sz)
+            && sz_in_front(p0.sz)
+            && sz_in_front(p6.sz)
+            && sz_in_front(p4.sz)
+        {
+            if winding_cross((p2.sx, p2.sy), (p0.sx, p0.sy), (p6.sx, p6.sy)) > 0
+                && self.budget_available()
+            {
                 self.spend_quads(1);
                 let colors = gouraud_face_colors(FaceDirection::Left, col);
                 gpu::draw_quad_textured_gouraud(
-                    [(p2.sx, p2.sy), (p0.sx, p0.sy), (p6.sx, p6.sy), (p4.sx, p4.sy)],
-                    uvs, colors, clut_word, tpage_word,
+                    [
+                        (p2.sx, p2.sy),
+                        (p0.sx, p0.sy),
+                        (p6.sx, p6.sy),
+                        (p4.sx, p4.sy),
+                    ],
+                    uvs,
+                    colors,
+                    clut_word,
+                    tpage_word,
                 );
             }
         }
 
         // 3. RIGHT FACE (facing +X)
-        if !cull_right && sz_in_front(p1.sz) && sz_in_front(p3.sz) && sz_in_front(p5.sz) && sz_in_front(p7.sz) {
-            if winding_cross((p1.sx, p1.sy), (p3.sx, p3.sy), (p5.sx, p5.sy)) > 0 && self.budget_available() {
+        if !cull_right
+            && sz_in_front(p1.sz)
+            && sz_in_front(p3.sz)
+            && sz_in_front(p5.sz)
+            && sz_in_front(p7.sz)
+        {
+            if winding_cross((p1.sx, p1.sy), (p3.sx, p3.sy), (p5.sx, p5.sy)) > 0
+                && self.budget_available()
+            {
                 self.spend_quads(1);
                 let colors = gouraud_face_colors(FaceDirection::Right, col);
                 gpu::draw_quad_textured_gouraud(
-                    [(p1.sx, p1.sy), (p3.sx, p3.sy), (p5.sx, p5.sy), (p7.sx, p7.sy)],
-                    uvs, colors, clut_word, tpage_word,
+                    [
+                        (p1.sx, p1.sy),
+                        (p3.sx, p3.sy),
+                        (p5.sx, p5.sy),
+                        (p7.sx, p7.sy),
+                    ],
+                    uvs,
+                    colors,
+                    clut_word,
+                    tpage_word,
                 );
             }
         }
 
         // 4. TOP FACE (lit by overhead sunlight)
         if sz_in_front(p2.sz) && sz_in_front(p3.sz) && sz_in_front(p0.sz) && sz_in_front(p1.sz) {
-            if winding_cross((p2.sx, p2.sy), (p3.sx, p3.sy), (p0.sx, p0.sy)) > 0 && self.budget_available() {
+            if winding_cross((p2.sx, p2.sy), (p3.sx, p3.sy), (p0.sx, p0.sy)) > 0
+                && self.budget_available()
+            {
                 self.spend_quads(1);
                 let colors = gouraud_face_colors(FaceDirection::Top, col);
                 gpu::draw_quad_textured_gouraud(
-                    [(p2.sx, p2.sy), (p3.sx, p3.sy), (p0.sx, p0.sy), (p1.sx, p1.sy)],
-                    uvs, colors, clut_word, tpage_word,
+                    [
+                        (p2.sx, p2.sy),
+                        (p3.sx, p3.sy),
+                        (p0.sx, p0.sy),
+                        (p1.sx, p1.sy),
+                    ],
+                    uvs,
+                    colors,
+                    clut_word,
+                    tpage_word,
                 );
             }
         }
 
         // 5. FRONT FACE (facing -Z towards camera - drawn LAST to eliminate sorting artifacts)
-        if !cull_front && sz_in_front(p0.sz) && sz_in_front(p1.sz) && sz_in_front(p4.sz) && sz_in_front(p5.sz) {
-            if winding_cross((p0.sx, p0.sy), (p1.sx, p1.sy), (p4.sx, p4.sy)) > 0 && self.budget_available() {
+        if !cull_front
+            && sz_in_front(p0.sz)
+            && sz_in_front(p1.sz)
+            && sz_in_front(p4.sz)
+            && sz_in_front(p5.sz)
+        {
+            if winding_cross((p0.sx, p0.sy), (p1.sx, p1.sy), (p4.sx, p4.sy)) > 0
+                && self.budget_available()
+            {
                 self.spend_quads(1);
                 let colors = gouraud_face_colors(FaceDirection::Front, col);
                 gpu::draw_quad_textured_gouraud(
-                    [(p0.sx, p0.sy), (p1.sx, p1.sy), (p4.sx, p4.sy), (p5.sx, p5.sy)],
-                    uvs, colors, clut_word, tpage_word,
+                    [
+                        (p0.sx, p0.sy),
+                        (p1.sx, p1.sy),
+                        (p4.sx, p4.sy),
+                        (p5.sx, p5.sy),
+                    ],
+                    uvs,
+                    colors,
+                    clut_word,
+                    tpage_word,
                 );
             }
         }
@@ -1177,41 +1471,50 @@ impl Renderer {
             (lx + w, ly + h, lz + d), // 7: Bottom, Front, Right
         ];
 
-        let is_identity = rot.m[0][0] == 4096 && rot.m[1][1] == 4096 && rot.m[2][2] == 4096
-            && rot.m[0][1] == 0 && rot.m[0][2] == 0 && rot.m[1][0] == 0;
+        let is_identity = rot.m[0][0] == 4096
+            && rot.m[1][1] == 4096
+            && rot.m[2][2] == 4096
+            && rot.m[0][1] == 0
+            && rot.m[0][2] == 0
+            && rot.m[1][0] == 0;
 
         let mut world_pts = [Vec3I16::ZERO; 8];
         if is_identity {
             for (i, c) in corners.iter().enumerate() {
-                world_pts[i] = Vec3I16::new(
-                    (wx + c.0) as i16,
-                    (wy + c.1) as i16,
-                    (wz + c.2) as i16,
-                );
+                world_pts[i] =
+                    Vec3I16::new((wx + c.0) as i16, (wy + c.1) as i16, (wz + c.2) as i16);
             }
         } else {
             for (i, c) in corners.iter().enumerate() {
                 let t = rot.transform(Vec3I16::new(c.0 as i16, c.1 as i16, c.2 as i16));
-                world_pts[i] = Vec3I16::new(
-                    (wx + t[0]) as i16,
-                    (wy + t[1]) as i16,
-                    (wz + t[2]) as i16,
-                );
+                world_pts[i] =
+                    Vec3I16::new((wx + t[0]) as i16, (wy + t[1]) as i16, (wz + t[2]) as i16);
             }
         }
 
         // Project the 8 box corners via scheduled GTE batches instead of re-projecting per face
-        let [p0, p1, p2] = scene::project_triangle_scheduled(world_pts[0], world_pts[1], world_pts[2]);
-        let [p3, p4, p5] = scene::project_triangle_scheduled(world_pts[3], world_pts[4], world_pts[5]);
+        let [p0, p1, p2] =
+            scene::project_triangle_scheduled(world_pts[0], world_pts[1], world_pts[2]);
+        let [p3, p4, p5] =
+            scene::project_triangle_scheduled(world_pts[3], world_pts[4], world_pts[5]);
         let p6 = scene::project_vertex_scheduled(world_pts[6]);
         let p7 = scene::project_vertex_scheduled(world_pts[7]);
         let proj = [p0, p1, p2, p3, p4, p5, p6, p7];
 
         if self.wireframe {
             const EDGES: [(usize, usize); 12] = [
-                (0, 1), (1, 3), (3, 2), (2, 0),
-                (4, 5), (5, 7), (7, 6), (6, 4),
-                (0, 4), (1, 5), (2, 6), (3, 7),
+                (0, 1),
+                (1, 3),
+                (3, 2),
+                (2, 0),
+                (4, 5),
+                (5, 7),
+                (7, 6),
+                (6, 4),
+                (0, 4),
+                (1, 5),
+                (2, 6),
+                (3, 7),
             ];
             let lr = col.0.max(40);
             let lg = col.1.max(220);
@@ -1224,11 +1527,31 @@ impl Renderer {
             return;
         }
 
-        let f_col = ((col.0 as u16 * 85 / 100) as u8, (col.1 as u16 * 85 / 100) as u8, (col.2 as u16 * 85 / 100) as u8);
-        let b_col = ((col.0 as u16 * 75 / 100) as u8, (col.1 as u16 * 75 / 100) as u8, (col.2 as u16 * 75 / 100) as u8);
-        let l_col = ((col.0 as u16 * 70 / 100) as u8, (col.1 as u16 * 70 / 100) as u8, (col.2 as u16 * 70 / 100) as u8);
-        let r_col = ((col.0 as u16 * 60 / 100) as u8, (col.1 as u16 * 60 / 100) as u8, (col.2 as u16 * 60 / 100) as u8);
-        let bot_col = ((col.0 as u16 * 45 / 100) as u8, (col.1 as u16 * 45 / 100) as u8, (col.2 as u16 * 45 / 100) as u8);
+        let f_col = (
+            (col.0 as u16 * 85 / 100) as u8,
+            (col.1 as u16 * 85 / 100) as u8,
+            (col.2 as u16 * 85 / 100) as u8,
+        );
+        let b_col = (
+            (col.0 as u16 * 75 / 100) as u8,
+            (col.1 as u16 * 75 / 100) as u8,
+            (col.2 as u16 * 75 / 100) as u8,
+        );
+        let l_col = (
+            (col.0 as u16 * 70 / 100) as u8,
+            (col.1 as u16 * 70 / 100) as u8,
+            (col.2 as u16 * 70 / 100) as u8,
+        );
+        let r_col = (
+            (col.0 as u16 * 60 / 100) as u8,
+            (col.1 as u16 * 60 / 100) as u8,
+            (col.2 as u16 * 60 / 100) as u8,
+        );
+        let bot_col = (
+            (col.0 as u16 * 45 / 100) as u8,
+            (col.1 as u16 * 45 / 100) as u8,
+            (col.2 as u16 * 45 / 100) as u8,
+        );
 
         // Faces are emitted back-to-front. Unrotated boxes follow a fixed topological
         // order, avoiding 6 closure evaluations and insertion sort.
@@ -1243,19 +1566,28 @@ impl Renderer {
 
         if !is_identity {
             let face_depth = |a: usize, b: usize, c: usize, dd: usize| -> i32 {
-                let z = (world_pts[a].z as i32 + world_pts[b].z as i32
-                    + world_pts[c].z as i32 + world_pts[dd].z as i32) / 4;
+                let z = (world_pts[a].z as i32
+                    + world_pts[b].z as i32
+                    + world_pts[c].z as i32
+                    + world_pts[dd].z as i32)
+                    / 4;
                 let dz = z - self.cam_z;
-                if dz < 0 { -dz } else { dz }
+                if dz < 0 {
+                    -dz
+                } else {
+                    dz
+                }
             };
             for i in 1..faces.len() {
                 let mut j = i;
                 while j > 0
-                    && face_depth(
-                        faces[j].0, faces[j].1, faces[j].2, faces[j].3,
-                    ) > face_depth(
-                        faces[j - 1].0, faces[j - 1].1, faces[j - 1].2, faces[j - 1].3,
-                    )
+                    && face_depth(faces[j].0, faces[j].1, faces[j].2, faces[j].3)
+                        > face_depth(
+                            faces[j - 1].0,
+                            faces[j - 1].1,
+                            faces[j - 1].2,
+                            faces[j - 1].3,
+                        )
                 {
                     faces.swap(j, j - 1);
                     j -= 1;
@@ -1272,7 +1604,11 @@ impl Renderer {
                 let p1 = proj[f.1];
                 let p2 = proj[f.2];
                 let p3 = proj[f.3];
-                if !sz_in_front(p0.sz) || !sz_in_front(p1.sz) || !sz_in_front(p2.sz) || !sz_in_front(p3.sz) {
+                if !sz_in_front(p0.sz)
+                    || !sz_in_front(p1.sz)
+                    || !sz_in_front(p2.sz)
+                    || !sz_in_front(p3.sz)
+                {
                     continue;
                 }
                 if winding_cross((p0.sx, p0.sy), (p1.sx, p1.sy), (p2.sx, p2.sy)) <= 0 {
@@ -1284,7 +1620,12 @@ impl Renderer {
                 self.spend_quads(1);
                 let colors = gouraud_face_colors(f.4, f.5);
                 gpu::draw_quad_textured_gouraud(
-                    [(p0.sx, p0.sy), (p1.sx, p1.sy), (p2.sx, p2.sy), (p3.sx, p3.sy)],
+                    [
+                        (p0.sx, p0.sy),
+                        (p1.sx, p1.sy),
+                        (p2.sx, p2.sy),
+                        (p3.sx, p3.sy),
+                    ],
                     uvs,
                     colors,
                     clut_word,
@@ -1297,7 +1638,11 @@ impl Renderer {
                 let p1 = proj[f.1];
                 let p2 = proj[f.2];
                 let p3 = proj[f.3];
-                if !sz_in_front(p0.sz) || !sz_in_front(p1.sz) || !sz_in_front(p2.sz) || !sz_in_front(p3.sz) {
+                if !sz_in_front(p0.sz)
+                    || !sz_in_front(p1.sz)
+                    || !sz_in_front(p2.sz)
+                    || !sz_in_front(p3.sz)
+                {
                     continue;
                 }
                 if winding_cross((p0.sx, p0.sy), (p1.sx, p1.sy), (p2.sx, p2.sy)) <= 0 {
@@ -1308,8 +1653,15 @@ impl Renderer {
                 }
                 self.spend_quads(1);
                 gpu::draw_quad_flat(
-                    [(p0.sx, p0.sy), (p1.sx, p1.sy), (p2.sx, p2.sy), (p3.sx, p3.sy)],
-                    f.5.0, f.5.1, f.5.2,
+                    [
+                        (p0.sx, p0.sy),
+                        (p1.sx, p1.sy),
+                        (p2.sx, p2.sy),
+                        (p3.sx, p3.sy),
+                    ],
+                    f.5 .0,
+                    f.5 .1,
+                    f.5 .2,
                 );
             }
         }
@@ -1353,7 +1705,12 @@ impl Renderer {
         let colors = gouraud_face_colors(face_dir, base_tint);
 
         gpu::draw_quad_textured_gouraud(
-            [(p0.sx, p0.sy), (p1.sx, p1.sy), (p2.sx, p2.sy), (p3.sx, p3.sy)],
+            [
+                (p0.sx, p0.sy),
+                (p1.sx, p1.sy),
+                (p2.sx, p2.sy),
+                (p3.sx, p3.sy),
+            ],
             uvs,
             colors,
             clut_word,
@@ -1379,7 +1736,17 @@ impl Renderer {
             return;
         }
 
-        gpu::draw_quad_flat([(p0.sx, p0.sy), (p1.sx, p1.sy), (p2.sx, p2.sy), (p3.sx, p3.sy)], r, g, b);
+        gpu::draw_quad_flat(
+            [
+                (p0.sx, p0.sy),
+                (p1.sx, p1.sy),
+                (p2.sx, p2.sy),
+                (p3.sx, p3.sy),
+            ],
+            r,
+            g,
+            b,
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -1401,8 +1768,20 @@ impl Renderer {
             let c3 = scene::project_vertex(Vec3I16::new(bx, 1, bz + rad));
 
             if c0.sz > 20 && c1.sz > 20 && c2.sz > 20 && c3.sz > 20 {
-                gpu::draw_tri_flat_blended([(c0.sx, c0.sy), (c1.sx, c1.sy), (c2.sx, c2.sy)], 110, 110, 60, BlendMode::Add);
-                gpu::draw_tri_flat_blended([(c0.sx, c0.sy), (c2.sx, c2.sy), (c3.sx, c3.sy)], 110, 110, 60, BlendMode::Add);
+                gpu::draw_tri_flat_blended(
+                    [(c0.sx, c0.sy), (c1.sx, c1.sy), (c2.sx, c2.sy)],
+                    110,
+                    110,
+                    60,
+                    BlendMode::Add,
+                );
+                gpu::draw_tri_flat_blended(
+                    [(c0.sx, c0.sy), (c2.sx, c2.sy), (c3.sx, c3.sy)],
+                    110,
+                    110,
+                    60,
+                    BlendMode::Add,
+                );
             }
         }
 
@@ -1436,8 +1815,15 @@ impl Renderer {
                 };
 
                 gpu::draw_tri_flat_blended(
-                    [(p_origin.sx, p_origin.sy), (p_left.sx, p_left.sy), (p_right.sx, p_right.sy)],
-                    cr, cg, cb, BlendMode::Add,
+                    [
+                        (p_origin.sx, p_origin.sy),
+                        (p_left.sx, p_left.sy),
+                        (p_right.sx, p_right.sy),
+                    ],
+                    cr,
+                    cg,
+                    cb,
+                    BlendMode::Add,
                 );
             }
         }
@@ -1459,8 +1845,20 @@ impl Renderer {
         let lc3 = scene::project_vertex(Vec3I16::new(lx, 1, lz + rad));
 
         if lc0.sz > 20 && lc1.sz > 20 && lc2.sz > 20 && lc3.sz > 20 {
-            gpu::draw_tri_flat_blended([(lc0.sx, lc0.sy), (lc1.sx, lc1.sy), (lc2.sx, lc2.sy)], 140, 140, 70, BlendMode::Add);
-            gpu::draw_tri_flat_blended([(lc0.sx, lc0.sy), (lc2.sx, lc2.sy), (lc3.sx, lc3.sy)], 140, 140, 70, BlendMode::Add);
+            gpu::draw_tri_flat_blended(
+                [(lc0.sx, lc0.sy), (lc1.sx, lc1.sy), (lc2.sx, lc2.sy)],
+                140,
+                140,
+                70,
+                BlendMode::Add,
+            );
+            gpu::draw_tri_flat_blended(
+                [(lc0.sx, lc0.sy), (lc2.sx, lc2.sy), (lc3.sx, lc3.sy)],
+                140,
+                140,
+                70,
+                BlendMode::Add,
+            );
         }
 
         // Right searchlight ground pool
@@ -1473,19 +1871,51 @@ impl Renderer {
         let rc3 = scene::project_vertex(Vec3I16::new(rx, 1, rz + rad));
 
         if rc0.sz > 20 && rc1.sz > 20 && rc2.sz > 20 && rc3.sz > 20 {
-            gpu::draw_tri_flat_blended([(rc0.sx, rc0.sy), (rc1.sx, rc1.sy), (rc2.sx, rc2.sy)], 140, 140, 70, BlendMode::Add);
-            gpu::draw_tri_flat_blended([(rc0.sx, rc0.sy), (rc2.sx, rc2.sy), (rc3.sx, rc3.sy)], 140, 140, 70, BlendMode::Add);
+            gpu::draw_tri_flat_blended(
+                [(rc0.sx, rc0.sy), (rc1.sx, rc1.sy), (rc2.sx, rc2.sy)],
+                140,
+                140,
+                70,
+                BlendMode::Add,
+            );
+            gpu::draw_tri_flat_blended(
+                [(rc0.sx, rc0.sy), (rc2.sx, rc2.sy), (rc3.sx, rc3.sy)],
+                140,
+                140,
+                70,
+                BlendMode::Add,
+            );
         }
 
         // Volumetric light beam quad from mech shoulder projectors to ground
-        let l_pod = scene::project_vertex(Vec3I16::new((mech.x - 24) as i16, (mech.y - 48) as i16, mech.z as i16));
+        let l_pod = scene::project_vertex(Vec3I16::new(
+            (mech.x - 24) as i16,
+            (mech.y - 48) as i16,
+            mech.z as i16,
+        ));
         if l_pod.sz > 20 && lc1.sz > 20 && lc3.sz > 20 {
-            gpu::draw_tri_flat_blended([(l_pod.sx, l_pod.sy), (lc1.sx, lc1.sy), (lc3.sx, lc3.sy)], 70, 70, 35, BlendMode::Add);
+            gpu::draw_tri_flat_blended(
+                [(l_pod.sx, l_pod.sy), (lc1.sx, lc1.sy), (lc3.sx, lc3.sy)],
+                70,
+                70,
+                35,
+                BlendMode::Add,
+            );
         }
 
-        let r_pod = scene::project_vertex(Vec3I16::new((mech.x + 24) as i16, (mech.y - 48) as i16, mech.z as i16));
+        let r_pod = scene::project_vertex(Vec3I16::new(
+            (mech.x + 24) as i16,
+            (mech.y - 48) as i16,
+            mech.z as i16,
+        ));
         if r_pod.sz > 20 && rc1.sz > 20 && rc3.sz > 20 {
-            gpu::draw_tri_flat_blended([(r_pod.sx, r_pod.sy), (rc1.sx, rc1.sy), (rc3.sx, rc3.sy)], 70, 70, 35, BlendMode::Add);
+            gpu::draw_tri_flat_blended(
+                [(r_pod.sx, r_pod.sy), (rc1.sx, rc1.sy), (rc3.sx, rc3.sy)],
+                70,
+                70,
+                35,
+                BlendMode::Add,
+            );
         }
     }
 
@@ -1542,20 +1972,97 @@ impl Renderer {
         };
 
         // Left Leg: Hip, Thigh, Calf, Foot
-        self.draw_model_box(mx, my, mz, -22, -26, leg_swing - 4, 8, 16, 8, &rot, dark_metal);
-        self.draw_model_box(mx, my, mz, -22, -12, -leg_swing - 4, 8, 14, 8, &rot, dark_metal);
-        self.draw_model_box(mx, my, mz, -24, 0, -leg_swing - 6, 12, 4, 16, &rot, armor_col);
+        self.draw_model_box(
+            mx,
+            my,
+            mz,
+            -22,
+            -26,
+            leg_swing - 4,
+            8,
+            16,
+            8,
+            &rot,
+            dark_metal,
+        );
+        self.draw_model_box(
+            mx,
+            my,
+            mz,
+            -22,
+            -12,
+            -leg_swing - 4,
+            8,
+            14,
+            8,
+            &rot,
+            dark_metal,
+        );
+        self.draw_model_box(
+            mx,
+            my,
+            mz,
+            -24,
+            0,
+            -leg_swing - 6,
+            12,
+            4,
+            16,
+            &rot,
+            armor_col,
+        );
 
         // Right Leg: Hip, Thigh, Calf, Foot
-        self.draw_model_box(mx, my, mz, 14, -26, -leg_swing - 4, 8, 16, 8, &rot, dark_metal);
-        self.draw_model_box(mx, my, mz, 14, -12, leg_swing - 4, 8, 14, 8, &rot, dark_metal);
+        self.draw_model_box(
+            mx,
+            my,
+            mz,
+            14,
+            -26,
+            -leg_swing - 4,
+            8,
+            16,
+            8,
+            &rot,
+            dark_metal,
+        );
+        self.draw_model_box(
+            mx,
+            my,
+            mz,
+            14,
+            -12,
+            leg_swing - 4,
+            8,
+            14,
+            8,
+            &rot,
+            dark_metal,
+        );
         self.draw_model_box(mx, my, mz, 12, 0, leg_swing - 6, 12, 4, 16, &rot, armor_col);
 
         // Armoured Torso / Cockpit
-        self.draw_model_box_textured(mx, my, mz, -20, -52, -14, 40, 28, 28, &rot, Some(TextureId::Crate), armor_col);
+        self.draw_model_box_textured(
+            mx,
+            my,
+            mz,
+            -20,
+            -52,
+            -14,
+            40,
+            28,
+            28,
+            &rot,
+            Some(TextureId::Crate),
+            armor_col,
+        );
 
         // Reinforced Front Cockpit Visor / Armor Slit
-        let visor_col = if is_hit { (255, 255, 255) } else { (220, 50, 40) };
+        let visor_col = if is_hit {
+            (255, 255, 255)
+        } else {
+            (220, 50, 40)
+        };
         self.draw_model_box(mx, my, mz, -14, -44, 14, 28, 8, 4, &rot, visor_col);
 
         // Left Shoulder Searchlight Pod
@@ -1570,7 +2077,19 @@ impl Renderer {
         if mech.shield_active {
             // Glowing Energy Shield surrounding rear core
             let shield_glow = if (frame / 4) % 2 == 0 { 240 } else { 160 };
-            self.draw_model_box(mx, my, mz, -12, -46, -22, 24, 20, 8, &rot, (50, 120, shield_glow));
+            self.draw_model_box(
+                mx,
+                my,
+                mz,
+                -12,
+                -46,
+                -22,
+                24,
+                20,
+                8,
+                &rot,
+                (50, 120, shield_glow),
+            );
         } else {
             // Overheated / Vulnerable Exposed Core!
             let pulse = if (frame / 3) % 2 == 0 { 255 } else { 140 };
@@ -1591,7 +2110,20 @@ impl Renderer {
             self.draw_model_box(cx, 0, cz, -5, -18, -5, 10, 8, 10, &rot, (25, 25, 28));
         } else {
             // Heavy concrete pedestal
-            self.draw_model_box_textured(cx, 0, cz, -12, -10, -12, 24, 10, 24, &rot, Some(TextureId::Crate), (70, 75, 80));
+            self.draw_model_box_textured(
+                cx,
+                0,
+                cz,
+                -12,
+                -10,
+                -12,
+                24,
+                10,
+                24,
+                &rot,
+                Some(TextureId::Crate),
+                (70, 75, 80),
+            );
 
             // Central Transformer Core
             self.draw_model_box(cx, 0, cz, -6, -32, -6, 12, 22, 12, &rot, (45, 50, 60));
@@ -1623,28 +2155,31 @@ impl Renderer {
         gpu::draw_rect_flat(bx + 2, by + 2, bw - 4, bh - 4, 4, 8, 12);
 
         // Header: Boss name
-        self.font.draw_text(bx + 6, by + 4, "SEARCHLIGHT MECH", (255, 60, 60));
+        self.font
+            .draw_text(bx + 6, by + 4, "SEARCHLIGHT MECH", (255, 60, 60));
 
         if mech.shield_active {
-            self.font.draw_text(bx + 6, by + 18, "SHIELD", (80, 210, 255));
+            self.font
+                .draw_text(bx + 6, by + 18, "SHIELD", (80, 210, 255));
             // 3 Conduit Power Matrix Cells
             for i in 0..3 {
                 let col = if !conduits[i].destroyed {
                     (80, 220, 255) // Active cyan
                 } else {
-                    (60, 25, 25)   // Shattered dark red
+                    (60, 25, 25) // Shattered dark red
                 };
                 let cx = bx + 58 + (i as i16 * 24);
                 gpu::draw_rect_flat(cx, by + 19, 20, 8, col.0, col.1, col.2);
             }
         } else {
-            self.font.draw_text(bx + 6, by + 18, "CORE HP", (255, 180, 40));
+            self.font
+                .draw_text(bx + 6, by + 18, "CORE HP", (255, 180, 40));
             // 4 Segmented HP bars for the vulnerable coolant core
             for i in 0..4 {
                 let col = if (i as u8) < mech.health {
                     (255, 50, 40) // Bright orange-red
                 } else {
-                    (45, 15, 15)  // Depleted dark
+                    (45, 15, 15) // Depleted dark
                 };
                 let cx = bx + 64 + (i as i16 * 16);
                 gpu::draw_rect_flat(cx, by + 19, 13, 8, col.0, col.1, col.2);
@@ -1709,8 +2244,16 @@ impl Renderer {
 
         // Red Laser Targeting line from rifle to ground
         if !sniper.is_vulnerable {
-            let muzzle = scene::project_vertex(Vec3I16::new((sx + 5) as i16, (sy - 13) as i16, (sz + 28) as i16));
-            let target = scene::project_vertex(Vec3I16::new(sniper.laser_x as i16, 0, sniper.laser_z as i16));
+            let muzzle = scene::project_vertex(Vec3I16::new(
+                (sx + 5) as i16,
+                (sy - 13) as i16,
+                (sz + 28) as i16,
+            ));
+            let target = scene::project_vertex(Vec3I16::new(
+                sniper.laser_x as i16,
+                0,
+                sniper.laser_z as i16,
+            ));
             if muzzle.sz > 20 && target.sz > 20 {
                 let flash = if (frame / 2) % 2 == 0 { 255 } else { 160 };
                 gpu::draw_line_mono(muzzle.sx, muzzle.sy, target.sx, target.sy, flash, 30, 30);
@@ -1749,15 +2292,39 @@ impl Renderer {
         // Articulated Hydraulic Crane Arm
         let arm_reach = (exc.claw_angle as i32 * 40) / 180;
         self.draw_model_box(ex, ey, ez, 4, -38, 12, 8, 8, 30, &rot, yellow);
-        self.draw_model_box(ex, ey, ez, 4 + arm_reach / 2, -30, 36, 8, 8, 24, &rot, (150, 150, 160));
+        self.draw_model_box(
+            ex,
+            ey,
+            ez,
+            4 + arm_reach / 2,
+            -30,
+            36,
+            8,
+            8,
+            24,
+            &rot,
+            (150, 150, 160),
+        );
         // Heavy Shovel Bucket Claw
-        self.draw_model_box(ex, ey, ez, 2 + arm_reach, -18, 54, 14, 16, 16, &rot, (60, 65, 70));
+        self.draw_model_box(
+            ex,
+            ey,
+            ez,
+            2 + arm_reach,
+            -18,
+            54,
+            14,
+            16,
+            16,
+            &rot,
+            (60, 65, 70),
+        );
 
         // The three engines. They are the only part of the machine the player
         // can damage while the shields hold, so they have to read as targets
         // from across the arena: a pulsing intake when intact, a dark burnt
         // housing once destroyed.
-        use crate::entities::{EXCAVATOR_ENGINES, EXCAVATOR_ENGINE_OFFSETS, ExcavatorState};
+        use crate::entities::{ExcavatorState, EXCAVATOR_ENGINES, EXCAVATOR_ENGINE_OFFSETS};
         let venting = matches!(exc.state, ExcavatorState::Venting(_));
         for i in 0..EXCAVATOR_ENGINES {
             let hp = exc.engine_hp.get(i).copied().unwrap_or(0);
@@ -1772,7 +2339,11 @@ impl Renderer {
                 }
             } else {
                 let pulse = if venting { 255 } else { 200 };
-                let base = if hp == 2 { (110, 200, 255) } else { (255, 190, 60) };
+                let base = if hp == 2 {
+                    (110, 200, 255)
+                } else {
+                    (255, 190, 60)
+                };
                 // Housing plus a glowing intake, so damage is visible.
                 self.draw_model_box(hx, ey, hz, -12, -26, -12, 24, 14, 24, &rot, (60, 64, 70));
                 self.draw_model_box(
@@ -1801,11 +2372,14 @@ impl Renderer {
         gpu::draw_rect_flat(bx, by, bw, bh, 12, 24, 32);
         gpu::draw_rect_flat(bx + 2, by + 2, bw - 4, bh - 4, 4, 10, 16);
 
-        self.font.draw_text(bx + 6, by + 4, "RANGER JET SKI", (80, 220, 255));
+        self.font
+            .draw_text(bx + 6, by + 4, "RANGER JET SKI", (80, 220, 255));
         if jetski.is_stalled {
-            self.font.draw_text(bx + 6, by + 18, "STALLED! HIT!", (255, 230, 40));
+            self.font
+                .draw_text(bx + 6, by + 18, "STALLED! HIT!", (255, 230, 40));
         } else {
-            self.font.draw_text(bx + 6, by + 18, "ENGINE HP", (240, 80, 80));
+            self.font
+                .draw_text(bx + 6, by + 18, "ENGINE HP", (240, 80, 80));
             let hp_w = (jetski.health as u16 * 18).min(54);
             gpu::draw_rect_flat(bx + 72, by + 19, hp_w, 8, 255, 60, 60);
         }
@@ -1820,18 +2394,21 @@ impl Renderer {
         gpu::draw_rect_flat(bx, by, bw, bh, 28, 16, 12);
         gpu::draw_rect_flat(bx + 2, by + 2, bw - 4, bh - 4, 12, 6, 4);
 
-        self.font.draw_text(bx + 6, by + 4, "SNIPER KOOKY", (255, 120, 40));
+        self.font
+            .draw_text(bx + 6, by + 4, "SNIPER KOOKY", (255, 120, 40));
         if sniper.is_vulnerable {
-            self.font.draw_text(bx + 6, by + 18, "JAMMED! STRIKE!", (255, 240, 80));
+            self.font
+                .draw_text(bx + 6, by + 18, "JAMMED! STRIKE!", (255, 240, 80));
         } else {
-            self.font.draw_text(bx + 6, by + 18, "TARGET LOCK", (255, 60, 60));
+            self.font
+                .draw_text(bx + 6, by + 18, "TARGET LOCK", (255, 60, 60));
             let aim_w = ((sniper.aim_timer.min(100) as u32 * 48) / 100) as u16;
             gpu::draw_rect_flat(bx + 80, by + 19, aim_w, 8, 255, 40, 40);
         }
     }
 
     fn draw_excavator_boss_hud(&self, exc: &crate::entities::ExcavatorBoss) {
-        use crate::entities::{EXCAVATOR_ENGINES, ExcavatorState};
+        use crate::entities::{ExcavatorState, EXCAVATOR_ENGINES};
 
         let bx: i16 = 180;
         let by: i16 = 8;
@@ -1867,7 +2444,10 @@ impl Renderer {
         self.draw_text_clamped(bx + 6, by + 28, label, colour);
 
         // Hull pips, only meaningful once the shields are down.
-        if matches!(exc.state, ExcavatorState::Venting(_) | ExcavatorState::Exposed) {
+        if matches!(
+            exc.state,
+            ExcavatorState::Venting(_) | ExcavatorState::Exposed
+        ) {
             for i in 0..exc.max_health as u16 {
                 let px = bx + 100 + (i as i16) * 7;
                 let filled = i < exc.health as u16;
@@ -1899,26 +2479,93 @@ impl Renderer {
             }
 
             let is_moving = platty.vx != 0 || platty.vz != 0;
-            let waddle = if is_moving && ((platty.anim_frame / 4) % 2 == 1) { 1 } else { 0 };
+            let waddle = if is_moving && ((platty.anim_frame / 4) % 2 == 1) {
+                1
+            } else {
+                0
+            };
 
             // 1. The Cardboard Box outer shell (28 wide x 20 high x 32 deep)
-            self.draw_model_box_textured(px, py, pz, -14, -20, -16, 28, 20, 32, &rot, Some(TextureId::Crate), (185, 145, 95));
+            self.draw_model_box_textured(
+                px,
+                py,
+                pz,
+                -14,
+                -20,
+                -16,
+                28,
+                20,
+                32,
+                &rot,
+                Some(TextureId::Crate),
+                (185, 145, 95),
+            );
 
             // 2. Cut-out Eye Holes on front face
             self.draw_model_box(px, py, pz, -8, -14, 16, 4, 3, 2, &rot, (30, 25, 20));
             self.draw_model_box(px, py, pz, 4, -14, 16, 4, 3, 2, &rot, (30, 25, 20));
 
             // 3. Duck Bill poking out slightly through bottom slit (+Z)
-            self.draw_model_box_textured(px, py, pz, -5, -4, 15, 10, 4, 6, &rot, Some(TextureId::PlattyBill), (150, 150, 150));
+            self.draw_model_box_textured(
+                px,
+                py,
+                pz,
+                -5,
+                -4,
+                15,
+                10,
+                4,
+                6,
+                &rot,
+                Some(TextureId::PlattyBill),
+                (150, 150, 150),
+            );
 
             // 4. Little orange webbed feet peeking out when shuffling
             if is_moving {
-                self.draw_model_box(px, py, pz, -15, -2, -2 + waddle * 4, 4, 2, 6, &rot, (215, 130, 45));
-                self.draw_model_box(px, py, pz, 11, -2, -2 - waddle * 4, 4, 2, 6, &rot, (215, 130, 45));
+                self.draw_model_box(
+                    px,
+                    py,
+                    pz,
+                    -15,
+                    -2,
+                    -2 + waddle * 4,
+                    4,
+                    2,
+                    6,
+                    &rot,
+                    (215, 130, 45),
+                );
+                self.draw_model_box(
+                    px,
+                    py,
+                    pz,
+                    11,
+                    -2,
+                    -2 - waddle * 4,
+                    4,
+                    2,
+                    6,
+                    &rot,
+                    (215, 130, 45),
+                );
             }
 
             // 5. Caution Tape Stripe on top
-            self.draw_model_box_textured(px, py, pz, -10, -21, -6, 20, 1, 12, &rot, Some(TextureId::CautionStripe), (220, 200, 80));
+            self.draw_model_box_textured(
+                px,
+                py,
+                pz,
+                -10,
+                -21,
+                -6,
+                20,
+                1,
+                12,
+                &rot,
+                Some(TextureId::CautionStripe),
+                (220, 200, 80),
+            );
             return;
         }
 
@@ -1932,51 +2579,104 @@ impl Renderer {
         let body_h = if is_crawl { 8 } else { 16 };
 
         // Determine costume coloring & accessories
-        let (fur_col, under_col, bill_col, tail_col, feet_col, satchel_col, bandana_col, is_tuxedo) = match self.costume {
-            1 => (
-                (28, 28, 34),     // Tuxedo jacket black
-                (245, 245, 250),  // Crisp white shirt bib
-                (140, 140, 140),  // Slate gray bill
-                (40, 40, 48),     // Black paddle tail
-                (20, 20, 25),     // Shiny black dress shoes
-                (35, 35, 42),     // Elegant black leather satchel
-                (220, 30, 30),    // Red silk bow tie
-                true,
-            ),
-            2 => (
-                (40, 180, 170),   // Stealth Camo active shimmer
-                (60, 220, 200),
-                (100, 240, 230),
-                (30, 150, 140),
-                (60, 200, 190),
-                (50, 190, 180),
-                (140, 255, 240),
-                false,
-            ),
-            _ => (
-                (160, 110, 60),   // Classic brown fur
-                (200, 150, 100),  // Underbelly cream
-                (150, 150, 150),  // Leathery duck bill
-                (130, 80, 45),    // Beaver paddle tail
-                (215, 130, 45),   // Webbed feet
-                (185, 135, 65),   // Brown leather satchel
-                (180, 230, 180),  // Solid Snake bandana
-                false,
-            ),
-        };
+        let (fur_col, under_col, bill_col, tail_col, feet_col, satchel_col, bandana_col, is_tuxedo) =
+            match self.costume {
+                1 => (
+                    (28, 28, 34),    // Tuxedo jacket black
+                    (245, 245, 250), // Crisp white shirt bib
+                    (140, 140, 140), // Slate gray bill
+                    (40, 40, 48),    // Black paddle tail
+                    (20, 20, 25),    // Shiny black dress shoes
+                    (35, 35, 42),    // Elegant black leather satchel
+                    (220, 30, 30),   // Red silk bow tie
+                    true,
+                ),
+                2 => (
+                    (40, 180, 170), // Stealth Camo active shimmer
+                    (60, 220, 200),
+                    (100, 240, 230),
+                    (30, 150, 140),
+                    (60, 200, 190),
+                    (50, 190, 180),
+                    (140, 255, 240),
+                    false,
+                ),
+                _ => (
+                    (160, 110, 60),  // Classic brown fur
+                    (200, 150, 100), // Underbelly cream
+                    (150, 150, 150), // Leathery duck bill
+                    (130, 80, 45),   // Beaver paddle tail
+                    (215, 130, 45),  // Webbed feet
+                    (185, 135, 65),  // Brown leather satchel
+                    (180, 230, 180), // Solid Snake bandana
+                    false,
+                ),
+            };
 
         // 1. Platty Body
-        self.draw_model_box_textured(px, py, pz, -12, -body_h, -14, 24, body_h, 28, &rot, Some(TextureId::PlattyFur), fur_col);
+        self.draw_model_box_textured(
+            px,
+            py,
+            pz,
+            -12,
+            -body_h,
+            -14,
+            24,
+            body_h,
+            28,
+            &rot,
+            Some(TextureId::PlattyFur),
+            fur_col,
+        );
 
         // 2. Underbelly Bib
-        self.draw_model_box_textured(px, py, pz, -8, -body_h / 2, -10, 16, body_h / 2, 20, &rot, Some(TextureId::PlattyFur), under_col);
+        self.draw_model_box_textured(
+            px,
+            py,
+            pz,
+            -8,
+            -body_h / 2,
+            -10,
+            16,
+            body_h / 2,
+            20,
+            &rot,
+            Some(TextureId::PlattyFur),
+            under_col,
+        );
 
         // 3. Duck Bill (+Z in local facing) with leathery sensory texture
-        self.draw_model_box_textured(px, py, pz, -7, -8, 14, 14, 5, 16, &rot, Some(TextureId::PlattyBill), bill_col);
+        self.draw_model_box_textured(
+            px,
+            py,
+            pz,
+            -7,
+            -8,
+            14,
+            14,
+            5,
+            16,
+            &rot,
+            Some(TextureId::PlattyBill),
+            bill_col,
+        );
 
         // 4. Beaver Paddle Tail (-Z in local facing)
         let tail_wobble = ((platty.anim_frame / 4) % 2) as i32 * 2;
-        self.draw_model_box_textured(px, py, pz, -9 + tail_wobble, -5, -30, 18, 5, 18, &rot, Some(TextureId::PlattyFur), tail_col);
+        self.draw_model_box_textured(
+            px,
+            py,
+            pz,
+            -9 + tail_wobble,
+            -5,
+            -30,
+            18,
+            5,
+            18,
+            &rot,
+            Some(TextureId::PlattyFur),
+            tail_col,
+        );
 
         // 5. Webbed Feet
         self.draw_model_box(px, py, pz, -15, -3, 6, 5, 3, 8, &rot, feet_col);
@@ -1991,25 +2691,115 @@ impl Renderer {
         }
 
         // 6. Expressive Eyes
-        self.draw_model_box(px, py, pz, -8, -body_h - 2, 8, 4, 4, 4, &rot, (255, 255, 255));
+        self.draw_model_box(
+            px,
+            py,
+            pz,
+            -8,
+            -body_h - 2,
+            8,
+            4,
+            4,
+            4,
+            &rot,
+            (255, 255, 255),
+        );
         self.draw_model_box(px, py, pz, -8, -body_h - 1, 11, 2, 2, 2, &rot, (20, 20, 20));
-        self.draw_model_box(px, py, pz, 4, -body_h - 2, 8, 4, 4, 4, &rot, (255, 255, 255));
+        self.draw_model_box(
+            px,
+            py,
+            pz,
+            4,
+            -body_h - 2,
+            8,
+            4,
+            4,
+            4,
+            &rot,
+            (255, 255, 255),
+        );
         self.draw_model_box(px, py, pz, 6, -body_h - 1, 11, 2, 2, 2, &rot, (20, 20, 20));
 
         // 7. Leather Satchel with Important Letter!
         self.draw_model_box(px, py, pz, 5, -body_h - 3, -4, 9, 8, 10, &rot, satchel_col);
-        self.draw_model_box(px, py, pz, 7, -body_h - 5, -2, 5, 3, 6, &rot, (255, 250, 240));
+        self.draw_model_box(
+            px,
+            py,
+            pz,
+            7,
+            -body_h - 5,
+            -2,
+            5,
+            3,
+            6,
+            &rot,
+            (255, 250, 240),
+        );
 
         // 8. Head accessory: Red Bowtie (Tuxedo) or Snake Bandana
         if is_tuxedo {
             // Sharp red silk bowtie at collar
-            self.draw_model_box(px, py, pz, -4, -body_h / 2 - 2, 12, 8, 4, 3, &rot, bandana_col);
-            self.draw_model_box(px, py, pz, -2, -body_h / 2 - 1, 14, 4, 2, 2, &rot, (255, 80, 80));
+            self.draw_model_box(
+                px,
+                py,
+                pz,
+                -4,
+                -body_h / 2 - 2,
+                12,
+                8,
+                4,
+                3,
+                &rot,
+                bandana_col,
+            );
+            self.draw_model_box(
+                px,
+                py,
+                pz,
+                -2,
+                -body_h / 2 - 1,
+                14,
+                4,
+                2,
+                2,
+                &rot,
+                (255, 80, 80),
+            );
         } else {
             // Solid Snake Bandana around forehead with fluttering knot
-            self.draw_model_box_textured(px, py, pz, -13, -body_h - 1, 4, 26, 4, 10, &rot, Some(TextureId::PlattyBandana), bandana_col);
-            let knot_flutter = if (platty.anim_frame / 6) % 2 == 0 { -3 } else { 2 };
-            self.draw_model_box_textured(px, py, pz, -15 + knot_flutter, -body_h, -10, 5, 6, 8, &rot, Some(TextureId::PlattyBandana), bandana_col);
+            self.draw_model_box_textured(
+                px,
+                py,
+                pz,
+                -13,
+                -body_h - 1,
+                4,
+                26,
+                4,
+                10,
+                &rot,
+                Some(TextureId::PlattyBandana),
+                bandana_col,
+            );
+            let knot_flutter = if (platty.anim_frame / 6) % 2 == 0 {
+                -3
+            } else {
+                2
+            };
+            self.draw_model_box_textured(
+                px,
+                py,
+                pz,
+                -15 + knot_flutter,
+                -body_h,
+                -10,
+                5,
+                6,
+                8,
+                &rot,
+                Some(TextureId::PlattyBandana),
+                bandana_col,
+            );
         }
     }
 
@@ -2027,7 +2817,11 @@ impl Renderer {
         // status markers and vision cone still draw, so the guard remains
         // readable as a threat.
         if self.dist_to(sx, sz) > ACTOR_LOD_DISTANCE {
-            let col = if s.stun_timer > 0 { (50, 65, 80) } else { (90, 120, 140) };
+            let col = if s.stun_timer > 0 {
+                (50, 65, 80)
+            } else {
+                (90, 120, 140)
+            };
             self.draw_model_box(sx, sy, sz, -10, -34, -10, 20, 34, 20, &rot, col);
             return;
         }
@@ -2058,10 +2852,36 @@ impl Renderer {
         } else {
             // Standing sentry (boots, camo uniform, head, ranger hat, tactical rifle)
             self.draw_model_box(sx, sy, sz, -8, -16, -8, 16, 16, 16, &rot, (45, 52, 60)); // Boots/Legs
-            self.draw_model_box_textured(sx, sy, sz, -10, -32, -8, 20, 16, 16, &rot, Some(TextureId::SentryCamo), (170, 170, 170)); // Camo Uniform
+            self.draw_model_box_textured(
+                sx,
+                sy,
+                sz,
+                -10,
+                -32,
+                -8,
+                20,
+                16,
+                16,
+                &rot,
+                Some(TextureId::SentryCamo),
+                (170, 170, 170),
+            ); // Camo Uniform
             self.draw_model_box(sx, sy, sz, -8, -44, -8, 16, 12, 16, &rot, (210, 175, 140)); // Head
             self.draw_model_box(sx, sy, sz, -12, -48, -12, 24, 6, 24, &rot, (85, 75, 50)); // Ranger Hat
-            self.draw_model_box_textured(sx, sy, sz, 8, -26, 4, 6, 6, 22, &rot, Some(TextureId::MetalGrate), (140, 140, 140)); // Tactical Rifle
+            self.draw_model_box_textured(
+                sx,
+                sy,
+                sz,
+                8,
+                -26,
+                4,
+                6,
+                6,
+                22,
+                &rot,
+                Some(TextureId::MetalGrate),
+                (140, 140, 140),
+            ); // Tactical Rifle
 
             if s.see_player {
                 // Red "!" Exclamation mark overhead
@@ -2127,47 +2947,125 @@ impl Renderer {
             RiverObstacleType::TreeLog => {
                 // Fallen river gum log across lane
                 self.draw_model_box(ox, oy, oz, -18, -10, -8, 36, 10, 16, &rot, (110, 65, 35));
-                self.draw_model_box(ox, oy, oz, -16, -12, -6, 32, 2, 12, &rot, (75, 120, 50)); // Moss
+                self.draw_model_box(ox, oy, oz, -16, -12, -6, 32, 2, 12, &rot, (75, 120, 50));
+                // Moss
             }
             RiverObstacleType::LowBranch => {
                 // Low-hanging branch (must duck/crawl under)
                 self.draw_model_box(ox, oy, oz, -24, -8, -10, 48, 8, 20, &rot, (95, 55, 30));
-                self.draw_model_box(ox, oy, oz, -26, -14, -12, 52, 6, 24, &rot, (45, 130, 50)); // Foliage
+                self.draw_model_box(ox, oy, oz, -26, -14, -12, 52, 6, 24, &rot, (45, 130, 50));
+                // Foliage
             }
             RiverObstacleType::TigerSnake => {
                 // Wriggling yellow and black striped tiger snake
                 let wiggle = if (frame / 6) % 2 == 0 { 3 } else { -3 };
-                self.draw_model_box(ox + wiggle, oy, oz, -6, -6, -14, 12, 6, 28, &rot, (230, 200, 30));
-                self.draw_model_box(ox - wiggle, oy, oz, -5, -7, -10, 10, 2, 8, &rot, (30, 30, 30));
+                self.draw_model_box(
+                    ox + wiggle,
+                    oy,
+                    oz,
+                    -6,
+                    -6,
+                    -14,
+                    12,
+                    6,
+                    28,
+                    &rot,
+                    (230, 200, 30),
+                );
+                self.draw_model_box(
+                    ox - wiggle,
+                    oy,
+                    oz,
+                    -5,
+                    -7,
+                    -10,
+                    10,
+                    2,
+                    8,
+                    &rot,
+                    (30, 30, 30),
+                );
             }
             RiverObstacleType::GiantSpider => {
                 // Giant Australian Huntsman spider on floating bark
                 self.draw_model_box(ox, oy, oz, -12, -4, -12, 24, 4, 24, &rot, (130, 85, 45)); // Bark
-                self.draw_model_box(ox, oy, oz, -8, -10, -8, 16, 6, 16, &rot, (50, 35, 25));   // Spider
+                self.draw_model_box(ox, oy, oz, -8, -10, -8, 16, 6, 16, &rot, (50, 35, 25));
+                // Spider
             }
             RiverObstacleType::RiverTuber => {
                 // Tourist floating on bright inflatable inner tube
                 let bob = if (frame / 8) % 2 == 0 { 2 } else { 0 };
-                self.draw_model_box(ox, oy + bob, oz, -16, -10, -16, 32, 10, 32, &rot, (255, 60, 140)); // Pink tube
-                self.draw_model_box(ox, oy + bob, oz, -8, -18, -6, 16, 12, 12, &rot, (220, 185, 150));  // Swimmer
+                self.draw_model_box(
+                    ox,
+                    oy + bob,
+                    oz,
+                    -16,
+                    -10,
+                    -16,
+                    32,
+                    10,
+                    32,
+                    &rot,
+                    (255, 60, 140),
+                ); // Pink tube
+                self.draw_model_box(
+                    ox,
+                    oy + bob,
+                    oz,
+                    -8,
+                    -18,
+                    -6,
+                    16,
+                    12,
+                    12,
+                    &rot,
+                    (220, 185, 150),
+                ); // Swimmer
             }
             RiverObstacleType::PaddleBoarder => {
                 // Stand-up paddle boarder with board and paddle
                 self.draw_model_box(ox, oy, oz, -8, -4, -20, 16, 4, 40, &rot, (40, 190, 220)); // SUP board
                 self.draw_model_box(ox, oy, oz, -6, -26, -4, 12, 22, 10, &rot, (215, 175, 140)); // Paddler
-                self.draw_model_box(ox + 8, oy, oz, 0, -28, -6, 2, 26, 2, &rot, (140, 110, 70)); // Oar
+                self.draw_model_box(ox + 8, oy, oz, 0, -28, -6, 2, 26, 2, &rot, (140, 110, 70));
+                // Oar
             }
             RiverObstacleType::Swimmer => {
                 // Swimmer with swim cap and splashing arms
                 let bob = if (frame / 6) % 2 == 0 { 2 } else { -2 };
-                self.draw_model_box(ox, oy + bob, oz, -8, -8, -10, 16, 8, 20, &rot, (220, 180, 140));
-                self.draw_model_box(ox, oy + bob, oz, -6, -12, 0, 12, 6, 8, &rot, (240, 220, 40)); // Cap
+                self.draw_model_box(
+                    ox,
+                    oy + bob,
+                    oz,
+                    -8,
+                    -8,
+                    -10,
+                    16,
+                    8,
+                    20,
+                    &rot,
+                    (220, 180, 140),
+                );
+                self.draw_model_box(ox, oy + bob, oz, -6, -12, 0, 12, 6, 8, &rot, (240, 220, 40));
+                // Cap
             }
             RiverObstacleType::Koala => {
                 // Fuzzy koala clinging to eucalyptus tree on bank
                 self.draw_model_box(ox, oy, oz, -8, -26, -8, 16, 26, 16, &rot, (120, 70, 40)); // Trunk
-                self.draw_model_box(ox + 6, oy, oz, 0, -22, -6, 12, 14, 12, &rot, (160, 160, 165)); // Koala
-                self.draw_model_box(ox + 8, oy, oz, 4, -24, 2, 6, 6, 6, &rot, (30, 30, 30)); // Nose
+                self.draw_model_box(
+                    ox + 6,
+                    oy,
+                    oz,
+                    0,
+                    -22,
+                    -6,
+                    12,
+                    14,
+                    12,
+                    &rot,
+                    (160, 160, 165),
+                ); // Koala
+                self.draw_model_box(ox + 8, oy, oz, 4, -24, 2, 6, 6, 6, &rot, (30, 30, 30));
+                // Nose
             }
         }
     }
@@ -2187,30 +3085,151 @@ impl Renderer {
         match v.kind {
             VehicleType::Taxi => {
                 // Melbourne Yellow Taxi
-                self.draw_model_box(vx, vy, vz, -12, -12, -half_len, 24, 12, len, &rot, (245, 210, 20));
-                self.draw_model_box(vx, vy, vz, -10, -18, -half_len + 8, 20, 6, len - 16, &rot, (40, 60, 80)); // Cabin
-                self.draw_model_box(vx, vy, vz, -4, -22, -4, 8, 4, 8, &rot, (255, 255, 255)); // Taxi roof sign
+                self.draw_model_box(
+                    vx,
+                    vy,
+                    vz,
+                    -12,
+                    -12,
+                    -half_len,
+                    24,
+                    12,
+                    len,
+                    &rot,
+                    (245, 210, 20),
+                );
+                self.draw_model_box(
+                    vx,
+                    vy,
+                    vz,
+                    -10,
+                    -18,
+                    -half_len + 8,
+                    20,
+                    6,
+                    len - 16,
+                    &rot,
+                    (40, 60, 80),
+                ); // Cabin
+                self.draw_model_box(vx, vy, vz, -4, -22, -4, 8, 4, 8, &rot, (255, 255, 255));
+                // Taxi roof sign
             }
             VehicleType::Sedan => {
                 // Blue/Gray Sedan
                 self.draw_model_box(vx, vy, vz, -12, -12, -half_len, 24, 12, len, &rot, v.color);
-                self.draw_model_box(vx, vy, vz, -10, -18, -half_len + 6, 20, 6, len - 12, &rot, (50, 70, 90));
+                self.draw_model_box(
+                    vx,
+                    vy,
+                    vz,
+                    -10,
+                    -18,
+                    -half_len + 6,
+                    20,
+                    6,
+                    len - 12,
+                    &rot,
+                    (50, 70, 90),
+                );
             }
             VehicleType::Tram => {
                 // Classic Green & Gold Melbourne W-Class Tram
-                self.draw_model_box(vx, vy, vz, -14, -24, -half_len, 28, 24, len, &rot, (30, 150, 65));
-                self.draw_model_box(vx, vy, vz, -15, -12, -half_len, 30, 4, len, &rot, (220, 185, 45)); // Gold stripe
-                self.draw_model_box(vx, vy, vz, -13, -20, -half_len + 6, 26, 8, len - 12, &rot, (240, 240, 210)); // Windows
+                self.draw_model_box(
+                    vx,
+                    vy,
+                    vz,
+                    -14,
+                    -24,
+                    -half_len,
+                    28,
+                    24,
+                    len,
+                    &rot,
+                    (30, 150, 65),
+                );
+                self.draw_model_box(
+                    vx,
+                    vy,
+                    vz,
+                    -15,
+                    -12,
+                    -half_len,
+                    30,
+                    4,
+                    len,
+                    &rot,
+                    (220, 185, 45),
+                ); // Gold stripe
+                self.draw_model_box(
+                    vx,
+                    vy,
+                    vz,
+                    -13,
+                    -20,
+                    -half_len + 6,
+                    26,
+                    8,
+                    len - 12,
+                    &rot,
+                    (240, 240, 210),
+                ); // Windows
             }
             VehicleType::Truck => {
                 // Red Semi-Trailer Freight Truck
-                self.draw_model_box(vx, vy, vz, -15, -28, -half_len, 30, 28, len - 18, &rot, (200, 205, 215)); // Cargo container
-                self.draw_model_box(vx, vy, vz, -14, -22, half_len - 18, 28, 22, 18, &rot, (220, 45, 40)); // Red cab
+                self.draw_model_box(
+                    vx,
+                    vy,
+                    vz,
+                    -15,
+                    -28,
+                    -half_len,
+                    30,
+                    28,
+                    len - 18,
+                    &rot,
+                    (200, 205, 215),
+                ); // Cargo container
+                self.draw_model_box(
+                    vx,
+                    vy,
+                    vz,
+                    -14,
+                    -22,
+                    half_len - 18,
+                    28,
+                    22,
+                    18,
+                    &rot,
+                    (220, 45, 40),
+                ); // Red cab
             }
             VehicleType::SportsCar => {
                 // Fast red sports speedster
-                self.draw_model_box(vx, vy, vz, -12, -8, -half_len, 24, 8, len, &rot, (235, 40, 40));
-                self.draw_model_box(vx, vy, vz, -10, -12, -half_len + 6, 20, 4, len - 12, &rot, (20, 20, 20));
+                self.draw_model_box(
+                    vx,
+                    vy,
+                    vz,
+                    -12,
+                    -8,
+                    -half_len,
+                    24,
+                    8,
+                    len,
+                    &rot,
+                    (235, 40, 40),
+                );
+                self.draw_model_box(
+                    vx,
+                    vy,
+                    vz,
+                    -10,
+                    -12,
+                    -half_len + 6,
+                    20,
+                    4,
+                    len - 12,
+                    &rot,
+                    (20, 20, 20),
+                );
             }
         }
 
@@ -2234,12 +3253,33 @@ impl Renderer {
             let py = p.y;
             let pz = p.z + p.d / 2;
             self.draw_model_box(px, py, pz, -2, -28, -2, 4, 28, 4, &rot, (200, 200, 200)); // Mast
-            // Canopy
-            self.draw_model_box_textured(px, py, pz, -18, -32, -18, 36, 6, 36, &rot, Some(TextureId::Parasol), (220, 220, 220)); // Striped parasol
+                                                                                           // Canopy
+            self.draw_model_box_textured(
+                px,
+                py,
+                pz,
+                -18,
+                -32,
+                -18,
+                36,
+                6,
+                36,
+                &rot,
+                Some(TextureId::Parasol),
+                (220, 220, 220),
+            ); // Striped parasol
             self.draw_model_box(px, py, pz, -12, -34, -12, 24, 4, 24, &rot, (255, 255, 255));
         } else {
             // Stepped sandstone cliff ledge
-            self.draw_box_3d_textured(p.x, p.z, p.w, -p.y, p.d, TextureId::RockCliff, (175, 145, 95));
+            self.draw_box_3d_textured(
+                p.x,
+                p.z,
+                p.w,
+                -p.y,
+                p.d,
+                TextureId::RockCliff,
+                (175, 145, 95),
+            );
         }
     }
 
@@ -2253,8 +3293,32 @@ impl Renderer {
         self.draw_model_box(cx, cy, cz, -10, -8, -8, 20, 8, 16, &rot, (220, 55, 35));
         // Twin snapping claws
         let claw_wiggle = if (frame / 4) % 2 == 0 { 2 } else { -2 };
-        self.draw_model_box(cx, cy, cz, -14, -10, 8 + claw_wiggle, 6, 6, 8, &rot, (240, 70, 45));
-        self.draw_model_box(cx, cy, cz, 8, -10, 8 - claw_wiggle, 6, 6, 8, &rot, (240, 70, 45));
+        self.draw_model_box(
+            cx,
+            cy,
+            cz,
+            -14,
+            -10,
+            8 + claw_wiggle,
+            6,
+            6,
+            8,
+            &rot,
+            (240, 70, 45),
+        );
+        self.draw_model_box(
+            cx,
+            cy,
+            cz,
+            8,
+            -10,
+            8 - claw_wiggle,
+            6,
+            6,
+            8,
+            &rot,
+            (240, 70, 45),
+        );
         // Googly stalk eyes
         self.draw_model_box(cx, cy, cz, -6, -12, 6, 3, 4, 3, &rot, (255, 255, 255));
         self.draw_model_box(cx, cy, cz, 3, -12, 6, 3, 4, 3, &rot, (255, 255, 255));
@@ -2294,8 +3358,33 @@ impl Renderer {
                 CollectibleType::CardboardBox => {
                     // Miniature Cardboard Box with caution tape
                     let rot = Mat3I16::rotate_y(((frame as u16) * 3) % 256);
-                    self.draw_model_box_textured(c.x, c.y - bob, c.z, -8, -12, -8, 16, 12, 16, &rot, Some(TextureId::Crate), (185, 145, 95));
-                    self.draw_model_box(c.x, c.y - bob, c.z, -9, -8, -9, 18, 3, 18, &rot, (240, 200, 40));
+                    self.draw_model_box_textured(
+                        c.x,
+                        c.y - bob,
+                        c.z,
+                        -8,
+                        -12,
+                        -8,
+                        16,
+                        12,
+                        16,
+                        &rot,
+                        Some(TextureId::Crate),
+                        (185, 145, 95),
+                    );
+                    self.draw_model_box(
+                        c.x,
+                        c.y - bob,
+                        c.z,
+                        -9,
+                        -8,
+                        -9,
+                        18,
+                        3,
+                        18,
+                        &rot,
+                        (240, 200, 40),
+                    );
                 }
             }
         }
@@ -2306,9 +3395,23 @@ impl Renderer {
             if !p.active {
                 continue;
             }
-            let proj = scene::project_vertex_scheduled(Vec3I16::new(p.x as i16, p.y as i16, p.z as i16));
-            if proj.sz > 20 && proj.sx >= 0 && proj.sx < SCREEN_W && proj.sy >= 0 && proj.sy < SCREEN_H {
-                gpu::draw_rect_flat(proj.sx, proj.sy, p.size as u16, p.size as u16, p.color.0, p.color.1, p.color.2);
+            let proj =
+                scene::project_vertex_scheduled(Vec3I16::new(p.x as i16, p.y as i16, p.z as i16));
+            if proj.sz > 20
+                && proj.sx >= 0
+                && proj.sx < SCREEN_W
+                && proj.sy >= 0
+                && proj.sy < SCREEN_H
+            {
+                gpu::draw_rect_flat(
+                    proj.sx,
+                    proj.sy,
+                    p.size as u16,
+                    p.size as u16,
+                    p.color.0,
+                    p.color.1,
+                    p.color.2,
+                );
             }
         }
     }
@@ -2333,14 +3436,22 @@ impl Renderer {
             }
         }
 
-        if platty.y > 0 || platty.state == PlayerState::Swimming || platty.state == PlayerState::Submerged {
+        if platty.y > 0
+            || platty.state == PlayerState::Swimming
+            || platty.state == PlayerState::Submerged
+        {
             self.font.draw_text(14, 26, "O2", (70, 210, 255));
             gpu::draw_rect_flat(40, 27, 60, 7, 20, 35, 55);
             let o2_w = (platty.air as u32 * 58 / 100) as u16;
-            let o2_col = if platty.air < 30 { (255, 60, 50) } else { (80, 220, 255) };
+            let o2_col = if platty.air < 30 {
+                (255, 60, 50)
+            } else {
+                (80, 220, 255)
+            };
             gpu::draw_rect_flat(41, 28, o2_w, 5, o2_col.0, o2_col.1, o2_col.2);
         } else {
-            self.font.draw_text(14, 26, level.act.stage_label(), (240, 210, 100));
+            self.font
+                .draw_text(14, 26, level.act.stage_label(), (240, 210, 100));
         }
 
         // TOP-CENTER: SCORE & YABBIES COUNTER (x: 114, y: 8, w: 96, h: 36)
@@ -2406,13 +3517,22 @@ impl Renderer {
                 self.font.draw_text(224, 12, "YARRA RUN", (100, 255, 140));
                 let dist_pct = ((platty.z * 100) / (22 * TILE_SZ)).min(100);
                 gpu::draw_rect_flat(224, 28, 80, 6, 20, 45, 25);
-                gpu::draw_rect_flat(225, 29, (dist_pct as u32 * 78 / 100) as u16, 4, 80, 230, 120);
+                gpu::draw_rect_flat(
+                    225,
+                    29,
+                    (dist_pct as u32 * 78 / 100) as u16,
+                    4,
+                    80,
+                    230,
+                    120,
+                );
             }
             Act::Act2_2Mangroves => {
                 gpu::draw_rect_flat(218, 8, 94, 36, 10, 26, 20);
                 gpu::draw_rect_flat(220, 10, 90, 32, 4, 14, 10);
                 self.font.draw_text(224, 12, "MANGROVES", (80, 240, 180));
-                self.font.draw_text(224, 26, "SONAR TO NAV", (120, 220, 255));
+                self.font
+                    .draw_text(224, 26, "SONAR TO NAV", (120, 220, 255));
             }
             Act::Act2_3JetSkiBoss => {
                 self.draw_jetski_boss_hud(&entities.boss_jetski);
@@ -2424,7 +3544,15 @@ impl Renderer {
                 self.font.draw_text(224, 12, "MELBOURNE", (255, 220, 80));
                 let progress = ((22 * TILE_SZ - platty.z) * 100 / (20 * TILE_SZ)).clamp(0, 100);
                 gpu::draw_rect_flat(224, 28, 80, 6, 45, 25, 20);
-                gpu::draw_rect_flat(225, 29, (progress as u32 * 78 / 100) as u16, 4, 255, 180, 40);
+                gpu::draw_rect_flat(
+                    225,
+                    29,
+                    (progress as u32 * 78 / 100) as u16,
+                    4,
+                    255,
+                    180,
+                    40,
+                );
             }
             Act::Act3_3SniperBoss => {
                 self.draw_sniper_boss_hud(&entities.boss_sniper);
@@ -2454,7 +3582,13 @@ impl Renderer {
         self.draw_context_prompt(platty, entities, level, frame);
     }
 
-    fn draw_context_prompt(&self, platty: &Platypus, entities: &EntityManager, level: &Level, frame: u8) {
+    fn draw_context_prompt(
+        &self,
+        platty: &Platypus,
+        entities: &EntityManager,
+        level: &Level,
+        frame: u8,
+    ) {
         let mut prompt: Option<&'static str> = None;
 
         let gx = (platty.x / TILE_SZ).clamp(0, (GRID_W - 1) as i32) as usize;
@@ -2468,7 +3602,9 @@ impl Renderer {
         let fwd_cell = level.get_cell(fgx, fgz);
 
         // 1. Air duct / crawl vent
-        if (curr_cell == CellType::AirDuct || fwd_cell == CellType::AirDuct) && platty.state != PlayerState::BellyCrawl {
+        if (curr_cell == CellType::AirDuct || fwd_cell == CellType::AirDuct)
+            && platty.state != PlayerState::BellyCrawl
+        {
             prompt = Some("CIRCLE: CRAWL INTO VENT");
         } else if fwd_cell == CellType::LaserTripwire && platty.state != PlayerState::BellyCrawl {
             // 2. Laser tripwire crawl under
@@ -2496,7 +3632,14 @@ impl Renderer {
             }
 
             // 6. Cardboard Box disguise near guards
-            if prompt.is_none() && platty.has_box && !platty.in_box && matches!(platty.state, PlayerState::Standing | PlayerState::Sneaking | PlayerState::Running) {
+            if prompt.is_none()
+                && platty.has_box
+                && !platty.in_box
+                && matches!(
+                    platty.state,
+                    PlayerState::Standing | PlayerState::Sneaking | PlayerState::Running
+                )
+            {
                 for s in entities.sentries.iter() {
                     if !s.active || s.stun_timer > 0 {
                         continue;
@@ -2519,8 +3662,24 @@ impl Renderer {
 
             let border_col = (20, 60, 48);
             let bg_col = (6, 18, 14);
-            gpu::draw_rect_flat(bx, by, bw as u16, 16, border_col.0, border_col.1, border_col.2);
-            gpu::draw_rect_flat(bx + 1, by + 1, (bw - 2) as u16, 14, bg_col.0, bg_col.1, bg_col.2);
+            gpu::draw_rect_flat(
+                bx,
+                by,
+                bw as u16,
+                16,
+                border_col.0,
+                border_col.1,
+                border_col.2,
+            );
+            gpu::draw_rect_flat(
+                bx + 1,
+                by + 1,
+                (bw - 2) as u16,
+                14,
+                bg_col.0,
+                bg_col.1,
+                bg_col.2,
+            );
 
             let txt_col = if (frame / 8) % 2 == 0 {
                 (255, 235, 80)
@@ -2531,7 +3690,13 @@ impl Renderer {
         }
     }
 
-    fn draw_soliton_radar(&self, platty: &Platypus, entities: &EntityManager, level: &Level, frame: u8) {
+    fn draw_soliton_radar(
+        &self,
+        platty: &Platypus,
+        entities: &EntityManager,
+        level: &Level,
+        frame: u8,
+    ) {
         let rx: i16 = 236;
         let ry: i16 = 8;
         let rw: u16 = 76;
@@ -2566,7 +3731,8 @@ impl Renderer {
             let min_y = ry + 5;
             let max_y = ry + rh as i16 - 6;
 
-            let is_outside = target_x < min_x || target_x > max_x || target_y < min_y || target_y > max_y;
+            let is_outside =
+                target_x < min_x || target_x > max_x || target_y < min_y || target_y > max_y;
 
             let (mx, my) = if is_outside {
                 // Project vector to radar boundary
@@ -2604,7 +3770,15 @@ impl Renderer {
         gpu::draw_rect_flat(center_x - 2, center_y - 2, 4, 4, 255, 255, 255);
         let fwd_dx = ((sin_1_3_12(platty.angle) as i32 * 6) >> 12) as i16;
         let fwd_dz = ((cos_1_3_12(platty.angle) as i32 * 6) >> 12) as i16;
-        gpu::draw_line_mono(center_x, center_y, center_x + fwd_dx, center_y + fwd_dz, 255, 255, 255);
+        gpu::draw_line_mono(
+            center_x,
+            center_y,
+            center_x + fwd_dx,
+            center_y + fwd_dz,
+            255,
+            255,
+            255,
+        );
 
         // Sentry red dots and vision wedges
         for s in entities.sentries.iter() {
@@ -2664,8 +3838,8 @@ impl Renderer {
         // Animated Platty emblem box
         gpu::draw_rect_flat(120, 68, 80, 46, 20, 45, 35);
         gpu::draw_rect_flat(122, 70, 76, 42, 120, 75, 40); // Fur
-        gpu::draw_rect_flat(155, 78, 35, 14, 65, 62, 60);  // Duck bill
-        gpu::draw_rect_flat(115, 68, 90, 8, 30, 210, 75);   // Green bandana
+        gpu::draw_rect_flat(155, 78, 35, 14, 65, 62, 60); // Duck bill
+        gpu::draw_rect_flat(115, 68, 90, 8, 30, 210, 75); // Green bandana
 
         let has_save = save_data.unlocked_act > 0;
         let act = Act::from_u8(save_data.unlocked_act);
@@ -2682,21 +3856,74 @@ impl Renderer {
             // while Continue loads the final boss.
             let is_completed = save_data.unlocked_act >= crate::save::CAMPAIGN_ACT_COUNT;
             let (cont_text, new_text, vr_text, opt_text) = match self.language {
-                1 => (if is_completed { "SELECTION ETAPES" } else { "CONTINUER" }, "NOUVELLE CAMPAGNE", "SIMULATEUR ENTRAINEMENT VR", "OPTIONS ET EQUIPEMENT"),
-                2 => (if is_completed { "STAGE-AUSWAHL" } else { "FORTSETZEN" }, "NEUE KAMPAGNE", "VR-TRAININGSSIMULATOR", "OPTIONEN UND AUSRUESTUNG"),
-                3 => (if is_completed { "SELECCION ETAPA" } else { "CONTINUAR" }, "NUEVA CAMPANA", "SIMULADOR ENTRENAMIENTO VR", "OPCIONES Y EQUIPO"),
-                4 => (if is_completed { "STAGE SELECT" } else { "SAIKAI" }, "SHINKI SAKUSEN", "VR KUNREN SIMULATOR", "TOKUSHU SOUBI (OPTIONS)"),
-                _ => (if is_completed { "STAGE SELECT" } else { "CONTINUE" }, "NEW CAMPAIGN", "VR TRAINING SIMULATOR", "SPECIAL OPTIONS & GEAR"),
+                1 => (
+                    if is_completed {
+                        "SELECTION ETAPES"
+                    } else {
+                        "CONTINUER"
+                    },
+                    "NOUVELLE CAMPAGNE",
+                    "SIMULATEUR ENTRAINEMENT VR",
+                    "OPTIONS ET EQUIPEMENT",
+                ),
+                2 => (
+                    if is_completed {
+                        "STAGE-AUSWAHL"
+                    } else {
+                        "FORTSETZEN"
+                    },
+                    "NEUE KAMPAGNE",
+                    "VR-TRAININGSSIMULATOR",
+                    "OPTIONEN UND AUSRUESTUNG",
+                ),
+                3 => (
+                    if is_completed {
+                        "SELECCION ETAPA"
+                    } else {
+                        "CONTINUAR"
+                    },
+                    "NUEVA CAMPANA",
+                    "SIMULADOR ENTRENAMIENTO VR",
+                    "OPCIONES Y EQUIPO",
+                ),
+                4 => (
+                    if is_completed {
+                        "STAGE SELECT"
+                    } else {
+                        "SAIKAI"
+                    },
+                    "SHINKI SAKUSEN",
+                    "VR KUNREN SIMULATOR",
+                    "TOKUSHU SOUBI (OPTIONS)",
+                ),
+                _ => (
+                    if is_completed {
+                        "STAGE SELECT"
+                    } else {
+                        "CONTINUE"
+                    },
+                    "NEW CAMPAIGN",
+                    "VR TRAINING SIMULATOR",
+                    "SPECIAL OPTIONS & GEAR",
+                ),
             };
 
             let menu_items = [cont_text, new_text, vr_text, opt_text];
-            let active_stage_label = if is_completed { "[ALL OPEN]" } else { stage_label };
+            let active_stage_label = if is_completed {
+                "[ALL OPEN]"
+            } else {
+                stage_label
+            };
 
             for (i, label) in menu_items.iter().enumerate() {
                 let y = 126 + (i as i16 * 21);
                 if i == selected_menu {
                     gpu::draw_rect_flat(46, y - 3, 228, 17, 25, 75, 50);
-                    let pulse = if (frame / 12) % 2 == 0 { (255, 240, 100) } else { (180, 255, 140) };
+                    let pulse = if (frame / 12) % 2 == 0 {
+                        (255, 240, 100)
+                    } else {
+                        (180, 255, 140)
+                    };
                     self.font.draw_text(50, y, ">", pulse);
                     self.draw_text_clamped(62, y, label, (255, 255, 255));
                     if i == 0 {
@@ -2746,7 +3973,11 @@ impl Renderer {
                 let y = 136 + (i as i16 * 20);
                 if i == selected_menu {
                     gpu::draw_rect_flat(52, y - 3, 216, 16, 25, 75, 50);
-                    let pulse = if (frame / 12) % 2 == 0 { (255, 240, 100) } else { (180, 255, 140) };
+                    let pulse = if (frame / 12) % 2 == 0 {
+                        (255, 240, 100)
+                    } else {
+                        (180, 255, 140)
+                    };
                     self.font.draw_text(56, y, ">", pulse);
                     self.draw_text_clamped(70, y, label, (255, 255, 255));
                 } else {
@@ -2787,7 +4018,10 @@ impl Renderer {
             ("VR-01: SNEAKING BASICS", "INFILTRATE EXIT PAD UNDETECTED"),
             ("VR-02: VENOM SPUR CQC", "NEUTRALIZE 3 SENTRIES WITH CQC"),
             ("VR-03: ELECTRO-SONAR", "PITCH-BLACK RECON USING SONAR"),
-            ("VR-04: RAPID SPEED HURDLES", "SPRINT ELEVATED BRIDGE TO EXIT"),
+            (
+                "VR-04: RAPID SPEED HURDLES",
+                "SPRINT ELEVATED BRIDGE TO EXIT",
+            ),
         ];
 
         for i in 0..4 {
@@ -2804,10 +4038,18 @@ impl Renderer {
                 gpu::draw_rect_flat(22, y + 2, 276, 26, 6, 12, 20);
             }
 
-            let name_col = if is_sel { (255, 255, 255) } else { (160, 190, 200) };
+            let name_col = if is_sel {
+                (255, 255, 255)
+            } else {
+                (160, 190, 200)
+            };
             self.draw_text_clamped(38, y + 5, vr_names[i].0, name_col);
 
-            let sub_col = if is_sel { (140, 220, 180) } else { (100, 130, 140) };
+            let sub_col = if is_sel {
+                (140, 220, 180)
+            } else {
+                (100, 130, 140)
+            };
             self.draw_text_clamped(38, y + 17, vr_names[i].1, sub_col);
 
             if cleared {
@@ -2822,7 +4064,10 @@ impl Renderer {
         self.draw_text_clamped(28, 198, "CROSS: ENGAGE SIMULATION", (255, 230, 80));
         self.draw_text_clamped(28, 212, "CIRCLE: RETURN TO TITLE", (160, 180, 200));
 
-        let cleared_count = (vr_cleared & 1) + ((vr_cleared >> 1) & 1) + ((vr_cleared >> 2) & 1) + ((vr_cleared >> 3) & 1);
+        let cleared_count = (vr_cleared & 1)
+            + ((vr_cleared >> 1) & 1)
+            + ((vr_cleared >> 2) & 1)
+            + ((vr_cleared >> 3) & 1);
         if cleared_count == 4 {
             self.draw_text_clamped(188, 205, "ALL SIMS 100%!", (120, 255, 160));
         }
@@ -2858,7 +4103,11 @@ impl Renderer {
             _ => "SNEAKING SUIT",
         };
 
-        let wire_str = if save_data.wireframe_enabled != 0 { "< ENABLED >" } else { "< DISABLED >" };
+        let wire_str = if save_data.wireframe_enabled != 0 {
+            "< ENABLED >"
+        } else {
+            "< DISABLED >"
+        };
 
         let lang_str = match save_data.language {
             1 => "< FRANCAIS >",
@@ -2874,13 +4123,7 @@ impl Renderer {
             _ => "< AUTO (BIOS) >",
         };
 
-        let opt_values = [
-            costume_str,
-            wire_str,
-            lang_str,
-            video_str,
-            "",
-        ];
+        let opt_values = [costume_str, wire_str, lang_str, video_str, ""];
 
         for i in 0..5 {
             let y = 35 + (i as i16 * 26);
@@ -2891,7 +4134,16 @@ impl Renderer {
 
             let cursor = if is_sel { ">" } else { " " };
             self.font.draw_text(24, y + 5, cursor, (255, 235, 80));
-            self.draw_text_clamped(34, y + 5, opt_labels[i], if is_sel { (255, 255, 255) } else { (160, 180, 190) });
+            self.draw_text_clamped(
+                34,
+                y + 5,
+                opt_labels[i],
+                if is_sel {
+                    (255, 255, 255)
+                } else {
+                    (160, 180, 190)
+                },
+            );
 
             if i == 4 {
                 let off_y = save_data.screen_offset_y;
@@ -2922,7 +4174,9 @@ impl Renderer {
             crate::save::LoadOutcome::Loaded => (100, 255, 140),
             crate::save::LoadOutcome::NotFound => (150, 160, 170),
             crate::save::LoadOutcome::Incompatible => (255, 200, 100),
-            crate::save::LoadOutcome::Corrupt | crate::save::LoadOutcome::CardError => (255, 140, 140),
+            crate::save::LoadOutcome::Corrupt | crate::save::LoadOutcome::CardError => {
+                (255, 140, 140)
+            }
         };
         gpu::draw_rect_flat(20, 168, 280, 18, 10, 16, 26);
         self.draw_text_clamped(24, 172, "HARDWARE:", (140, 180, 220));
@@ -2941,12 +4195,22 @@ impl Renderer {
         gpu::draw_rect_flat(20, 188, 280, 48, 8, 12, 16);
         match selected_opt {
             0 => {
-                self.draw_text_clamped(26, 192, "Tuxedo: finish campaign. Camo: finish rank S.", (180, 200, 220));
+                self.draw_text_clamped(
+                    26,
+                    192,
+                    "Tuxedo: finish campaign. Camo: finish rank S.",
+                    (180, 200, 220),
+                );
                 self.draw_text_clamped(26, 205, "DPAD LEFT/RIGHT: Switch costume", (255, 230, 80));
             }
             1 => {
                 self.draw_text_clamped(26, 192, "Early 90s PS1 vector Plattypus.", (180, 200, 220));
-                self.draw_text_clamped(26, 205, "DPAD LEFT/RIGHT: Toggle Wireframe", (255, 230, 80));
+                self.draw_text_clamped(
+                    26,
+                    205,
+                    "DPAD LEFT/RIGHT: Toggle Wireframe",
+                    (255, 230, 80),
+                );
             }
             2 => {
                 self.draw_text_clamped(26, 192, "Choose the menu language.", (180, 200, 220));
@@ -2954,7 +4218,12 @@ impl Renderer {
             }
             3 => {
                 self.draw_text_clamped(26, 192, "Forced 60Hz NTSC or 50Hz PAL.", (180, 200, 220));
-                self.draw_text_clamped(26, 205, "DPAD LEFT/RIGHT: Toggle Video Mode", (255, 230, 80));
+                self.draw_text_clamped(
+                    26,
+                    205,
+                    "DPAD LEFT/RIGHT: Toggle Video Mode",
+                    (255, 230, 80),
+                );
             }
             _ => {
                 self.draw_text_clamped(26, 192, "Shift the picture vertically.", (180, 200, 220));
@@ -2999,7 +4268,11 @@ impl Renderer {
         // Header banner
         gpu::draw_rect_flat(20, 12, 280, 28, 18, 30, 42);
         gpu::draw_rect_flat(22, 14, 276, 24, 6, 12, 18);
-        self.draw_text_centered(20, "OPERATION DUCK-BILL : MISSION DEBRIEFING", (120, 255, 160));
+        self.draw_text_centered(
+            20,
+            "OPERATION DUCK-BILL : MISSION DEBRIEFING",
+            (120, 255, 160),
+        );
 
         // Stats card box
         gpu::draw_rect_flat(20, 46, 280, 92, 14, 22, 30);
@@ -3008,7 +4281,9 @@ impl Renderer {
         // Time format MM:SS
         let mins = time_s / 60;
         let secs = time_s % 60;
-        let mut time_str = [b'T', b'I', b'M', b'E', b':', b' ', b'0', b'0', b':', b'0', b'0', 0];
+        let mut time_str = [
+            b'T', b'I', b'M', b'E', b':', b' ', b'0', b'0', b':', b'0', b'0', 0,
+        ];
         time_str[6] = ((mins / 10) % 10) as u8 + b'0';
         time_str[7] = (mins % 10) as u8 + b'0';
         time_str[9] = ((secs / 10) % 10) as u8 + b'0';
@@ -3018,7 +4293,10 @@ impl Renderer {
         }
 
         // Alerts count
-        let mut alert_str = [b'A', b'L', b'E', b'R', b'T', b' ', b'P', b'H', b'A', b'S', b'E', b'S', b':', b' ', b'0', b'0', 0];
+        let mut alert_str = [
+            b'A', b'L', b'E', b'R', b'T', b' ', b'P', b'H', b'A', b'S', b'E', b'S', b':', b' ',
+            b'0', b'0', 0,
+        ];
         alert_str[14] = ((alerts / 10) % 10) as u8 + b'0';
         alert_str[15] = (alerts % 10) as u8 + b'0';
         if let Ok(st) = core::str::from_utf8(&alert_str[..16]) {
@@ -3026,7 +4304,10 @@ impl Renderer {
         }
 
         // Takedowns count
-        let mut cqc_str = [b'C', b'Q', b'C', b' ', b'T', b'A', b'K', b'E', b'D', b'O', b'W', b'N', b'S', b':', b' ', b'0', b'0', 0];
+        let mut cqc_str = [
+            b'C', b'Q', b'C', b' ', b'T', b'A', b'K', b'E', b'D', b'O', b'W', b'N', b'S', b':',
+            b' ', b'0', b'0', 0,
+        ];
         cqc_str[15] = ((takedowns / 10) % 10) as u8 + b'0';
         cqc_str[16] = (takedowns % 10) as u8 + b'0';
         if let Ok(st) = core::str::from_utf8(&cqc_str[..17]) {
@@ -3034,7 +4315,10 @@ impl Renderer {
         }
 
         // Damage Sustained
-        let mut dmg_str = [b'D', b'A', b'M', b'A', b'G', b'E', b' ', b'T', b'A', b'K', b'E', b'N', b':', b' ', b'0', b'0', b' ', b'H', b'P', 0];
+        let mut dmg_str = [
+            b'D', b'A', b'M', b'A', b'G', b'E', b' ', b'T', b'A', b'K', b'E', b'N', b':', b' ',
+            b'0', b'0', b' ', b'H', b'P', 0,
+        ];
         dmg_str[14] = ((damage / 10) % 10) as u8 + b'0';
         dmg_str[15] = (damage % 10) as u8 + b'0';
         if let Ok(st) = core::str::from_utf8(&dmg_str[..19]) {
@@ -3042,7 +4326,10 @@ impl Renderer {
         }
 
         // Yabbies
-        let mut yab_str = [b'Y', b'A', b'B', b'B', b'I', b'E', b'S', b' ', b'C', b'A', b'C', b'H', b'E', b':', b' ', b'x', b'0', b'0', 0];
+        let mut yab_str = [
+            b'Y', b'A', b'B', b'B', b'I', b'E', b'S', b' ', b'C', b'A', b'C', b'H', b'E', b':',
+            b' ', b'x', b'0', b'0', 0,
+        ];
         yab_str[16] = ((yabbies / 10) % 10) as u8 + b'0';
         yab_str[17] = (yabbies % 10) as u8 + b'0';
         if let Ok(st) = core::str::from_utf8(&yab_str[..18]) {
@@ -3084,7 +4371,12 @@ impl Renderer {
 
         // Header bar in card
         gpu::draw_rect_flat(card_x + 4, card_y + 4, card_w - 8, 16, 14, 40, 30);
-        self.draw_text_clamped(card_x + 24, card_y + 8, "TACTICAL INFILTRATION REPORT", (140, 240, 200));
+        self.draw_text_clamped(
+            card_x + 24,
+            card_y + 8,
+            "TACTICAL INFILTRATION REPORT",
+            (140, 240, 200),
+        );
 
         // 1. Stage Time: MM:SS
         let mins = (time_s / 60).min(99);
@@ -3095,7 +4387,8 @@ impl Renderer {
         time_buf[22] = ((secs / 10) % 10) as u8 + b'0';
         time_buf[23] = (secs % 10) as u8 + b'0';
         if let Ok(st) = core::str::from_utf8(&time_buf) {
-            self.font.draw_text(card_x + 16, card_y + 28, st, (240, 240, 240));
+            self.font
+                .draw_text(card_x + 16, card_y + 28, st, (240, 240, 240));
         }
 
         // 2. Alerts Triggered
@@ -3104,7 +4397,11 @@ impl Renderer {
         alert_buf[19] = ((a_clamped / 100) % 10) as u8 + b'0';
         alert_buf[20] = ((a_clamped / 10) % 10) as u8 + b'0';
         alert_buf[21] = (a_clamped % 10) as u8 + b'0';
-        let alert_col = if alerts == 0 { (100, 255, 140) } else { (255, 120, 100) };
+        let alert_col = if alerts == 0 {
+            (100, 255, 140)
+        } else {
+            (255, 120, 100)
+        };
         if let Ok(st) = core::str::from_utf8(&alert_buf) {
             self.font.draw_text(card_x + 16, card_y + 46, st, alert_col);
         }
@@ -3116,7 +4413,8 @@ impl Renderer {
         take_buf[20] = ((t_clamped / 10) % 10) as u8 + b'0';
         take_buf[21] = (t_clamped % 10) as u8 + b'0';
         if let Ok(st) = core::str::from_utf8(&take_buf) {
-            self.font.draw_text(card_x + 16, card_y + 64, st, (255, 230, 80));
+            self.font
+                .draw_text(card_x + 16, card_y + 64, st, (255, 230, 80));
         }
 
         // 4. Yabbies Recovered
@@ -3124,7 +4422,8 @@ impl Renderer {
         yab_buf[20] = ((yabbies / 10) % 10) as u8 + b'0';
         yab_buf[21] = (yabbies % 10) as u8 + b'0';
         if let Ok(st) = core::str::from_utf8(&yab_buf) {
-            self.font.draw_text(card_x + 16, card_y + 82, st, (120, 210, 255));
+            self.font
+                .draw_text(card_x + 16, card_y + 82, st, (120, 210, 255));
         }
 
         // 5. Total Score
@@ -3135,7 +4434,8 @@ impl Renderer {
             s /= 10;
         }
         if let Ok(st) = core::str::from_utf8(&sc_buf) {
-            self.font.draw_text(card_x + 16, card_y + 100, st, (255, 255, 255));
+            self.font
+                .draw_text(card_x + 16, card_y + 100, st, (255, 255, 255));
         }
 
         self.draw_text_centered(204, "PRESS CROSS FOR NEXT ACT BRIEFING", (255, 255, 255));
@@ -3159,7 +4459,7 @@ impl Renderer {
         // Platty (big brother)
         gpu::draw_rect_flat(80, 118, 48, 28, 145, 95, 48);
         gpu::draw_rect_flat(120, 126, 26, 12, 65, 62, 60); // Bill
-        gpu::draw_rect_flat(75, 118, 56, 6, 30, 210, 75);  // Green bandana
+        gpu::draw_rect_flat(75, 118, 56, 6, 30, 210, 75); // Green bandana
 
         // Baby sister Pip (little golden-brown hatchling platypus!)
         let pip_bounce = if (frame / 12) % 2 == 0 { 2 } else { 0 };
@@ -3293,7 +4593,10 @@ impl Renderer {
 
     /// Render a right-space-padded fixed record buffer as text.
     fn record_str(buf: &[u8; 20]) -> &str {
-        let end = buf.iter().rposition(|c| *c != b' ' && *c != 0).map_or(0, |i| i + 1);
+        let end = buf
+            .iter()
+            .rposition(|c| *c != b' ' && *c != 0)
+            .map_or(0, |i| i + 1);
         core::str::from_utf8(&buf[..end]).unwrap_or("")
     }
 
@@ -3360,15 +4663,38 @@ impl Renderer {
                 let border_col = if is_boss { (220, 70, 70) } else { (25, 80, 60) };
                 let bg_col = if is_boss { (70, 20, 20) } else { (12, 40, 30) };
                 gpu::draw_rect_flat(col_x, row_y, w, h, border_col.0, border_col.1, border_col.2);
-                gpu::draw_rect_flat(col_x + 1, row_y + 1, w - 2, h - 2, bg_col.0, bg_col.1, bg_col.2);
-                self.font.draw_text(col_x + 4, row_y + 5, ">", (255, 235, 80));
+                gpu::draw_rect_flat(
+                    col_x + 1,
+                    row_y + 1,
+                    w - 2,
+                    h - 2,
+                    bg_col.0,
+                    bg_col.1,
+                    bg_col.2,
+                );
+                self.font
+                    .draw_text(col_x + 4, row_y + 5, ">", (255, 235, 80));
                 self.draw_text_clamped(col_x + 14, row_y + 5, stage_names[i], (255, 255, 255));
             } else {
                 let border_col = if is_boss { (100, 30, 30) } else { (12, 35, 25) };
                 let bg_col = if is_boss { (30, 10, 10) } else { (6, 18, 14) };
                 gpu::draw_rect_flat(col_x, row_y, w, h, border_col.0, border_col.1, border_col.2);
-                gpu::draw_rect_flat(col_x + 1, row_y + 1, w - 2, h - 2, bg_col.0, bg_col.1, bg_col.2);
-                let text_col = if sealed { (90, 100, 105) } else if is_boss { (255, 140, 140) } else { (160, 190, 180) };
+                gpu::draw_rect_flat(
+                    col_x + 1,
+                    row_y + 1,
+                    w - 2,
+                    h - 2,
+                    bg_col.0,
+                    bg_col.1,
+                    bg_col.2,
+                );
+                let text_col = if sealed {
+                    (90, 100, 105)
+                } else if is_boss {
+                    (255, 140, 140)
+                } else {
+                    (160, 190, 180)
+                };
                 self.draw_text_clamped(col_x + 12, row_y + 5, stage_names[i], text_col);
             }
 

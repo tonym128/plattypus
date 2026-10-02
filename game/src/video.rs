@@ -53,13 +53,11 @@ use core::ptr::addr_of_mut;
 
 use psx_fmv::{bs, mdec, str as strfmt};
 use psx_io::dma;
-use psx_pad::{button, ButtonState, PadState};
 use psx_pack::cd::{SectorReader, SECTOR_WORDS};
+use psx_pad::{button, ButtonState, PadState};
 
 use crate::audio::AudioManager;
-use psx_vram::{VramRect, dma_copy_to_vram, upload_words};
-
-
+use psx_vram::{dma_copy_to_vram, upload_words, VramRect};
 
 pub const VIDEO_W: u16 = 320;
 pub const VIDEO_H: u16 = 240;
@@ -203,7 +201,6 @@ pub struct VideoPlayer {
     wait_started_vblank: u32,
     /// Set by the EOF marker; ends the movie.
     pub eof: bool,
-
 }
 
 impl VideoPlayer {
@@ -297,7 +294,8 @@ impl VideoPlayer {
         if prepared {
             psx_rt::tty::println("[VIDEO] CD reader prepare OK (1x XA)");
             // SAFETY: as above.
-            if let Some(lba) = unsafe { Self::find_movie_lba(filename, &mut self.cd_reader, storage) }
+            if let Some(lba) =
+                unsafe { Self::find_movie_lba(filename, &mut self.cd_reader, storage) }
             {
                 self.cd_start_lba = lba;
                 self.next_lba = lba;
@@ -362,7 +360,6 @@ impl VideoPlayer {
         Some(slot)
     }
 
-
     /// Locate a movie in the ISO 9660 root directory (extent 20).
     ///
     /// # Safety
@@ -388,9 +385,8 @@ impl VideoPlayer {
             }
         }
 
-        let bytes: &[u8] = unsafe {
-            core::slice::from_raw_parts(storage.sector.as_ptr() as *const u8, 2048)
-        };
+        let bytes: &[u8] =
+            unsafe { core::slice::from_raw_parts(storage.sector.as_ptr() as *const u8, 2048) };
 
         let mut off = 0usize;
         while off < bytes.len() {
@@ -665,9 +661,8 @@ impl VideoPlayer {
         // Schedule the next flip one period *minus one* before the target.
         // Waiting for the VBlank counter to increment consumed 1 VBlank, so
         // adding VBLANKS_PER_VIDEO_FRAME - 1 (3) flips exactly 4 VBlanks after this one.
-        self.next_flip_vblank = psx_rt::interrupts::vblank_count().wrapping_add(
-            VBLANKS_PER_VIDEO_FRAME - 1,
-        );
+        self.next_flip_vblank =
+            psx_rt::interrupts::vblank_count().wrapping_add(VBLANKS_PER_VIDEO_FRAME - 1);
 
         // 5. End of movie check: stream marked EOF (or stalled) and all queued frames presented.
         let drained = self.ready_len == 0 && popped_slot.is_none();
@@ -701,21 +696,15 @@ impl VideoPlayer {
         // are reading from is disjoint from `sector`, which the pump writes.
         let selfp: *mut VideoPlayer = self;
         let storp: *mut VideoStorage = storage;
-        let words = bs::decode_frame(
-            frame,
-            rle16,
-            COLUMNS as u32 * ROWS,
-            ROWS,
-            &mut || {
-                // SAFETY: single-threaded, and the two borrows are of
-                // disjoint fields reached through raw pointers.
-                unsafe {
-                    let before = (*selfp).pumped_sectors;
-                    (*selfp).pump(&mut *storp);
-                    (*selfp).overlapped_sectors += (*selfp).pumped_sectors - before;
-                }
-            },
-        );
+        let words = bs::decode_frame(frame, rle16, COLUMNS as u32 * ROWS, ROWS, &mut || {
+            // SAFETY: single-threaded, and the two borrows are of
+            // disjoint fields reached through raw pointers.
+            unsafe {
+                let before = (*selfp).pumped_sectors;
+                (*selfp).pump(&mut *storp);
+                (*selfp).overlapped_sectors += (*selfp).pumped_sectors - before;
+            }
+        });
 
         let words = match words {
             Ok(w) if w > 0 => w,

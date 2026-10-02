@@ -363,7 +363,8 @@ impl SectorReader {
         unsafe {
             match flag {
                 IRQ_DATA_READY => {
-                    let destination = if self.preserve_unexpected_data && !self.deferred_data_ready {
+                    let destination = if self.preserve_unexpected_data && !self.deferred_data_ready
+                    {
                         self.deferred_data_ready = true;
                         self.deferred_data.as_mut_ptr()
                     } else if self.preserve_unexpected_data && !self.deferred_data_next_ready {
@@ -442,7 +443,9 @@ impl SectorReader {
                     return false;
                 }
                 if !self.read_sector_into(deferred_ptr) {
-                    if self.deferred_data_next_ready && deferred_ptr == self.deferred_data_next.as_mut_ptr() {
+                    if self.deferred_data_next_ready
+                        && deferred_ptr == self.deferred_data_next.as_mut_ptr()
+                    {
                         self.deferred_data_next_ready = false;
                     } else {
                         self.deferred_data_ready = false;
@@ -780,7 +783,9 @@ impl SectorReader {
     /// Same contract as `read_sector`; a ReadN stream must be running.
     pub unsafe fn sector_pending(&mut self) -> bool {
         unsafe {
-            self.deferred_data_ready || self.deferred_data_next_ready || self.hardware_sector_pending()
+            self.deferred_data_ready
+                || self.deferred_data_next_ready
+                || self.hardware_sector_pending()
         }
     }
 
@@ -821,7 +826,9 @@ impl SectorReader {
                     return false;
                 }
                 if !self.read_sector_into(deferred_ptr) {
-                    if self.deferred_data_next_ready && deferred_ptr == self.deferred_data_next.as_mut_ptr() {
+                    if self.deferred_data_next_ready
+                        && deferred_ptr == self.deferred_data_next.as_mut_ptr()
+                    {
                         self.deferred_data_next_ready = false;
                     } else {
                         self.deferred_data_ready = false;
@@ -891,10 +898,7 @@ impl SectorReader {
     /// # Safety
     /// Same contract as [`read_sector`](Self::read_sector).
     #[allow(clippy::result_unit_err)]
-    pub unsafe fn try_read_sector(
-        &mut self,
-        buffer: &mut [u32; SECTOR_WORDS],
-    ) -> Result<bool, ()> {
+    pub unsafe fn try_read_sector(&mut self, buffer: &mut [u32; SECTOR_WORDS]) -> Result<bool, ()> {
         unsafe {
             let flag = self.irq_flag();
             if flag == IRQ_ERROR {
@@ -924,7 +928,8 @@ impl SectorReader {
     ///
     /// # Safety
     /// Same contract as [`prepare`](Self::prepare).
-    pub unsafe fn stop(&mut self) {        unsafe {
+    pub unsafe fn stop(&mut self) {
+        unsafe {
             let _ = self.pause_read();
             self.ack_all();
             self.deferred_data_ready = false;

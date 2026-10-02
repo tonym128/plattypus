@@ -336,7 +336,17 @@ impl Platypus {
                     self.trigger_rumble_large(8, 180);
                 }
                 if self.anim_frame % 8 == 0 {
-                    entities.spawn_particle(self.x, self.y, self.z, 0, -2, 0, 15, (180, 240, 255), 2);
+                    entities.spawn_particle(
+                        self.x,
+                        self.y,
+                        self.z,
+                        0,
+                        -2,
+                        0,
+                        15,
+                        (180, 240, 255),
+                        2,
+                    );
                 }
             } else {
                 self.state = PlayerState::Swimming;
@@ -437,7 +447,10 @@ impl Platypus {
                     2,
                 );
             }
-        } else if prev_buttons.is_held(button::TRIANGLE) && !buttons.is_held(button::TRIANGLE) && self.electro_timer == 0 {
+        } else if prev_buttons.is_held(button::TRIANGLE)
+            && !buttons.is_held(button::TRIANGLE)
+            && self.electro_timer == 0
+        {
             if self.electro_charge >= 10 {
                 // Discharge expanding electrical pulse wave (3 seconds wall-penetrating sonar!)
                 self.electro_timer = 180;
@@ -450,7 +463,17 @@ impl Platypus {
                     let ang = (i as u16) * 21;
                     let vx = (cos_1_3_12(ang) as i32 * 4) >> 12;
                     let vz = (sin_1_3_12(ang) as i32 * 4) >> 12;
-                    entities.spawn_particle(self.x, self.y - 8, self.z, vx as i16, 0, vz as i16, 24, (90, 240, 255), 3);
+                    entities.spawn_particle(
+                        self.x,
+                        self.y - 8,
+                        self.z,
+                        vx as i16,
+                        0,
+                        vz as i16,
+                        24,
+                        (90, 240, 255),
+                        3,
+                    );
                 }
 
                 // Stun nearby sentries & drones
@@ -474,7 +497,10 @@ impl Platypus {
                     }
                 }
                 for c in entities.collectibles.iter_mut() {
-                    if c.active && (c.kind == CollectibleType::BuriedYabby || c.kind == CollectibleType::StarYabby) {
+                    if c.active
+                        && (c.kind == CollectibleType::BuriedYabby
+                            || c.kind == CollectibleType::StarYabby)
+                    {
                         let dx = (self.x - c.x).abs();
                         let dz = (self.z - c.z).abs();
                         if dx < 160 && dz < 160 {
@@ -544,7 +570,17 @@ impl Platypus {
                         let ang = (i as u16) * 42;
                         let vx = (cos_1_3_12(ang) as i32 * 3) >> 12;
                         let vz = (sin_1_3_12(ang) as i32 * 3) >> 12;
-                        entities.spawn_particle(sx, sy, sz, vx as i16, -2, vz as i16, 25, (255, 230, 60), 3);
+                        entities.spawn_particle(
+                            sx,
+                            sy,
+                            sz,
+                            vx as i16,
+                            -2,
+                            vz as i16,
+                            25,
+                            (255, 230, 60),
+                            3,
+                        );
                     }
                 }
             }
@@ -608,7 +644,11 @@ impl Platypus {
             // Boss Act 2-3: Park Ranger Jet Ski Strike
             if level.act == Act::Act2_3JetSkiBoss {
                 let jetski = &mut entities.boss_jetski;
-                if jetski.active && jetski.is_stalled && !jetski.is_defeated() && jetski.hit_timer == 0 {
+                if jetski.active
+                    && jetski.is_stalled
+                    && !jetski.is_defeated()
+                    && jetski.hit_timer == 0
+                {
                     let dx = (self.x - jetski.x).abs();
                     let dz = (self.z - jetski.z).abs();
                     if dx < HITBOX_JETSKI_RADIUS && dz < HITBOX_JETSKI_RADIUS {
@@ -635,7 +675,11 @@ impl Platypus {
             // Boss Act 3-3: Sniper Kookaburra Strike
             if level.act == Act::Act3_3SniperBoss {
                 let sniper = &mut entities.boss_sniper;
-                if sniper.active && sniper.is_vulnerable && !sniper.is_defeated() && sniper.hit_timer == 0 {
+                if sniper.active
+                    && sniper.is_vulnerable
+                    && !sniper.is_defeated()
+                    && sniper.hit_timer == 0
+                {
                     let dx = (self.x - sniper.x).abs();
                     let dz = (self.z - sniper.z).abs();
                     if dx < HITBOX_SNIPER_RADIUS && dz < HITBOX_SNIPER_RADIUS {
@@ -680,9 +724,22 @@ impl Platypus {
                             self.trigger_rumble_large(26, 255);
                             AudioManager::play_hit();
                             AudioManager::play_alert();
-                            let (ex, ez) = (exc.x + EXCAVATOR_ENGINE_OFFSETS[engine].0, exc.z + EXCAVATOR_ENGINE_OFFSETS[engine].1);
+                            let (ex, ez) = (
+                                exc.x + EXCAVATOR_ENGINE_OFFSETS[engine].0,
+                                exc.z + EXCAVATOR_ENGINE_OFFSETS[engine].1,
+                            );
                             for _ in 0..5 {
-                                entities.spawn_particle(ex, -22, ez, 0, -3, 0, 26, (255, 150, 40), 4);
+                                entities.spawn_particle(
+                                    ex,
+                                    -22,
+                                    ez,
+                                    0,
+                                    -3,
+                                    0,
+                                    26,
+                                    (255, 150, 40),
+                                    4,
+                                );
                             }
                         } else {
                             self.score += SCORE_EXCAVATOR_HIT;
@@ -704,17 +761,39 @@ impl Platypus {
                                 self.trigger_rumble_large(24, 255);
                                 AudioManager::play_metal();
                                 for _ in 0..6 {
-                                    entities.spawn_particle(ex, -22, ez, 0, -3, 0, 26, (255, 180, 50), 4);
+                                    entities.spawn_particle(
+                                        ex,
+                                        -22,
+                                        ez,
+                                        0,
+                                        -3,
+                                        0,
+                                        26,
+                                        (255, 180, 50),
+                                        4,
+                                    );
                                 }
                             } else {
                                 exc.health = 0;
-                                exc.state = crate::entities::ExcavatorState::Defeated(crate::entities::EXCAVATOR_DEATH_FRAMES);
+                                exc.state = crate::entities::ExcavatorState::Defeated(
+                                    crate::entities::EXCAVATOR_DEATH_FRAMES,
+                                );
                                 self.score += SCORE_FINAL_BOSS_DEFEATED;
                                 self.screen_shake = 20;
                                 self.trigger_rumble_large(40, 255);
                                 AudioManager::play_fanfare();
                                 for _ in 0..12 {
-                                    entities.spawn_particle(ex, -22, ez, 0, -4, 0, 32, (255, 200, 60), 5);
+                                    entities.spawn_particle(
+                                        ex,
+                                        -22,
+                                        ez,
+                                        0,
+                                        -4,
+                                        0,
+                                        32,
+                                        (255, 200, 60),
+                                        5,
+                                    );
                                 }
                             }
                         }
@@ -759,7 +838,11 @@ impl Platypus {
                 let max_speed = if self.in_box || self.crawl_mode {
                     2
                 } else if in_water {
-                    if self.state == PlayerState::Submerged { 2 } else { 3 }
+                    if self.state == PlayerState::Submerged {
+                        2
+                    } else {
+                        3
+                    }
                 } else if !self.on_ground {
                     4
                 } else if mag < 65 {
@@ -843,7 +926,11 @@ impl Platypus {
             let speed = if self.in_box || self.crawl_mode {
                 2
             } else if in_water {
-                if self.state == PlayerState::Submerged { 2 } else { 3 }
+                if self.state == PlayerState::Submerged {
+                    2
+                } else {
+                    3
+                }
             } else if !self.on_ground {
                 4 // Air mobility
             } else {
@@ -855,17 +942,17 @@ impl Platypus {
 
                 // Facing angle: 0=South (+Z), 64=East (+X), 128=North (-Z), 192=West (-X)
                 if move_x > 0 && move_z == 0 {
-                    self.angle = 64;  // East
+                    self.angle = 64; // East
                 } else if move_x < 0 && move_z == 0 {
                     self.angle = 192; // West
                 } else if move_z > 0 && move_x == 0 {
-                    self.angle = 0;   // South
+                    self.angle = 0; // South
                 } else if move_z < 0 && move_x == 0 {
                     self.angle = 128; // North
                 } else if move_x > 0 && move_z > 0 {
-                    self.angle = 32;  // SE
+                    self.angle = 32; // SE
                 } else if move_x > 0 && move_z < 0 {
-                    self.angle = 96;  // NE
+                    self.angle = 96; // NE
                 } else if move_x < 0 && move_z > 0 {
                     self.angle = 224; // SW
                 } else if move_x < 0 && move_z < 0 {
@@ -1034,7 +1121,8 @@ impl Platypus {
                     if (dist - mech.shockwave_radius).abs() < 24 {
                         let gx = (self.x / TILE_SZ).clamp(0, 23) as usize;
                         let gz = (self.z / TILE_SZ).clamp(0, 23) as usize;
-                        let in_trench = level.get_cell(gx, gz) == CellType::AirDuct && self.crawl_mode;
+                        let in_trench =
+                            level.get_cell(gx, gz) == CellType::AirDuct && self.crawl_mode;
                         if self.on_ground && !in_trench {
                             self.take_damage(1);
                             self.vz = 8;
@@ -1089,13 +1177,17 @@ impl Platypus {
                                 self.vz = 4;
                             }
                         }
-                        RiverObstacleType::TreeLog | RiverObstacleType::TigerSnake | RiverObstacleType::GiantSpider => {
+                        RiverObstacleType::TreeLog
+                        | RiverObstacleType::TigerSnake
+                        | RiverObstacleType::GiantSpider => {
                             if self.on_ground {
                                 self.take_damage(1);
                                 self.vz = 4;
                             }
                         }
-                        RiverObstacleType::RiverTuber | RiverObstacleType::PaddleBoarder | RiverObstacleType::Swimmer => {
+                        RiverObstacleType::RiverTuber
+                        | RiverObstacleType::PaddleBoarder
+                        | RiverObstacleType::Swimmer => {
                             self.take_damage(1);
                             self.vz = 4;
                         }

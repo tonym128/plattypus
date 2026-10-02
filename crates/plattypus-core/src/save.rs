@@ -187,10 +187,7 @@ const _: () = {
 };
 
 pub const fn field_seed(index: u8) -> u16 {
-    (index as u16)
-        .wrapping_mul(0x9E37)
-        .wrapping_add(0x5A5A)
-        | 1
+    (index as u16).wrapping_mul(0x9E37).wrapping_add(0x5A5A) | 1
 }
 
 pub fn fold_field(mut h: u16, index: u8, bytes: &[u8]) -> u16 {
@@ -309,7 +306,9 @@ impl SaveData {
     }
 
     pub fn is_valid(&self) -> bool {
-        self.magic == SAVE_MAGIC && self.version == SAVE_VERSION && self.checksum == self.compute_checksum()
+        self.magic == SAVE_MAGIC
+            && self.version == SAVE_VERSION
+            && self.checksum == self.compute_checksum()
     }
 
     pub fn is_sane(&self) -> bool {
@@ -328,16 +327,19 @@ impl SaveData {
             && self.screen_offset_y <= SCREEN_OFFSET_LIMIT
     }
 
-
     pub fn to_bytes(&self) -> [u8; SERIALIZED_SIZE] {
         let mut buf = [0u8; SERIALIZED_SIZE];
         buf[OFF_MAGIC..OFF_MAGIC + 4].copy_from_slice(&self.magic);
         buf[OFF_VERSION] = self.version;
         buf[OFF_UNLOCKED_ACT] = self.unlocked_act;
-        buf[OFF_HIGHEST_SCORE..OFF_HIGHEST_SCORE + 4].copy_from_slice(&self.highest_score.to_le_bytes());
-        buf[OFF_TOTAL_YABBIES..OFF_TOTAL_YABBIES + 2].copy_from_slice(&self.total_yabbies.to_le_bytes());
-        buf[OFF_ALERTS_COUNT..OFF_ALERTS_COUNT + 2].copy_from_slice(&self.alerts_count.to_le_bytes());
-        buf[OFF_BEST_TIME..OFF_BEST_TIME + 4].copy_from_slice(&self.best_time_seconds.to_le_bytes());
+        buf[OFF_HIGHEST_SCORE..OFF_HIGHEST_SCORE + 4]
+            .copy_from_slice(&self.highest_score.to_le_bytes());
+        buf[OFF_TOTAL_YABBIES..OFF_TOTAL_YABBIES + 2]
+            .copy_from_slice(&self.total_yabbies.to_le_bytes());
+        buf[OFF_ALERTS_COUNT..OFF_ALERTS_COUNT + 2]
+            .copy_from_slice(&self.alerts_count.to_le_bytes());
+        buf[OFF_BEST_TIME..OFF_BEST_TIME + 4]
+            .copy_from_slice(&self.best_time_seconds.to_le_bytes());
         buf[OFF_BEST_CODENAME..OFF_BEST_CODENAME + 16].copy_from_slice(&self.best_codename);
         buf[OFF_TUXEDO] = self.tuxedo_unlocked;
         buf[OFF_CAMO] = self.camo_unlocked;
@@ -358,10 +360,23 @@ impl SaveData {
             return None;
         }
         let magic: [u8; 4] = payload[OFF_MAGIC..OFF_MAGIC + 4].try_into().ok()?;
-        let highest_score = u32::from_le_bytes(payload[OFF_HIGHEST_SCORE..OFF_HIGHEST_SCORE + 4].try_into().ok()?);
-        let total_yabbies = u16::from_le_bytes(payload[OFF_TOTAL_YABBIES..OFF_TOTAL_YABBIES + 2].try_into().ok()?);
-        let alerts_count = u16::from_le_bytes(payload[OFF_ALERTS_COUNT..OFF_ALERTS_COUNT + 2].try_into().ok()?);
-        let best_time_seconds = u32::from_le_bytes(payload[OFF_BEST_TIME..OFF_BEST_TIME + 4].try_into().ok()?);
+        let highest_score = u32::from_le_bytes(
+            payload[OFF_HIGHEST_SCORE..OFF_HIGHEST_SCORE + 4]
+                .try_into()
+                .ok()?,
+        );
+        let total_yabbies = u16::from_le_bytes(
+            payload[OFF_TOTAL_YABBIES..OFF_TOTAL_YABBIES + 2]
+                .try_into()
+                .ok()?,
+        );
+        let alerts_count = u16::from_le_bytes(
+            payload[OFF_ALERTS_COUNT..OFF_ALERTS_COUNT + 2]
+                .try_into()
+                .ok()?,
+        );
+        let best_time_seconds =
+            u32::from_le_bytes(payload[OFF_BEST_TIME..OFF_BEST_TIME + 4].try_into().ok()?);
         let mut best_codename = [0u8; 16];
         best_codename.copy_from_slice(&payload[OFF_BEST_CODENAME..OFF_BEST_CODENAME + 16]);
         let checksum = u16::from_le_bytes(payload[OFF_CHECKSUM..OFF_CHECKSUM + 2].try_into().ok()?);
@@ -492,4 +507,3 @@ pub fn load_outcome_for(file: Option<&[u8]>) -> LoadOutcome {
     };
     classify_payload(payload)
 }
-

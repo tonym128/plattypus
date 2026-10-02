@@ -11,7 +11,8 @@ static SWOOSH_SFX: &[u8] = include_bytes!("../../psoxide/assets/audio/freesfx/ps
 static PUNCH_SFX: &[u8] = include_bytes!("../../psoxide/assets/audio/freesfx/psau/hit_punch.psau");
 static METAL_SFX: &[u8] = include_bytes!("../../psoxide/assets/audio/freesfx/psau/hit_metal.psau");
 static BEEP_SFX: &[u8] = include_bytes!("../../psoxide/assets/audio/freesfx/psau/ui_beep.psau");
-static FOOTSTEP_SFX: &[u8] = include_bytes!("../../psoxide/assets/audio/freesfx/psau/footstep.psau");
+static FOOTSTEP_SFX: &[u8] =
+    include_bytes!("../../psoxide/assets/audio/freesfx/psau/footstep.psau");
 static SELECT_SFX: &[u8] = include_bytes!("../../psoxide/assets/audio/freesfx/psau/ui_select.psau");
 
 static TITLE_MUSIC_ADPCM: &[u8] = include_bytes!("../../Music/title_music.adpcm");
@@ -138,7 +139,6 @@ fn spu_reserve(len: usize) -> Option<(SpuAddr, u32)> {
     Some((SpuAddr::new(addr), end))
 }
 
-
 // SFX Voices (0..12)
 pub const VOICE_JUMP: Voice = Voice::V0;
 pub const VOICE_YABBY: Voice = Voice::V1;
@@ -251,7 +251,6 @@ impl AudioManager {
             voice.configure_sample(addr, rate, *vol, Adsr::sample_one_shot());
         }
 
-
         // Upload custom title music ADPCM (raw ADPCM blocks, 22050 Hz mono)
         // Convert your MP3 to ADPCM using: ffmpeg -i input.mp3 -ar 22050 -ac 1 -c:a adpcm_psx output.adpcm
         const TITLE_MUSIC_SAMPLE_RATE: u32 = 22050;
@@ -261,7 +260,12 @@ impl AudioManager {
             match spu_reserve(TITLE_MUSIC_ADPCM.len()) {
                 Some((addr, _)) => {
                     spu::upload_adpcm(addr, TITLE_MUSIC_ADPCM);
-                    VOICE_TITLE.configure_sample(addr, TITLE_MUSIC_SAMPLE_RATE, Volume::linear(3, 4), Adsr::default_tone());
+                    VOICE_TITLE.configure_sample(
+                        addr,
+                        TITLE_MUSIC_SAMPLE_RATE,
+                        Volume::linear(3, 4),
+                        Adsr::default_tone(),
+                    );
                     VOICE_TITLE.set_loop_addr(addr);
                     addr
                 }
@@ -277,7 +281,9 @@ impl AudioManager {
         // directly to the SPU, so no static sample upload is needed.
 
         // Upload built-in continuous waveform tones for music synthesizer
-        let addr_tri = spu_reserve(16).map(|(a, _)| a).unwrap_or(SpuAddr::new(SPU_SAMPLE_BASE));
+        let addr_tri = spu_reserve(16)
+            .map(|(a, _)| a)
+            .unwrap_or(SpuAddr::new(SPU_SAMPLE_BASE));
         spu::upload_adpcm(addr_tri, tones::TRIANGLE);
 
         let addr_saw = spu_reserve(16).map(|(a, _)| a).unwrap_or(addr_tri);
@@ -297,10 +303,30 @@ impl AudioManager {
         }
 
         // Configure Music Voices with looping wave tones
-        VOICE_BASS.configure_sample(addr_tri, tones::NATIVE_HZ, Volume::linear(1, 5), Adsr::default_tone());
-        VOICE_LEAD.configure_sample(addr_saw, tones::NATIVE_HZ, Volume::linear(1, 6), Adsr::default_tone());
-        VOICE_HARMONY.configure_sample(addr_sqr, tones::NATIVE_HZ, Volume::linear(1, 7), Adsr::default_tone());
-        VOICE_DRUM.configure_sample(addr_sqr, tones::NATIVE_HZ, Volume::linear(1, 6), Adsr::default_tone());
+        VOICE_BASS.configure_sample(
+            addr_tri,
+            tones::NATIVE_HZ,
+            Volume::linear(1, 5),
+            Adsr::default_tone(),
+        );
+        VOICE_LEAD.configure_sample(
+            addr_saw,
+            tones::NATIVE_HZ,
+            Volume::linear(1, 6),
+            Adsr::default_tone(),
+        );
+        VOICE_HARMONY.configure_sample(
+            addr_sqr,
+            tones::NATIVE_HZ,
+            Volume::linear(1, 7),
+            Adsr::default_tone(),
+        );
+        VOICE_DRUM.configure_sample(
+            addr_sqr,
+            tones::NATIVE_HZ,
+            Volume::linear(1, 6),
+            Adsr::default_tone(),
+        );
     }
 
     pub fn set_bgm(track: BgmTrack) {
@@ -315,19 +341,21 @@ impl AudioManager {
             }
 
             // Key off previous music synthesizer voices so no hanging notes drone across track changes
-            Voice::key_off(VOICE_BASS.mask() | VOICE_LEAD.mask() | VOICE_HARMONY.mask() | VOICE_DRUM.mask());
+            Voice::key_off(
+                VOICE_BASS.mask() | VOICE_LEAD.mask() | VOICE_HARMONY.mask() | VOICE_DRUM.mask(),
+            );
 
             AUDIO_STATE.current_track = track;
             AUDIO_STATE.seq_step = 0;
             AUDIO_STATE.tempo_counter = 0;
             AUDIO_STATE.tempo_period = match track {
-                BgmTrack::Alert => 5,    // 150 BPM driving pursuit
-                BgmTrack::River => 6,    // 130 BPM water runner
-                BgmTrack::City => 7,     // 115 BPM urban groove
-                BgmTrack::Stealth => 9,  // 90 BPM tense ambient infiltration
-                BgmTrack::Beach => 7,    // 115 BPM upbeat surf
-                BgmTrack::Boss => 5,     // 150 BPM high stakes
-                BgmTrack::Title => 8,    // 100 BPM military overture
+                BgmTrack::Alert => 5,   // 150 BPM driving pursuit
+                BgmTrack::River => 6,   // 130 BPM water runner
+                BgmTrack::City => 7,    // 115 BPM urban groove
+                BgmTrack::Stealth => 9, // 90 BPM tense ambient infiltration
+                BgmTrack::Beach => 7,   // 115 BPM upbeat surf
+                BgmTrack::Boss => 5,    // 150 BPM high stakes
+                BgmTrack::Title => 8,   // 100 BPM military overture
                 BgmTrack::None => 8,
             };
 
@@ -370,14 +398,18 @@ impl AudioManager {
                 BgmTrack::Stealth => {
                     // D Minor Ambient Tactical Bassline: D2, D2, F2, G2, D2, C2, D2, A1
                     let bass_notes = [73, 0, 73, 0, 87, 0, 98, 0, 73, 0, 65, 0, 73, 0, 55, 0];
-                    let lead_notes = [0, 293, 0, 349, 0, 293, 0, 440, 0, 392, 0, 349, 0, 293, 0, 261];
+                    let lead_notes = [
+                        0, 293, 0, 349, 0, 293, 0, 440, 0, 392, 0, 349, 0, 293, 0, 261,
+                    ];
 
                     if bass_notes[step] > 0 {
-                        VOICE_BASS.set_pitch(Pitch::for_frequency(bass_notes[step], tones::NATIVE_HZ));
+                        VOICE_BASS
+                            .set_pitch(Pitch::for_frequency(bass_notes[step], tones::NATIVE_HZ));
                         Voice::key_on(VOICE_BASS.mask());
                     }
                     if lead_notes[step] > 0 {
-                        VOICE_LEAD.set_pitch(Pitch::for_frequency(lead_notes[step], tones::NATIVE_HZ));
+                        VOICE_LEAD
+                            .set_pitch(Pitch::for_frequency(lead_notes[step], tones::NATIVE_HZ));
                         Voice::key_on(VOICE_LEAD.mask());
                     }
                     // Soft heartbeat bass drum on beats 0 and 8
@@ -388,14 +420,20 @@ impl AudioManager {
                 }
                 BgmTrack::Alert => {
                     // Fast High-Tension Pursuit (MGS Encounter): Rapid 16th bass & dissonant alarm stabs
-                    let bass_alert = [110, 110, 110, 130, 110, 110, 146, 110, 110, 110, 110, 130, 110, 164, 146, 130];
-                    let stab_alert = [440, 0, 466, 0, 440, 0, 622, 0, 440, 0, 466, 0, 587, 0, 440, 0];
+                    let bass_alert = [
+                        110, 110, 110, 130, 110, 110, 146, 110, 110, 110, 110, 130, 110, 164, 146,
+                        130,
+                    ];
+                    let stab_alert = [
+                        440, 0, 466, 0, 440, 0, 622, 0, 440, 0, 466, 0, 587, 0, 440, 0,
+                    ];
 
                     VOICE_BASS.set_pitch(Pitch::for_frequency(bass_alert[step], tones::NATIVE_HZ));
                     Voice::key_on(VOICE_BASS.mask());
 
                     if stab_alert[step] > 0 {
-                        VOICE_LEAD.set_pitch(Pitch::for_frequency(stab_alert[step], tones::NATIVE_HZ));
+                        VOICE_LEAD
+                            .set_pitch(Pitch::for_frequency(stab_alert[step], tones::NATIVE_HZ));
                         Voice::key_on(VOICE_LEAD.mask());
                     }
 
@@ -407,11 +445,17 @@ impl AudioManager {
                 }
                 BgmTrack::River => {
                     // Yarra River Runner: Lively flowing melody in A Pentatonic Major
-                    let river_bass = [110, 0, 165, 0, 110, 0, 147, 0, 110, 0, 165, 0, 131, 0, 147, 0];
-                    let river_lead = [440, 494, 554, 659, 554, 494, 440, 330, 440, 554, 659, 880, 659, 554, 494, 440];
+                    let river_bass = [
+                        110, 0, 165, 0, 110, 0, 147, 0, 110, 0, 165, 0, 131, 0, 147, 0,
+                    ];
+                    let river_lead = [
+                        440, 494, 554, 659, 554, 494, 440, 330, 440, 554, 659, 880, 659, 554, 494,
+                        440,
+                    ];
 
                     if river_bass[step] > 0 {
-                        VOICE_BASS.set_pitch(Pitch::for_frequency(river_bass[step], tones::NATIVE_HZ));
+                        VOICE_BASS
+                            .set_pitch(Pitch::for_frequency(river_bass[step], tones::NATIVE_HZ));
                         Voice::key_on(VOICE_BASS.mask());
                     }
                     VOICE_LEAD.set_pitch(Pitch::for_frequency(river_lead[step], tones::NATIVE_HZ));
@@ -419,34 +463,46 @@ impl AudioManager {
                 }
                 BgmTrack::City => {
                     // Melbourne Highway: 80s Synthwave Bassline in C Minor
-                    let city_bass = [65, 65, 131, 65, 78, 78, 156, 78, 87, 87, 175, 87, 98, 98, 196, 98];
-                    let city_lead = [523, 0, 466, 0, 392, 0, 349, 0, 523, 0, 587, 0, 659, 0, 523, 0];
+                    let city_bass = [
+                        65, 65, 131, 65, 78, 78, 156, 78, 87, 87, 175, 87, 98, 98, 196, 98,
+                    ];
+                    let city_lead = [
+                        523, 0, 466, 0, 392, 0, 349, 0, 523, 0, 587, 0, 659, 0, 523, 0,
+                    ];
 
                     VOICE_BASS.set_pitch(Pitch::for_frequency(city_bass[step], tones::NATIVE_HZ));
                     Voice::key_on(VOICE_BASS.mask());
 
                     if city_lead[step] > 0 {
-                        VOICE_LEAD.set_pitch(Pitch::for_frequency(city_lead[step], tones::NATIVE_HZ));
+                        VOICE_LEAD
+                            .set_pitch(Pitch::for_frequency(city_lead[step], tones::NATIVE_HZ));
                         Voice::key_on(VOICE_LEAD.mask());
                     }
                 }
                 BgmTrack::Beach => {
                     // Coastal Dunes: Upbeat Calypso/Surf Groove in G Major
                     let beach_bass = [98, 0, 147, 0, 98, 0, 131, 0, 98, 0, 147, 0, 110, 0, 147, 0];
-                    let beach_lead = [392, 440, 494, 587, 494, 440, 392, 0, 494, 587, 784, 587, 494, 392, 440, 392];
+                    let beach_lead = [
+                        392, 440, 494, 587, 494, 440, 392, 0, 494, 587, 784, 587, 494, 392, 440,
+                        392,
+                    ];
 
                     if beach_bass[step] > 0 {
-                        VOICE_BASS.set_pitch(Pitch::for_frequency(beach_bass[step], tones::NATIVE_HZ));
+                        VOICE_BASS
+                            .set_pitch(Pitch::for_frequency(beach_bass[step], tones::NATIVE_HZ));
                         Voice::key_on(VOICE_BASS.mask());
                     }
                     if beach_lead[step] > 0 {
-                        VOICE_LEAD.set_pitch(Pitch::for_frequency(beach_lead[step], tones::NATIVE_HZ));
+                        VOICE_LEAD
+                            .set_pitch(Pitch::for_frequency(beach_lead[step], tones::NATIVE_HZ));
                         Voice::key_on(VOICE_LEAD.mask());
                     }
                 }
                 BgmTrack::Boss => {
                     // Heavy Mech Boss: Dramatic march with crushing industrial beats
-                    let boss_bass = [55, 55, 110, 55, 58, 58, 116, 58, 55, 55, 110, 55, 73, 69, 65, 62];
+                    let boss_bass = [
+                        55, 55, 110, 55, 58, 58, 116, 58, 55, 55, 110, 55, 73, 69, 65, 62,
+                    ];
                     VOICE_BASS.set_pitch(Pitch::for_frequency(boss_bass[step], tones::NATIVE_HZ));
                     Voice::key_on(VOICE_BASS.mask());
 
@@ -618,9 +674,7 @@ impl AudioManager {
 
     /// Check if CD-DA was playing but has now finished (for attract demo trigger).
     pub fn cdda_finished() -> bool {
-        unsafe {
-            CDDA_WAS_PLAYING && !Self::is_cdda_playing()
-        }
+        unsafe { CDDA_WAS_PLAYING && !Self::is_cdda_playing() }
     }
 
     /// Reset CDDA play tracking (call when starting title music).

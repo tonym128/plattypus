@@ -91,22 +91,48 @@ impl Act {
 
     pub fn subtitle(&self) -> &'static str {
         match self {
-            Act::Act1_1Drainage => "Infiltrate past guards, crawl through air vents, and escape the canal!",
-            Act::Act1_2Barracks => "Navigate guard barracks, dodge laser tripwires, and use the cardboard box!",
-            Act::Act1_3MechBoss => "Disable 3 power conduits, dodge dual searchlights, and strike the Mech!",
+            Act::Act1_1Drainage => {
+                "Infiltrate past guards, crawl through air vents, and escape the canal!"
+            }
+            Act::Act1_2Barracks => {
+                "Navigate guard barracks, dodge laser tripwires, and use the cardboard box!"
+            }
+            Act::Act1_3MechBoss => {
+                "Disable 3 power conduits, dodge dual searchlights, and strike the Mech!"
+            }
             Act::Act2_1Rapids => "Surf 5 river lanes! Dodge tubers, boarders, trees, and snakes!",
-            Act::Act2_2Mangroves => "Murky backwaters! Use electro-sonar to spot submerged roots & spiders!",
-            Act::Act2_3JetSkiBoss => "High-speed pursuit! Evade floating water mines and strike the engine!",
-            Act::Act3_1Highway => "Cross multi-lane rush hour avenues! Dodge taxis, trams, & trucks!",
-            Act::Act3_2Laneways => "Sneak through trash alleys & rooftop catwalks! Beware acoustic grates!",
-            Act::Act3_3SniperBoss => "Scale the broadcast antennas! Avoid laser targeting and spur strike Kooky!",
-            Act::Act4_1Dunes => "Platform across dunes & bounce on parasols to reach baby sister Pip!",
-            Act::Act4_2PierTrench => "Deep ocean surf! Submerge under shark patrols to find the cavern tunnel!",
-            Act::Act4_3ExcavatorBoss => "Protect Pip's nursery! Overload Dr. Cane Toad's amphibian excavator!",
+            Act::Act2_2Mangroves => {
+                "Murky backwaters! Use electro-sonar to spot submerged roots & spiders!"
+            }
+            Act::Act2_3JetSkiBoss => {
+                "High-speed pursuit! Evade floating water mines and strike the engine!"
+            }
+            Act::Act3_1Highway => {
+                "Cross multi-lane rush hour avenues! Dodge taxis, trams, & trucks!"
+            }
+            Act::Act3_2Laneways => {
+                "Sneak through trash alleys & rooftop catwalks! Beware acoustic grates!"
+            }
+            Act::Act3_3SniperBoss => {
+                "Scale the broadcast antennas! Avoid laser targeting and spur strike Kooky!"
+            }
+            Act::Act4_1Dunes => {
+                "Platform across dunes & bounce on parasols to reach baby sister Pip!"
+            }
+            Act::Act4_2PierTrench => {
+                "Deep ocean surf! Submerge under shark patrols to find the cavern tunnel!"
+            }
+            Act::Act4_3ExcavatorBoss => {
+                "Protect Pip's nursery! Overload Dr. Cane Toad's amphibian excavator!"
+            }
             Act::VrSneaking => "Evade virtual patrol drones and reach the exit burrow undetected!",
-            Act::VrCqc => "Sneak behind unalerted guards and neutralize all targets with CQC spurs!",
+            Act::VrCqc => {
+                "Sneak behind unalerted guards and neutralize all targets with CQC spurs!"
+            }
             Act::VrSonar => "Navigate the pitch black submerged maze using electro-sonar pulses!",
-            Act::VrSpeed => "Speed sprint through floating platforms & obstacles in under 30 seconds!",
+            Act::VrSpeed => {
+                "Speed sprint through floating platforms & obstacles in under 30 seconds!"
+            }
         }
     }
 
@@ -144,7 +170,10 @@ impl Act {
     pub fn is_boss(&self) -> bool {
         matches!(
             self,
-            Act::Act1_3MechBoss | Act::Act2_3JetSkiBoss | Act::Act3_3SniperBoss | Act::Act4_3ExcavatorBoss
+            Act::Act1_3MechBoss
+                | Act::Act2_3JetSkiBoss
+                | Act::Act3_3SniperBoss
+                | Act::Act4_3ExcavatorBoss
         )
     }
 
@@ -153,7 +182,10 @@ impl Act {
     }
 
     pub fn is_vr(&self) -> bool {
-        matches!(self, Act::VrSneaking | Act::VrCqc | Act::VrSonar | Act::VrSpeed)
+        matches!(
+            self,
+            Act::VrSneaking | Act::VrCqc | Act::VrSonar | Act::VrSpeed
+        )
     }
 
     pub fn next(&self) -> Option<Act> {

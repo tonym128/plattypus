@@ -10,7 +10,7 @@ use psx_pad::{button, ButtonState};
 
 pub const CODEC_FREQ_BURROW: u16 = 14085; // 140.85 MHz - Burrow Command
 pub const CODEC_FREQ_SCRIBE: u16 = 14096; // 140.96 MHz - Scribe Echidna (Field Save Station)
-pub const CODEC_FREQ_JACK: u16 = 14112;   // 141.12 MHz - Kooky Jack (Bushland Intel & Secrets)
+pub const CODEC_FREQ_JACK: u16 = 14112; // 141.12 MHz - Kooky Jack (Bushland Intel & Secrets)
 pub const CODEC_FREQ_WOMBAT: u16 = 14180; // 141.80 MHz - Dr. Wombat (Tactical Gear Specialist)
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -517,13 +517,11 @@ pub static WOMBAT_GEAR_DIALOGUE: &[CodecPage] = &[
     },
 ];
 
-pub static STATIC_DIALOGUE: &[CodecPage] = &[
-    CodecPage {
-        speaker: Speaker::Platty,
-        line1: "... Just white noise static.",
-        line2: "No tactical station on this freq.",
-    },
-];
+pub static STATIC_DIALOGUE: &[CodecPage] = &[CodecPage {
+    speaker: Speaker::Platty,
+    line1: "... Just white noise static.",
+    line2: "No tactical station on this freq.",
+}];
 
 pub fn get_act_dialogue(act: crate::level::Act) -> &'static [CodecPage] {
     match act {
@@ -781,7 +779,10 @@ impl CodecManager {
         // Digital Frequency Display
         let whole = self.tuned_freq / 100;
         let frac = self.tuned_freq % 100;
-        let mut f_str = [b'F', b'R', b'E', b'Q', b' ', b'0', b'0', b'0', b'.', b'0', b'0', b' ', b'M', b'H', b'z'];
+        let mut f_str = [
+            b'F', b'R', b'E', b'Q', b' ', b'0', b'0', b'0', b'.', b'0', b'0', b' ', b'M', b'H',
+            b'z',
+        ];
         f_str[5] = (whole / 100) as u8 + b'0';
         f_str[6] = ((whole / 10) % 10) as u8 + b'0';
         f_str[7] = (whole % 10) as u8 + b'0';
@@ -810,21 +811,89 @@ impl CodecManager {
         let is_jack = self.tuned_freq == CODEC_FREQ_JACK;
         let is_wombat = self.tuned_freq == CODEC_FREQ_WOMBAT;
 
-        let col_b = if is_burrow { (100, 255, 160) } else { (140, 170, 150) };
-        let col_s = if is_scribe { (100, 255, 160) } else { (140, 170, 150) };
-        let col_j = if is_jack { (100, 255, 160) } else { (140, 170, 150) };
-        let col_w = if is_wombat { (100, 255, 160) } else { (140, 170, 150) };
+        let col_b = if is_burrow {
+            (100, 255, 160)
+        } else {
+            (140, 170, 150)
+        };
+        let col_s = if is_scribe {
+            (100, 255, 160)
+        } else {
+            (140, 170, 150)
+        };
+        let col_j = if is_jack {
+            (100, 255, 160)
+        } else {
+            (140, 170, 150)
+        };
+        let col_w = if is_wombat {
+            (100, 255, 160)
+        } else {
+            (140, 170, 150)
+        };
 
-        draw_text_fitted(font, 52, 130, if is_burrow { "> 140.85  BURROW COMMAND" } else { "  140.85  BURROW COMMAND" }, col_b);
-        draw_text_fitted(font, 52, 144, if is_scribe { "> 140.96  SCRIBE ECHIDNA (SAVE)" } else { "  140.96  SCRIBE ECHIDNA (SAVE)" }, col_s);
-        draw_text_fitted(font, 52, 158, if is_jack { "> 141.12  KOOKY JACK (INTEL)" } else { "  141.12  KOOKY JACK (INTEL)" }, col_j);
-        draw_text_fitted(font, 52, 172, if is_wombat { "> 141.80  DR. WOMBAT (GEAR)" } else { "  141.80  DR. WOMBAT (GEAR)" }, col_w);
+        draw_text_fitted(
+            font,
+            52,
+            130,
+            if is_burrow {
+                "> 140.85  BURROW COMMAND"
+            } else {
+                "  140.85  BURROW COMMAND"
+            },
+            col_b,
+        );
+        draw_text_fitted(
+            font,
+            52,
+            144,
+            if is_scribe {
+                "> 140.96  SCRIBE ECHIDNA (SAVE)"
+            } else {
+                "  140.96  SCRIBE ECHIDNA (SAVE)"
+            },
+            col_s,
+        );
+        draw_text_fitted(
+            font,
+            52,
+            158,
+            if is_jack {
+                "> 141.12  KOOKY JACK (INTEL)"
+            } else {
+                "  141.12  KOOKY JACK (INTEL)"
+            },
+            col_j,
+        );
+        draw_text_fitted(
+            font,
+            52,
+            172,
+            if is_wombat {
+                "> 141.80  DR. WOMBAT (GEAR)"
+            } else {
+                "  141.80  DR. WOMBAT (GEAR)"
+            },
+            col_w,
+        );
 
         // Control instructions bar
         gpu::draw_rect_flat(0, 204, 320, 36, 8, 30, 20);
         gpu::draw_rect_flat(0, 204, 320, 2, 35, 140, 85);
-        draw_text_fitted(font, 18, 210, "D-PAD L/R: TUNE   DOWN: CYCLE PRESET", (220, 240, 220));
-        draw_text_fitted(font, 18, 222, "CROSS / UP: TRANSMIT   CIRCLE: EXIT", (255, 230, 80));
+        draw_text_fitted(
+            font,
+            18,
+            210,
+            "D-PAD L/R: TUNE   DOWN: CYCLE PRESET",
+            (220, 240, 220),
+        );
+        draw_text_fitted(
+            font,
+            18,
+            222,
+            "CROSS / UP: TRANSMIT   CIRCLE: EXIT",
+            (255, 230, 80),
+        );
     }
 
     fn draw_incall(&self, font: &FontAtlas) {
@@ -843,7 +912,9 @@ impl CodecManager {
 
         let whole = self.tuned_freq / 100;
         let frac = self.tuned_freq % 100;
-        let mut f_hdr = [b'F', b'R', b'E', b'Q', b' ', b' ', b'0', b'0', b'0', b'.', b'0', b'0'];
+        let mut f_hdr = [
+            b'F', b'R', b'E', b'Q', b' ', b' ', b'0', b'0', b'0', b'.', b'0', b'0',
+        ];
         f_hdr[6] = (whole / 100) as u8 + b'0';
         f_hdr[7] = ((whole / 10) % 10) as u8 + b'0';
         f_hdr[8] = (whole % 10) as u8 + b'0';
@@ -905,7 +976,13 @@ impl CodecManager {
         // tag is sized from the measured name instead.
         let tag_w = font.text_width(page.speaker.name()) + 8;
         gpu::draw_rect_flat(box_x + 8, box_y - 6, tag_w, 12, 15, 65, 45);
-        draw_text_fitted(font, box_x + 12, box_y - 4, page.speaker.name(), (255, 240, 120));
+        draw_text_fitted(
+            font,
+            box_x + 12,
+            box_y - 4,
+            page.speaker.name(),
+            (255, 240, 120),
+        );
 
         // Render typewriter text for Line 1 and Line 2
         let l1_len = page.line1.len();
@@ -929,7 +1006,12 @@ impl CodecManager {
         let total_chars = page.line1.len() + page.line2.len();
         if self.text_progress >= total_chars {
             if (self.anim_timer / 15) % 2 == 0 {
-                font.draw_text(box_x + box_w as i16 - 24, box_y + box_h as i16 - 16, ">", (255, 230, 80));
+                font.draw_text(
+                    box_x + box_w as i16 - 24,
+                    box_y + box_h as i16 - 16,
+                    ">",
+                    (255, 230, 80),
+                );
             }
         }
     }
@@ -1030,7 +1112,7 @@ impl CodecManager {
         let bob = if (anim / 10) % 2 == 0 { 2 } else { 0 };
         gpu::draw_rect_flat(cx + 14, cy + 48 + bob, 14, 10, 140, 100, 60); // Paw
         gpu::draw_rect_flat(cx + 22, cy + 40 + bob, 3, 16, 255, 255, 240); // White feather quill
-        gpu::draw_rect_flat(cx + 23, cy + 56 + bob, 2, 4, 30, 30, 40);   // Ink tip
+        gpu::draw_rect_flat(cx + 23, cy + 56 + bob, 2, 4, 30, 30, 40); // Ink tip
     }
 
     fn draw_kookaburra_portrait(x: i16, y: i16, anim: u16) {

@@ -6,21 +6,20 @@
 #![no_std]
 #![no_main]
 
-
 extern crate psx_rt;
 
 mod audio;
 mod codec;
+pub mod dualshock;
 mod entities;
 mod game;
 mod level;
 mod platypus;
 mod renderer;
 pub mod save;
-pub mod dualshock;
 pub mod texture;
-mod title_bg_data;
 mod title_bg;
+mod title_bg_data;
 pub mod video;
 
 use audio::AudioManager;

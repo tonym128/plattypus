@@ -66,15 +66,7 @@ impl TextureId {
             TextureId::RockCliff => (BANK_BEACH, (32, 64)),
         };
 
-        (
-            bank,
-            [
-                (u, v),
-                (u + 15, v),
-                (u, v + 15),
-                (u + 15, v + 15),
-            ],
-        )
+        (bank, [(u, v), (u + 15, v), (u, v + 15), (u + 15, v + 15)])
     }
 }
 
@@ -259,7 +251,11 @@ impl TextureAtlasManager {
             for x in 0..16 {
                 let hash = ((x * 17 + y * 31) ^ (x * y)) & 3;
                 let p = if y == 4 || y == 12 {
-                    if x % 4 == 2 { 11 } else { 8 } // Bolt lines
+                    if x % 4 == 2 {
+                        11
+                    } else {
+                        8
+                    } // Bolt lines
                 } else {
                     8 + (hash as u8) // Texture grain (8, 9, 10, 11)
                 };
@@ -431,7 +427,7 @@ impl TextureAtlasManager {
                 } else if y % 2 == 0 {
                     11 // Chrome slat
                 } else {
-                    0  // Black recessed intake
+                    0 // Black recessed intake
                 };
                 set_4bpp_pixel(&mut vram_buf, 32 + x, 48 + y, p);
             }
@@ -499,18 +495,15 @@ fn set_4bpp_pixel(buf: &mut [u16], x: usize, y: usize, color_index: u8) {
 /// Computes per-vertex tints (TL, TR, BL, BR) based on surface normal,
 /// directional key light (above-left), and ambient bounce light.
 #[inline]
-pub fn gouraud_face_colors(
-    face_type: FaceDirection,
-    base_tint: (u8, u8, u8),
-) -> [(u8, u8, u8); 4] {
+pub fn gouraud_face_colors(face_type: FaceDirection, base_tint: (u8, u8, u8)) -> [(u8, u8, u8); 4] {
     // Light intensity percentages for vertices [TL, TR, BL, BR]
     let (i0, i1, i2, i3) = match face_type {
-        FaceDirection::Top => (108, 98, 98, 88),          // Overhead direct sunlight
-        FaceDirection::Front => (92, 85, 78, 70),         // Front specular falloff
-        FaceDirection::Back => (58, 50, 46, 38),          // Back ambient shadow
-        FaceDirection::Left => (68, 62, 56, 50),          // Key-light side (distinct step from front)
-        FaceDirection::Right => (54, 48, 44, 38),         // Fill-light side (deep shadow)
-        FaceDirection::Bottom => (38, 32, 28, 22),        // Occluded ground shadow
+        FaceDirection::Top => (108, 98, 98, 88), // Overhead direct sunlight
+        FaceDirection::Front => (92, 85, 78, 70), // Front specular falloff
+        FaceDirection::Back => (58, 50, 46, 38), // Back ambient shadow
+        FaceDirection::Left => (68, 62, 56, 50), // Key-light side (distinct step from front)
+        FaceDirection::Right => (54, 48, 44, 38), // Fill-light side (deep shadow)
+        FaceDirection::Bottom => (38, 32, 28, 22), // Occluded ground shadow
     };
 
     [

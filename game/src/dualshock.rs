@@ -211,7 +211,10 @@ unsafe fn poll_port_rumble_raw(port2: bool, motor0: u8, motor1: u8) -> PadState 
         let read_sticks = analog && mode != PadMode::Unknown;
 
         // While reading button byte 0, transmit motor0 value (small motor)
-        let b0 = exchange(if motor0 != 0 { MOTOR_SMALL_ON } else { 0x00 }, EXCHANGE_WAIT_SPINS);
+        let b0 = exchange(
+            if motor0 != 0 { MOTOR_SMALL_ON } else { 0x00 },
+            EXCHANGE_WAIT_SPINS,
+        );
         // While reading button byte 1, transmit motor1 value (large motor)
         let b1 = exchange(motor1, EXCHANGE_WAIT_SPINS);
 
