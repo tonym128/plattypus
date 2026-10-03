@@ -40,7 +40,7 @@
   <!-- Center Spindle Hole (15mm) -->
   <circle cx="400" cy="400" r="50" fill="#000000" stroke="#557788" stroke-width="3"/>
 
-  <!-- TOP HALF: Game Branding & Logo -->
+  <!-- TOP HALF: Game Branding &amp; Logo -->
   <g transform="translate(400, 180)">
     <!-- Subtitle Banner -->
     <rect x="-170" y="-45" width="340" height="22" fill="#00ff88" opacity="0.9"/>
@@ -53,7 +53,7 @@
     <text x="0" y="52" font-family="'Helvetica Neue', Arial, sans-serif" font-weight="bold" font-size="13" fill="#88c999" text-anchor="middle" letter-spacing="2">PROJECT PSOXIDE 3D // 32-BIT GTE</text>
   </g>
 
-  <!-- LEFT: Official PlayStation Logo & Licensing -->
+  <!-- LEFT: Official PlayStation Logo &amp; Licensing -->
   <g transform="translate(140, 370)">
     <!-- PlayStation Symbol -->
     <g transform="scale(0.8)">
@@ -72,15 +72,15 @@
     <text x="45" y="46" font-family="Arial, sans-serif" font-size="6" font-weight="bold" fill="#00ff88" text-anchor="middle">DIGITAL AUDIO</text>
   </g>
 
-  <!-- BOTTOM HALF: Serial, Specs & Copyright Notices -->
+  <!-- BOTTOM HALF: Serial, Specs &amp; Copyright Notices -->
   <g transform="translate(400, 580)">
-    <!-- Serial & Region Info -->
+    <!-- Serial &amp; Region Info -->
     <rect x="-140" y="-10" width="280" height="30" fill="#0a1218" stroke="#253c4d" stroke-width="1" rx="4"/>
     <text x="0" y="10" font-family="monospace" font-size="13" font-weight="bold" fill="#00ffcc" text-anchor="middle" letter-spacing="1">SERIAL: BASLUS-00001</text>
     
     <text x="0" y="38" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#ffe680" text-anchor="middle" letter-spacing="1">NTSC-U/C &amp; PAL AUTO-COMPLIANT // 50/60Hz</text>
     <text x="0" y="55" font-family="Arial, sans-serif" font-size="9" fill="#99b5c9" text-anchor="middle">BURROW COMMAND STUDIOS // MADE IN AUSTRALIA</text>
-    <text x="0" y="70" font-family="Arial, sans-serif" font-size="8" fill="#668299" text-anchor="middle">© 2026. All rights reserved. Unauthorized copying or broadcast prohibited.</text>
+    <text x="0" y="70" font-family="Arial, sans-serif" font-size="8" fill="#668299" text-anchor="middle">© 2026 Burrow Command Studios. GPL-2.0-or-later. Non-commercial homebrew - not for sale. Not affiliated with or endorsed by Sony Computer Entertainment Inc.</text>
   </g>
 
   <!-- Outer Calibration Edge Ticks -->

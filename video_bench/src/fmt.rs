@@ -12,7 +12,10 @@ pub struct Line {
 
 impl Line {
     pub const fn new() -> Self {
-        Self { buf: [0; 64], len: 0 }
+        Self {
+            buf: [0; 64],
+            len: 0,
+        }
     }
 
     pub fn clear(&mut self) -> &mut Self {

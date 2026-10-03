@@ -22,7 +22,6 @@ const BOSS_INTRO_FRAMES: u16 = 240;
 const BOSS_ORBIT_RADIUS: i32 = 450;
 const ORBIT_TURN_UNITS: u32 = 256;
 
-
 /// Mirror of `Game::commit_progress`: the only writer of the campaign clear
 /// count, the high score and the yabby total.
 pub fn commit_progress(save: &mut SaveData, cleared: Option<Act>, score: u32, yabbies: u16) {
@@ -129,7 +128,6 @@ fn isqrt_i32(value: i32) -> i32 {
     guess
 }
 
-
 // ---------------------------------------------------------------------------
 // Level mirror (UX-2)
 //
@@ -151,158 +149,6 @@ pub enum SentryState {
 /// Half-extent of the stage-exit trigger, kept inside `TILE_SZ`.
 const EXIT_TRIGGER_RADIUS: i32 = 28;
 
-type Grid = [CellType; GRID_W * GRID_D];
-
-fn blank_grid() -> Grid {
-    [CellType::Floor; GRID_W * GRID_D]
-}
-
-fn set_cell(grid: &mut Grid, gx: usize, gz: usize, cell: CellType) {
-    if gx < GRID_W && gz < GRID_D {
-        grid[gz * GRID_W + gx] = cell;
-    }
-}
-
-/// Mirror of `Level::generate_act1_2`, including the reordered hazard pass.
-fn generate_act1_2() -> Grid {
-    let mut g = blank_grid();
-    for x in 0..GRID_W {
-        set_cell(&mut g, x, 0, CellType::Wall);
-        set_cell(&mut g, x, GRID_D - 1, CellType::Wall);
-    }
-    for z in 0..GRID_D {
-        set_cell(&mut g, 0, z, CellType::Wall);
-        set_cell(&mut g, GRID_W - 1, z, CellType::Wall);
-    }
-    for z in 2..22 {
-        if z != 6 && z != 16 {
-            set_cell(&mut g, 7, z, CellType::Wall);
-        }
-        if z != 11 {
-            set_cell(&mut g, 15, z, CellType::Wall);
-        }
-    }
-    for x in 2..22 {
-        if x != 11 {
-            set_cell(&mut g, x, 11, CellType::Wall);
-        }
-    }
-    set_cell(&mut g, 7, 4, CellType::AirDuct);
-    set_cell(&mut g, 7, 18, CellType::AirDuct);
-    set_cell(&mut g, 15, 8, CellType::AirDuct);
-    set_cell(&mut g, 15, 14, CellType::AirDuct);
-    set_cell(&mut g, 11, 4, CellType::AirDuct);
-    set_cell(&mut g, 11, 18, CellType::AirDuct);
-    let crates = [
-        (3usize, 4usize), (4, 4), (3, 7), (4, 7), (3, 14), (4, 14), (3, 17), (4, 17),
-        (10, 3), (10, 4), (12, 3), (12, 4), (10, 18), (10, 19), (12, 18), (12, 19),
-        (18, 5), (19, 5), (18, 8), (19, 8), (18, 14), (19, 14), (18, 17), (19, 17),
-    ];
-    for (cx, cz) in crates {
-        set_cell(&mut g, cx, cz, CellType::Crate);
-    }
-    // The grating pass that used to erase the column-11 tripwires.
-    for z in 5..=17 {
-        set_cell(&mut g, 3, z, CellType::MetalGrate);
-        set_cell(&mut g, 11, z, CellType::MetalGrate);
-        set_cell(&mut g, 19, z, CellType::MetalGrate);
-    }
-    // Hazards last.
-    for (lx, lz) in [
-        (7usize, 6usize), (7, 16), (15, 11), (11, 11), (11, 6), (11, 16),
-    ] {
-        set_cell(&mut g, lx, lz, CellType::LaserTripwire);
-    }
-    set_cell(&mut g, 21, 2, CellType::ExitBurrow);
-    g
-}
-
-fn generate_act1_1() -> Grid {
-    let mut g = blank_grid();
-    for x in 0..GRID_W {
-        set_cell(&mut g, x, 0, CellType::Wall);
-        set_cell(&mut g, x, GRID_D - 1, CellType::Wall);
-    }
-    for z in 0..GRID_D {
-        set_cell(&mut g, 0, z, CellType::Wall);
-        set_cell(&mut g, GRID_W - 1, z, CellType::Wall);
-    }
-    for x in 12..22 {
-        set_cell(&mut g, x, 10, CellType::Wall);
-    }
-    set_cell(&mut g, 16, 10, CellType::LaserTripwire);
-    set_cell(&mut g, 18, 10, CellType::AirDuct);
-    set_cell(&mut g, 21, 2, CellType::ExitBurrow);
-    g
-}
-
-fn generate_vr_speed() -> Grid {
-    let mut g = blank_grid();
-    for z in 1..23 {
-        for x in 1..23 {
-            if x < 10 || x > 14 {
-                set_cell(&mut g, x, z, CellType::Water);
-            }
-        }
-    }
-    set_cell(&mut g, 12, 17, CellType::Crate);
-    set_cell(&mut g, 11, 13, CellType::LaserTripwire);
-    set_cell(&mut g, 12, 13, CellType::LaserTripwire);
-    set_cell(&mut g, 13, 13, CellType::LaserTripwire);
-    set_cell(&mut g, 12, 9, CellType::AirDuct);
-    set_cell(&mut g, 12, 2, CellType::ExitBurrow);
-    g
-}
-
-fn generate_act3_2() -> Grid {
-    let mut g = blank_grid();
-    for x in 0..GRID_W {
-        set_cell(&mut g, x, 0, CellType::Wall);
-        set_cell(&mut g, x, GRID_D - 1, CellType::Wall);
-    }
-    for z in 0..GRID_D {
-        set_cell(&mut g, 0, z, CellType::Wall);
-        set_cell(&mut g, GRID_W - 1, z, CellType::Wall);
-    }
-    set_cell(&mut g, 21, 2, CellType::ExitBurrow);
-    g
-}
-
-fn generate_act(act: Act) -> Grid {
-    match act {
-        Act::Act1_1Drainage => generate_act1_1(),
-        Act::Act1_2Barracks => generate_act1_2(),
-        Act::Act3_2Laneways => generate_act3_2(),
-        Act::VrSpeed => generate_vr_speed(),
-        _ => {
-            let mut g = blank_grid();
-            for x in 0..GRID_W {
-                set_cell(&mut g, x, 0, CellType::Wall);
-                set_cell(&mut g, x, GRID_D - 1, CellType::Wall);
-            }
-            for z in 0..GRID_D {
-                set_cell(&mut g, 0, z, CellType::Wall);
-                set_cell(&mut g, GRID_W - 1, z, CellType::Wall);
-            }
-            set_cell(&mut g, 21, 2, CellType::ExitBurrow);
-            g
-        }
-    }
-}
-
-/// Grid index of the act's exit tile, mirroring `Level::exit_x/exit_z`.
-fn exit_cell_index(act: Act) -> usize {
-    let (ex, ez) = match act {
-        Act::Act1_1Drainage => (19usize, 3usize),
-        Act::Act1_2Barracks => (21, 2),
-        Act::Act3_2Laneways => (21, 2),
-        Act::VrSpeed => (12, 2),
-        _ => (21, 2),
-    };
-    ez * GRID_W + ex
-}
-
-
 const ANALOG_FULL_DEFLECTION: i32 = 127;
 
 /// Mirror of `game::heading_vx` / `heading_vz`, including the rounding shift.
@@ -320,7 +166,10 @@ fn heading_velocity(angle: u16, speed: i32) -> (i32, i32) {
 fn legacy_analog_velocity(sx: i32, sy: i32, max_speed: i32) -> (i32, i32) {
     let mag = isqrt_i32(sx * sx + sy * sy);
     let speed = ((max_speed * mag) / ANALOG_FULL_DEFLECTION).max(1);
-    ((sx * speed) / ANALOG_FULL_DEFLECTION, (-sy * speed) / ANALOG_FULL_DEFLECTION)
+    (
+        (sx * speed) / ANALOG_FULL_DEFLECTION,
+        (-sy * speed) / ANALOG_FULL_DEFLECTION,
+    )
 }
 
 /// The full run speed available at a given stick magnitude.
@@ -472,6 +321,14 @@ fn winding_cross_i64(a: (i16, i16), b: (i16, i16), c: (i16, i16)) -> i64 {
     ax * by - ay * bx
 }
 
+static SUITES_PASSED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+fn suite_passed(name: &str) {
+    use core::sync::atomic::Ordering;
+    SUITES_PASSED.fetch_add(1, Ordering::Relaxed);
+    println!("\u{2713} {name} PASSED");
+}
+
 fn main() {
     println!("=== RUNNING PLATTYPUS GAME LOGIC TESTS ===");
 
@@ -483,17 +340,29 @@ fn main() {
     save.unlocked_act = 5;
     save.highest_score = 12500;
     save.total_yabbies = 42;
-    assert!(!save.is_valid(), "Save with modified data without recomputed checksum must be invalid");
+    assert!(
+        !save.is_valid(),
+        "Save with modified data without recomputed checksum must be invalid"
+    );
 
     save.checksum = save.compute_checksum();
-    assert!(save.is_valid(), "Save with recomputed checksum must be valid");
+    assert!(
+        save.is_valid(),
+        "Save with recomputed checksum must be valid"
+    );
 
     save.magic[0] = b'X';
-    assert!(!save.is_valid(), "Corrupted magic signature must be invalid");
-    println!("✓ Save data checksum & validation test PASSED");
+    assert!(
+        !save.is_valid(),
+        "Corrupted magic signature must be invalid"
+    );
+    suite_passed("Save data checksum & validation test");
 
     // 1b. Explicit no-padding serialization (PD-6)
-    assert_eq!(SERIALIZED_SIZE, 46, "Serialized payload must be 46 bytes with no padding");
+    assert_eq!(
+        SERIALIZED_SIZE, 46,
+        "Serialized payload must be 46 bytes with no padding"
+    );
     assert_eq!(
         core::mem::size_of::<SaveData>(),
         SERIALIZED_SIZE + STRUCT_PADDING,
@@ -522,7 +391,10 @@ fn main() {
 
     let bytes_a = sample.to_bytes();
     let bytes_b = sample.to_bytes();
-    assert_eq!(bytes_a, bytes_b, "Serialization must be deterministic (PD-6: no uninitialized bytes)");
+    assert_eq!(
+        bytes_a, bytes_b,
+        "Serialization must be deterministic (PD-6: no uninitialized bytes)"
+    );
     // The struct blob's bytes 6..8 are the alignment hole and used to leak
     // stack residue; the payload has no such gap: `highest_score` follows
     // `unlocked_act` directly and is written little-endian.
@@ -535,23 +407,48 @@ fn main() {
         &[0xEF, 0xCD, 0xAB, 0x00],
         "No padding hole: highest_score must start at offset 6, right after unlocked_act"
     );
-    assert_eq!(&bytes_a[OFF_TOTAL_YABBIES..OFF_TOTAL_YABBIES + 2], &[0x34, 0x12]);
-    assert_eq!(&bytes_a[OFF_ALERTS_COUNT..OFF_ALERTS_COUNT + 2], &[0x78, 0x56]);
-    assert_eq!(&bytes_a[OFF_BEST_TIME..OFF_BEST_TIME + 4], &[0xD0, 0xC1, 0x09, 0x00]);
-    assert_eq!(&bytes_a[OFF_CHECKSUM..OFF_CHECKSUM + 2], &sample.checksum.to_le_bytes());
-    assert_eq!(SaveData::from_bytes(&bytes_a), Some(sample), "from_bytes must invert to_bytes");
+    assert_eq!(
+        &bytes_a[OFF_TOTAL_YABBIES..OFF_TOTAL_YABBIES + 2],
+        &[0x34, 0x12]
+    );
+    assert_eq!(
+        &bytes_a[OFF_ALERTS_COUNT..OFF_ALERTS_COUNT + 2],
+        &[0x78, 0x56]
+    );
+    assert_eq!(
+        &bytes_a[OFF_BEST_TIME..OFF_BEST_TIME + 4],
+        &[0xD0, 0xC1, 0x09, 0x00]
+    );
+    assert_eq!(
+        &bytes_a[OFF_CHECKSUM..OFF_CHECKSUM + 2],
+        &sample.checksum.to_le_bytes()
+    );
+    assert_eq!(
+        SaveData::from_bytes(&bytes_a),
+        Some(sample),
+        "from_bytes must invert to_bytes"
+    );
     assert!(sample.is_valid() && sample.is_sane());
-    assert!(SaveData::from_bytes(&bytes_a[..SERIALIZED_SIZE - 1]).is_none(), "Truncated payload must be rejected");
-    println!("✓ Explicit no-padding serialization test (PD-6) PASSED");
+    assert!(
+        SaveData::from_bytes(&bytes_a[..SERIALIZED_SIZE - 1]).is_none(),
+        "Truncated payload must be rejected"
+    );
+    suite_passed("Explicit no-padding serialization test (PD-6)");
 
     // 1c. Position-dependent checksum (PD-9b / PD-9a)
-    let high_word_flip = SaveData { best_time_seconds: 0x0009_C1D0 ^ 0x0001_0000, ..sample };
+    let high_word_flip = SaveData {
+        best_time_seconds: 0x0009_C1D0 ^ 0x0001_0000,
+        ..sample
+    };
     assert_ne!(
         sample.compute_checksum(),
         high_word_flip.compute_checksum(),
         "A single-bit flip in the HIGH word of best_time_seconds must change the checksum (PD-9a)"
     );
-    let low_word_flip = SaveData { best_time_seconds: 0x0009_C1D0 ^ 0x0000_0001, ..sample };
+    let low_word_flip = SaveData {
+        best_time_seconds: 0x0009_C1D0 ^ 0x0000_0001,
+        ..sample
+    };
     assert_ne!(sample.compute_checksum(), low_word_flip.compute_checksum());
 
     let swapped = SaveData {
@@ -564,7 +461,10 @@ fn main() {
         swapped.compute_checksum(),
         "Swapping two same-typed fields must change the checksum (PD-9b: a sum is commutative)"
     );
-    assert!(!swapped.is_valid(), "A swapped-field save must not validate against the original checksum");
+    assert!(
+        !swapped.is_valid(),
+        "A swapped-field save must not validate against the original checksum"
+    );
     // Every single bit of every field must be covered.
     let mut undetected = 0;
     for byte in 0..SERIALIZED_SIZE - 2 {
@@ -577,24 +477,93 @@ fn main() {
             }
         }
     }
-    assert_eq!(undetected, 0, "Every single-bit flip in the payload must be detected");
-    println!("✓ Position-dependent checksum coverage test (PD-9a/PD-9b) PASSED");
+    assert_eq!(
+        undetected, 0,
+        "Every single-bit flip in the payload must be detected"
+    );
+    suite_passed("Position-dependent checksum coverage test (PD-9a/PD-9b)");
 
     // 1d. Field-range validation (PD-9d)
     let out_of_range = [
-        ("selected_costume = 200", SaveData { selected_costume: 200, ..sample }),
-        ("language = 255", SaveData { language: 255, ..sample }),
-        ("pal_mode = 200", SaveData { pal_mode: 200, ..sample }),
-        ("screen_offset_x = -128", SaveData { screen_offset_x: -128, ..sample }),
-        ("screen_offset_y = 127", SaveData { screen_offset_y: 127, ..sample }),
-        ("screen_offset_y = 17", SaveData { screen_offset_y: 17, ..sample }),
-        ("unlocked_act = 16", SaveData { unlocked_act: 16, ..sample }),
+        (
+            "selected_costume = 200",
+            SaveData {
+                selected_costume: 200,
+                ..sample
+            },
+        ),
+        (
+            "language = 255",
+            SaveData {
+                language: 255,
+                ..sample
+            },
+        ),
+        (
+            "pal_mode = 200",
+            SaveData {
+                pal_mode: 200,
+                ..sample
+            },
+        ),
+        (
+            "screen_offset_x = -128",
+            SaveData {
+                screen_offset_x: -128,
+                ..sample
+            },
+        ),
+        (
+            "screen_offset_y = 127",
+            SaveData {
+                screen_offset_y: 127,
+                ..sample
+            },
+        ),
+        (
+            "screen_offset_y = 17",
+            SaveData {
+                screen_offset_y: 17,
+                ..sample
+            },
+        ),
+        (
+            "unlocked_act = 16",
+            SaveData {
+                unlocked_act: 16,
+                ..sample
+            },
+        ),
         // A VR act index in the campaign clear count: no longer reachable, so
         // a card carrying one is a save written by the unclamped CODEC path.
-        ("unlocked_act = 13 (VR index)", SaveData { unlocked_act: 13, ..sample }),
-        ("unlocked_act = 15 (VR index)", SaveData { unlocked_act: 15, ..sample }),
-        ("vr_cleared = 200", SaveData { vr_cleared: 200, ..sample }),
-        ("tuxedo_unlocked = 7", SaveData { tuxedo_unlocked: 7, ..sample }),
+        (
+            "unlocked_act = 13 (VR index)",
+            SaveData {
+                unlocked_act: 13,
+                ..sample
+            },
+        ),
+        (
+            "unlocked_act = 15 (VR index)",
+            SaveData {
+                unlocked_act: 15,
+                ..sample
+            },
+        ),
+        (
+            "vr_cleared = 200",
+            SaveData {
+                vr_cleared: 200,
+                ..sample
+            },
+        ),
+        (
+            "tuxedo_unlocked = 7",
+            SaveData {
+                tuxedo_unlocked: 7,
+                ..sample
+            },
+        ),
     ];
     for (label, bad) in out_of_range {
         // A valid checksum must not buy an out-of-range field a pass.
@@ -602,8 +571,16 @@ fn main() {
         assert!(bad.is_valid(), "{label} must still be structurally valid");
         assert!(!bad.is_sane(), "{label} must fail the sanity check (PD-9d)");
     }
-    let edge = SaveData { screen_offset_x: -16, screen_offset_y: 16, ..sample }.with_checksum();
-    assert!(edge.is_sane(), "The options menu's +/-16 clamp is the accepted boundary");
+    let edge = SaveData {
+        screen_offset_x: -16,
+        screen_offset_y: 16,
+        ..sample
+    }
+    .with_checksum();
+    assert!(
+        edge.is_sane(),
+        "The options menu's +/-16 clamp is the accepted boundary"
+    );
     // A VR clear records `vr_cleared` and leaves the campaign count alone, so a
     // save written from the VR trainer carries a campaign count, never a VR
     // act index: the largest legitimate value is "all 12 acts cleared".
@@ -613,16 +590,23 @@ fn main() {
         ..sample
     }
     .with_checksum();
-    assert!(vr_progress.is_sane(), "A save written from the VR trainer must stay valid");
+    assert!(
+        vr_progress.is_sane(),
+        "A save written from the VR trainer must stay valid"
+    );
     assert_eq!(
         load_outcome_for(Some(&vr_progress.to_bytes())),
         LoadOutcome::Loaded,
         "A VR-trainer save must load, not be reported as corrupt"
     );
-    println!("✓ Save field-range validation test (PD-9d) PASSED");
+    suite_passed("Save field-range validation test (PD-9d)");
 
     // 1e. Load classification: absent vs incompatible vs corrupt (PD-9c / 2.7)
-    assert_eq!(load_outcome_for(None), LoadOutcome::NotFound, "No file at all");
+    assert_eq!(
+        load_outcome_for(None),
+        LoadOutcome::NotFound,
+        "No file at all"
+    );
     let mut old_version = sample.to_bytes();
     old_version[OFF_VERSION] = 3;
     assert_eq!(
@@ -633,36 +617,160 @@ fn main() {
     assert_ne!(load_outcome_for(Some(&old_version)), load_outcome_for(None));
     let mut flipped = sample.to_bytes();
     flipped[OFF_ALERTS_COUNT] ^= 0x20;
-    assert_eq!(load_outcome_for(Some(&flipped)), LoadOutcome::Corrupt, "A bad checksum must be Corrupt");
+    assert_eq!(
+        load_outcome_for(Some(&flipped)),
+        LoadOutcome::Corrupt,
+        "A bad checksum must be Corrupt"
+    );
     let mut short = [0u8; 12];
     short[..4].copy_from_slice(&SAVE_MAGIC);
-    assert_eq!(load_outcome_for(Some(&short)), LoadOutcome::Corrupt, "A truncated payload must be Corrupt");
-    let insane = SaveData { selected_costume: 200, ..sample }.with_checksum();
+    assert_eq!(
+        load_outcome_for(Some(&short)),
+        LoadOutcome::Corrupt,
+        "A truncated payload must be Corrupt"
+    );
+    let insane = SaveData {
+        selected_costume: 200,
+        ..sample
+    }
+    .with_checksum();
     assert_eq!(
         load_outcome_for(Some(&insane.to_bytes())),
         LoadOutcome::Corrupt,
         "A save with a valid checksum but an out-of-range field must be treated as corrupt"
     );
-    assert_eq!(load_outcome_for(Some(&sample.to_bytes())), LoadOutcome::Loaded);
+    assert_eq!(
+        load_outcome_for(Some(&sample.to_bytes())),
+        LoadOutcome::Loaded
+    );
     // The rejected file stays on the card, and the next save overwrites it with
     // a fresh checksum: the game must know it happened.
-    assert_eq!(SaveData::new().with_checksum().is_valid(), true, "A rewritten save must validate");
-    println!("✓ Load outcome classification test (PD-9c) PASSED");
+    assert!(
+        SaveData::new().with_checksum().is_valid(),
+        "A rewritten save must validate"
+    );
+    suite_passed("Load outcome classification test (PD-9c)");
 
     // 2. Codename Evaluation Tests (12 Ranks)
-    assert_eq!(Codename::evaluate(0, 0, 300, 2), Codename::BigPlatypus, "0 alerts + 0 damage + fast time awards Big Platypus");
-    assert_eq!(Codename::evaluate(0, 5, 500, 0), Codename::GhostPlatypus, "0 alerts + 0 kills awards Ghost Platypus");
-    assert_eq!(Codename::evaluate(3, 4, 250, 3), Codename::SpeedyWallaby, "<= 300s awards Speedy Wallaby");
-    assert_eq!(Codename::evaluate(3, 10, 500, 12), Codename::TasmanianDevil, ">= 10 takedowns awards Tasmanian Devil");
-    assert_eq!(Codename::evaluate(1, 2, 500, 2), Codename::LurkingEchidna, "<= 2 alerts + <= 3 damage awards Lurking Echidna");
-    assert_eq!(Codename::evaluate(4, 15, 500, 3), Codename::IronBill, ">= 12 damage awards Iron Bill");
-    assert_eq!(Codename::evaluate(4, 5, 550, 2), Codename::SlyPossum, "<= 600s + <= 5 alerts awards Sly Possum");
-    assert_eq!(Codename::evaluate(3, 5, 700, 5), Codename::BushKoala, ">= 5 takedowns + <= 4 alerts awards Bush Koala");
-    assert_eq!(Codename::evaluate(6, 5, 700, 7), Codename::VenomousTaipan, ">= 6 takedowns awards Venomous Taipan");
-    assert_eq!(Codename::evaluate(7, 5, 800, 3), Codename::WombatTunnel, "<= 8 alerts awards Wombat Tunnel");
-    assert_eq!(Codename::evaluate(10, 5, 800, 1), Codename::CardboardHermit, "<= 1 takedowns awards Cardboard Hermit");
-    assert_eq!(Codename::evaluate(12, 5, 900, 4), Codename::DuckbillRookie, "Fallback awards Duckbill Rookie");
-    println!("✓ Codename evaluation & stealth rank test (12/12 codenames) PASSED");
+    assert_eq!(
+        Codename::evaluate(0, 0, 300, 2),
+        Codename::BigPlatypus,
+        "0 alerts + 0 damage + fast time awards Big Platypus"
+    );
+    assert_eq!(
+        Codename::evaluate(0, 5, 500, 0),
+        Codename::GhostPlatypus,
+        "0 alerts + 0 kills awards Ghost Platypus"
+    );
+    assert_eq!(
+        Codename::evaluate(3, 4, 250, 3),
+        Codename::SpeedyWallaby,
+        "<= 300s awards Speedy Wallaby"
+    );
+    assert_eq!(
+        Codename::evaluate(3, 10, 500, 12),
+        Codename::TasmanianDevil,
+        ">= 10 takedowns awards Tasmanian Devil"
+    );
+    assert_eq!(
+        Codename::evaluate(1, 2, 500, 2),
+        Codename::LurkingEchidna,
+        "<= 2 alerts + <= 3 damage awards Lurking Echidna"
+    );
+    assert_eq!(
+        Codename::evaluate(4, 15, 500, 3),
+        Codename::IronBill,
+        ">= 12 damage awards Iron Bill"
+    );
+    assert_eq!(
+        Codename::evaluate(4, 5, 550, 2),
+        Codename::SlyPossum,
+        "<= 600s + <= 5 alerts awards Sly Possum"
+    );
+    assert_eq!(
+        Codename::evaluate(3, 5, 700, 5),
+        Codename::BushKoala,
+        ">= 5 takedowns + <= 4 alerts awards Bush Koala"
+    );
+    assert_eq!(
+        Codename::evaluate(6, 5, 700, 7),
+        Codename::VenomousTaipan,
+        ">= 6 takedowns awards Venomous Taipan"
+    );
+    assert_eq!(
+        Codename::evaluate(7, 5, 800, 3),
+        Codename::WombatTunnel,
+        "<= 8 alerts awards Wombat Tunnel"
+    );
+    assert_eq!(
+        Codename::evaluate(10, 5, 800, 1),
+        Codename::CardboardHermit,
+        "<= 1 takedowns awards Cardboard Hermit"
+    );
+    assert_eq!(
+        Codename::evaluate(12, 5, 900, 4),
+        Codename::DuckbillRookie,
+        "Fallback awards Duckbill Rookie"
+    );
+    suite_passed("Codename evaluation & stealth rank test (12/12 codenames)");
+
+    // 2b. Codename ranking is total, reachable, monotone and round-trips (QA-5)
+    //
+    // The evaluator used to be checked at twelve hand-picked points. This is
+    // the full sweep: every rank must be reachable, `rank()` must order the
+    // variants best-first, and time may only ever lower a rank.
+    {
+        use plattypus_core::save::Codename;
+        let mut seen = [false; 12];
+        let mut evaluations = 0u32;
+        let mut monotonic_breaches = 0u32;
+
+        for alerts in 0..=32u16 {
+            for damage in 0..=32u16 {
+                for takedowns in 0..=20u16 {
+                    // Holding the other three inputs fixed, more time may never
+                    // improve the rank.
+                    let mut previous_rank = 0u8;
+                    let mut time_s = 0u32;
+                    while time_s <= 900 {
+                        let c = Codename::evaluate(alerts, damage, time_s, takedowns);
+                        seen[c.rank() as usize] = true;
+                        evaluations += 1;
+                        if time_s > 0 && c.rank() < previous_rank {
+                            monotonic_breaches += 1;
+                        }
+                        previous_rank = c.rank();
+                        time_s += 5;
+                    }
+                }
+            }
+        }
+        assert!(
+            evaluations > 1_000_000,
+            "codename sweep was suspiciously small ({evaluations})"
+        );
+        for (i, hit) in seen.iter().enumerate() {
+            assert!(
+                *hit,
+                "{} is unreachable",
+                Codename::from_index(i as u8).name()
+            );
+        }
+        assert_eq!(monotonic_breaches, 0, "time lowered a rank");
+
+        // `rank()` and `from_index` must be inverses over the whole domain.
+        for i in 0..=12u8 {
+            let c = Codename::from_index(i);
+            assert_eq!(c.rank(), i.min(11), "from_index({i}) did not round-trip");
+        }
+        // Out-of-domain input must clamp, not panic.
+        assert_eq!(
+            Codename::from_index(200).rank(),
+            Codename::ROOKIE.rank(),
+            "from_index must clamp"
+        );
+        assert_eq!(Codename::ROOKIE.rank(), 11, "ROOKIE must be the worst rank");
+    }
 
     // 3. Act Sequential Progression Tests
     let mut current_act = Act::Act1_1Drainage;
@@ -682,29 +790,41 @@ fn main() {
     assert!(Act::Act2_1Rapids.is_rapids());
     assert!(Act::Act2_3JetSkiBoss.is_rapids());
     assert!(!Act::Act2_2Mangroves.is_rapids());
-    println!("✓ Campaign act progression and metadata test PASSED");
+    suite_passed("Campaign act progression and metadata test");
 
     // 4. CellType Infiltration Collision Tests
-    assert!(CellType::AirDuct.is_solid(false), "Air duct must block standing operative");
-    assert!(!CellType::AirDuct.is_solid(true), "Air duct must permit crawling operative");
+    assert!(
+        CellType::AirDuct.is_solid(false),
+        "Air duct must block standing operative"
+    );
+    assert!(
+        !CellType::AirDuct.is_solid(true),
+        "Air duct must permit crawling operative"
+    );
     assert!(CellType::Wall.is_solid(false) && CellType::Wall.is_solid(true));
     assert!(CellType::Crate.is_solid(false) && CellType::Crate.is_solid(true));
     assert!(!CellType::Floor.is_solid(false) && !CellType::Floor.is_solid(true));
     assert!(CellType::Water.is_water());
     assert!(CellType::WaterCurrent.is_water());
     assert!(!CellType::Floor.is_water());
-    println!("✓ Infiltration collision & terrain mechanics test PASSED");
+    suite_passed("Infiltration collision & terrain mechanics test");
 
     // 5. Campaign Completion & Continue Bounds Tests (QA-1 / PD-1 / PD-2)
     let max_campaign_act = Act::Act4_3ExcavatorBoss as u8;
     assert_eq!(max_campaign_act, 11, "Act 4-3 must be act index 11");
-    assert_eq!(CAMPAIGN_ACT_COUNT, 12, "The campaign clear count tops out at 12");
+    assert_eq!(
+        CAMPAIGN_ACT_COUNT, 12,
+        "The campaign clear count tops out at 12"
+    );
 
     // Clearing the last act must read as "finished", which is a different
     // value from "Act 4-3 is now available" (11).
     let mut finished = SaveData::new();
     commit_progress(&mut finished, Some(Act::Act4_3ExcavatorBoss), 0, 0);
-    assert_eq!(finished.unlocked_act, CAMPAIGN_ACT_COUNT, "Clearing 4-3 completes the campaign");
+    assert_eq!(
+        finished.unlocked_act, CAMPAIGN_ACT_COUNT,
+        "Clearing 4-3 completes the campaign"
+    );
     assert!(campaign_completed(finished.unlocked_act));
     assert!(finished.is_sane());
 
@@ -712,10 +832,13 @@ fn main() {
     // whatever the card carries.
     for unlocked in 0..=255u8 {
         let act = Act::from_u8(pending_act(unlocked));
-        assert!(!act.is_vr(), "Continue act must never be a VR training stage");
+        assert!(
+            !act.is_vr(),
+            "Continue act must never be a VR training stage"
+        );
         assert!((act as u8) <= 11, "Continue act index must be in 0..=11");
     }
-    println!("✓ Campaign completion & continue bounds test (QA-1) PASSED");
+    suite_passed("Campaign completion & continue bounds test (QA-1)");
 
     // 6. Oxygen Depletion & Drowning Simulation Tests (QA-3 / UX-3)
     let mut sim_air: u8 = 100;
@@ -730,9 +853,18 @@ fn main() {
         }
         frames_underwater += 1;
     }
-    assert_eq!(frames_underwater, 400, "Submersion loop must run for 400 frames");
-    assert_eq!(sim_air, 0, "Air must reach 0 after exactly 400 frames (~6.67 seconds)");
-    assert_eq!(sim_health, 3, "Health must not be damaged while air remains");
+    assert_eq!(
+        frames_underwater, 400,
+        "Submersion loop must run for 400 frames"
+    );
+    assert_eq!(
+        sim_air, 0,
+        "Air must reach 0 after exactly 400 frames (~6.67 seconds)"
+    );
+    assert_eq!(
+        sim_health, 3,
+        "Health must not be damaged while air remains"
+    );
 
     // Simulate next 90 frames with 0 air: damage every 30 frames
     for frame in 401..=490 {
@@ -741,15 +873,24 @@ fn main() {
             drowning_damage_ticks += 1;
         }
     }
-    assert_eq!(drowning_damage_ticks, 3, "Drowning must tick damage once every 30 frames (0.5s)");
-    assert_eq!(sim_health, 0, "Operative must take fatal damage after sustained drowning");
+    assert_eq!(
+        drowning_damage_ticks, 3,
+        "Drowning must tick damage once every 30 frames (0.5s)"
+    );
+    assert_eq!(
+        sim_health, 0,
+        "Operative must take fatal damage after sustained drowning"
+    );
 
     // Surface recovery test
     for _ in 0..34 {
         sim_air = (sim_air + 3).min(100);
     }
-    assert_eq!(sim_air, 100, "Air must fully recover on surface in ~34 frames (~0.57s)");
-    println!("✓ Oxygen depletion & drowning rate test (QA-3) PASSED");
+    assert_eq!(
+        sim_air, 100,
+        "Air must fully recover on surface in ~34 frames (~0.57s)"
+    );
+    suite_passed("Oxygen depletion & drowning rate test (QA-3)");
 
     // 7. Cardboard Box Disguise Transitions (QA-5)
     let mut in_box = false;
@@ -760,7 +901,10 @@ fn main() {
     if has_box && on_ground && !in_water {
         in_box = !in_box;
     }
-    assert!(!in_box, "Cardboard box must NOT be equippable while airborne");
+    assert!(
+        !in_box,
+        "Cardboard box must NOT be equippable while airborne"
+    );
 
     // Attempt toggle in water
     let on_ground = true;
@@ -768,7 +912,10 @@ fn main() {
     if has_box && on_ground && !in_water {
         in_box = !in_box;
     }
-    assert!(!in_box, "Cardboard box must NOT be equippable while swimming in water");
+    assert!(
+        !in_box,
+        "Cardboard box must NOT be equippable while swimming in water"
+    );
 
     // Normal equip on dry ground
     let in_water = false;
@@ -782,8 +929,11 @@ fn main() {
     if in_water && in_box {
         in_box = false;
     }
-    assert!(!in_box, "Entering water must instantly shed Cardboard Box disguise");
-    println!("✓ Cardboard Box transition safety test (QA-5) PASSED");
+    assert!(
+        !in_box,
+        "Entering water must instantly shed Cardboard Box disguise"
+    );
+    suite_passed("Cardboard Box transition safety test (QA-5)");
 
     // 8. Boss Retry State Cleanliness Test (QA-2)
     #[allow(dead_code)]
@@ -805,9 +955,21 @@ fn main() {
             shield_active: true,
         };
         let conduits = [
-            MockPowerConduit { active: true, destroyed: false, health: 3 },
-            MockPowerConduit { active: true, destroyed: false, health: 3 },
-            MockPowerConduit { active: true, destroyed: false, health: 3 },
+            MockPowerConduit {
+                active: true,
+                destroyed: false,
+                health: 3,
+            },
+            MockPowerConduit {
+                active: true,
+                destroyed: false,
+                health: 3,
+            },
+            MockPowerConduit {
+                active: true,
+                destroyed: false,
+                health: 3,
+            },
         ];
         (boss, conduits)
     }
@@ -818,18 +980,24 @@ fn main() {
     conduits[0].destroyed = true;
     conduits[1].health = 0;
     conduits[1].destroyed = true;
-    assert_eq!(conduits[2].destroyed, false);
+    assert!(!conduits[2].destroyed);
 
     // Player dies and retries: stage reload must cleanly restore all conduits and shields
     let (boss_retry, conduits_retry) = init_mock_boss_mech();
-    assert!(boss_retry.shield_active, "Boss shield must be fully active on stage retry");
-    assert_eq!(boss_retry.health, 4, "Boss health must be fully restored to 4 on retry");
+    assert!(
+        boss_retry.shield_active,
+        "Boss shield must be fully active on stage retry"
+    );
+    assert_eq!(
+        boss_retry.health, 4,
+        "Boss health must be fully restored to 4 on retry"
+    );
     for (i, c) in conduits_retry.iter().enumerate() {
         assert!(c.active, "Conduit {} must be active", i);
         assert!(!c.destroyed, "Conduit {} must not be destroyed", i);
         assert_eq!(c.health, 3, "Conduit {} must have 3 health", i);
     }
-    println!("✓ Boss retry state cleanliness test (QA-2) PASSED");
+    suite_passed("Boss retry state cleanliness test (QA-2)");
 
     // 9. Rapids Lane Boundary & Riverbank Clipping Test (QA-4)
     // River corridor in Act 2-1:
@@ -843,7 +1011,7 @@ fn main() {
 
     let is_solid_at = |wx: i32, _wz: i32| -> bool {
         let gx = wx / TILE_SZ;
-        gx < 9 || gx >= 14 // Left and right banks are solid
+        !(9..14).contains(&gx) // Left and right banks are solid
     };
 
     // Hold LEFT hard while water current pushes downriver
@@ -855,17 +1023,24 @@ fn main() {
         let next_z = player_z + vz;
 
         // Collision logic as in platypus.rs
-        if !is_solid_at(next_x + col_radius, player_z) && !is_solid_at(next_x - col_radius, player_z) {
+        if !is_solid_at(next_x + col_radius, player_z)
+            && !is_solid_at(next_x - col_radius, player_z)
+        {
             player_x = next_x;
         }
-        if !is_solid_at(player_x, next_z + col_radius) && !is_solid_at(player_x, next_z - col_radius) {
+        if !is_solid_at(player_x, next_z + col_radius)
+            && !is_solid_at(player_x, next_z - col_radius)
+        {
             player_z = next_z;
         }
 
         // Assert player NEVER clips into the left bank (gx <= 8)
-        assert!(player_x - col_radius >= 9 * TILE_SZ, "Platty must never clip into the left bank wall or void");
+        assert!(
+            player_x - col_radius >= 9 * TILE_SZ,
+            "Platty must never clip into the left bank wall or void"
+        );
     }
-    println!("✓ Rapids lane boundary & clipping prevention test (QA-4) PASSED");
+    suite_passed("Rapids lane boundary & clipping prevention test (QA-4)");
 
     // 10. Score Display & HUD Format Bounds Test (QA-7)
     let format_score = |score: u32| -> [u8; 6] {
@@ -881,18 +1056,34 @@ fn main() {
     assert_eq!(&format_score(0), b"000000");
     assert_eq!(&format_score(1250), b"001250");
     assert_eq!(&format_score(999_990), b"999990");
-    assert_eq!(&format_score(1_500_000), b"999990", "Scores > 999,990 must be capped cleanly to 6 digits");
-    println!("✓ Score display format & 6-digit bounds test (QA-7) PASSED");
+    assert_eq!(
+        &format_score(1_500_000),
+        b"999990",
+        "Scores > 999,990 must be capped cleanly to 6 digits"
+    );
+    suite_passed("Score display format & 6-digit bounds test (QA-7)");
 
     // 11. PAL 50Hz vs NTSC 60Hz Frame->Second Conversion (QA-8 / UX-14b)
     // Every conversion in the game goes through `frames_to_seconds(frames,
     // frames_per_second)`, and the rate comes from the video standard in
     // force. Hardcoding 60 made a PAL run's displayed time, its stored
     // `best_time_seconds` and all 12 codename thresholds 20% too generous.
-    assert_eq!(frames_to_seconds(3600, FPS_NTSC), 60, "3600 frames at 60Hz is a minute");
-    assert_eq!(frames_to_seconds(3000, FPS_PAL), 60, "3000 frames at 50Hz is a minute");
+    assert_eq!(
+        frames_to_seconds(3600, FPS_NTSC),
+        60,
+        "3600 frames at 60Hz is a minute"
+    );
+    assert_eq!(
+        frames_to_seconds(3000, FPS_PAL),
+        60,
+        "3000 frames at 50Hz is a minute"
+    );
     assert_eq!(frames_to_seconds(0, FPS_NTSC), 0);
-    assert_eq!(frames_to_seconds(59, FPS_NTSC), 0, "A partial second truncates");
+    assert_eq!(
+        frames_to_seconds(59, FPS_NTSC),
+        0,
+        "A partial second truncates"
+    );
     assert_eq!(frames_to_seconds(49, FPS_PAL), 0);
     // The same wall clock is the same number of seconds on both standards:
     // 72 s is 4320 frames at 60Hz and 3600 at 50Hz.
@@ -900,7 +1091,10 @@ fn main() {
     assert_eq!(frames_to_seconds(3600, FPS_PAL), 72);
     // The regression: 3600 frames used to be reported as 60 s on both, so a PAL
     // player was told 72 s of play had taken a minute.
-    assert_ne!(frames_to_seconds(3600, FPS_NTSC), frames_to_seconds(3600, FPS_PAL));
+    assert_ne!(
+        frames_to_seconds(3600, FPS_NTSC),
+        frames_to_seconds(3600, FPS_PAL)
+    );
     // Codename thresholds are in seconds, so a 420 s rank-S run must be 420 s
     // of frames on whichever standard is in force -- the difficulty is the
     // same in wall-clock terms, which is the point.
@@ -917,7 +1111,7 @@ fn main() {
     // 300 s is the Speedy Wallaby gate; on PAL it is 15000 frames, not 18000.
     assert_eq!(frames_to_seconds(300 * FPS_PAL, FPS_PAL), 300);
     assert_eq!(frames_to_seconds(300 * FPS_PAL - 1, FPS_PAL), 299);
-    println!("✓ PAL 50Hz vs NTSC 60Hz frame->second conversion test (QA-8 / UX-14b) PASSED");
+    suite_passed("PAL 50Hz vs NTSC 60Hz frame->second conversion test (QA-8 / UX-14b)");
 
     // 12. Single commit_progress path: no writer leaves unlocked_act out of
     // range, and a VR act never advances the campaign (PD-1).
@@ -941,7 +1135,10 @@ fn main() {
                         save.unlocked_act
                     );
                     let checked = save.with_checksum();
-                    assert!(checked.is_valid() && checked.is_sane(), "A committed save must pass its own validation");
+                    assert!(
+                        checked.is_valid() && checked.is_sane(),
+                        "A committed save must pass its own validation"
+                    );
                     if act.is_vr() {
                         assert_eq!(
                             save.unlocked_act, start,
@@ -949,7 +1146,10 @@ fn main() {
                         );
                     }
                     if !advance {
-                        assert_eq!(save.unlocked_act, start, "A stats-only write must not move the campaign count");
+                        assert_eq!(
+                            save.unlocked_act, start,
+                            "A stats-only write must not move the campaign count"
+                        );
                     }
                 }
             }
@@ -963,7 +1163,11 @@ fn main() {
         loop {
             commit_progress(&mut linear, Some(act), 0, 0);
             clears += 1;
-            assert_eq!(linear.unlocked_act, clears, "Clearing act {} must unlock exactly {}", act as u8, clears);
+            assert_eq!(
+                linear.unlocked_act, clears,
+                "Clearing act {} must unlock exactly {}",
+                act as u8, clears
+            );
             assert!(!campaign_completed(linear.unlocked_act) || clears == CAMPAIGN_ACT_COUNT);
             match act.next() {
                 Some(next) => act = next,
@@ -971,11 +1175,17 @@ fn main() {
             }
         }
         assert_eq!(clears, 12);
-        assert!(campaign_completed(linear.unlocked_act), "A finished playthrough reads as finished");
+        assert!(
+            campaign_completed(linear.unlocked_act),
+            "A finished playthrough reads as finished"
+        );
         // Replaying an earlier act (Stage Select after the finish) must not
         // walk the count backwards: every writer is a `max`.
         commit_progress(&mut linear, Some(Act::Act1_1Drainage), 0, 0);
-        assert_eq!(linear.unlocked_act, CAMPAIGN_ACT_COUNT, "Progress never regresses on its own");
+        assert_eq!(
+            linear.unlocked_act, CAMPAIGN_ACT_COUNT,
+            "Progress never regresses on its own"
+        );
 
         // `total_yabbies` compares, it does not add: `platty.yabbies_collected`
         // is cumulative since `reset_for_new_game`, so the old `saturating_add`
@@ -998,10 +1208,13 @@ fn main() {
         // A VR clear and a scribe save both record stats without touching it.
         commit_progress(&mut yabbies, Some(Act::VrSpeed), 0, 5);
         commit_progress(&mut yabbies, None, 0, 7);
-        assert_eq!(yabbies.total_yabbies, 120, "A lower running total must not lower the record");
+        assert_eq!(
+            yabbies.total_yabbies, 120,
+            "A lower running total must not lower the record"
+        );
         assert_eq!(yabbies.highest_score, 0);
     }
-    println!("✓ Single commit_progress path & range invariant test (PD-1) PASSED");
+    suite_passed("Single commit_progress path & range invariant test (PD-1)");
 
     // 13. "NEW CAMPAIGN" resets the save (PD-3)
     {
@@ -1026,15 +1239,36 @@ fn main() {
         done.screen_offset_y = 6;
         done.wireframe_enabled = 1;
         let done = done.with_checksum();
-        assert!(campaign_completed(done.unlocked_act), "Precondition: the save is a finished campaign");
+        assert!(
+            campaign_completed(done.unlocked_act),
+            "Precondition: the save is a finished campaign"
+        );
 
         let fresh = new_campaign_save(&done);
-        assert_eq!(fresh.unlocked_act, 0, "A new campaign starts at the first act, not the last");
-        assert!(!campaign_completed(fresh.unlocked_act), "The title must not offer STAGE SELECT after a reset");
-        assert_eq!(title_continue(fresh.unlocked_act), TitleContinue::PlayAct(Act::Act1_1Drainage));
-        assert!(fresh.is_sane(), "A reset save must pass the field-range check");
-        assert!(fresh.is_valid(), "A reset save must be checksummed and loadable");
-        assert_eq!(load_outcome_for(Some(&fresh.to_bytes())), LoadOutcome::Loaded);
+        assert_eq!(
+            fresh.unlocked_act, 0,
+            "A new campaign starts at the first act, not the last"
+        );
+        assert!(
+            !campaign_completed(fresh.unlocked_act),
+            "The title must not offer STAGE SELECT after a reset"
+        );
+        assert_eq!(
+            title_continue(fresh.unlocked_act),
+            TitleContinue::PlayAct(Act::Act1_1Drainage)
+        );
+        assert!(
+            fresh.is_sane(),
+            "A reset save must pass the field-range check"
+        );
+        assert!(
+            fresh.is_valid(),
+            "A reset save must be checksummed and loadable"
+        );
+        assert_eq!(
+            load_outcome_for(Some(&fresh.to_bytes())),
+            LoadOutcome::Loaded
+        );
 
         // Progression is gone, the player's display setup is not.
         assert_eq!(fresh.tuxedo_unlocked, 0);
@@ -1048,15 +1282,25 @@ fn main() {
         // the unlocks being cleared, so keeping the selection would leave the
         // player wearing an unearned costume.
         assert_eq!(fresh.selected_costume, 0);
-        assert_eq!(fresh.language, 2, "Language is a setting, not an achievement");
+        assert_eq!(
+            fresh.language, 2,
+            "Language is a setting, not an achievement"
+        );
         assert_eq!(fresh.pal_mode, 1, "The video standard is a setting");
         assert_eq!(fresh.screen_offset_x, -4);
         assert_eq!(fresh.screen_offset_y, 6);
-        assert_eq!(fresh.wireframe_enabled, 1, "Wireframe is on by default, so its toggle survives");
+        assert_eq!(
+            fresh.wireframe_enabled, 1,
+            "Wireframe is on by default, so its toggle survives"
+        );
 
         // The reset depends on nothing but the five preserved settings, and is
         // deterministic: the same card always resets to the same save.
-        assert_eq!(fresh, new_campaign_save(&done), "The reset must be a pure function of the settings");
+        assert_eq!(
+            fresh,
+            new_campaign_save(&done),
+            "The reset must be a pure function of the settings"
+        );
         let mut other = done;
         other.unlocked_act = 1;
         other.tuxedo_unlocked = 0;
@@ -1064,14 +1308,21 @@ fn main() {
         other.highest_score = 0;
         other.selected_costume = 2;
         other.best_time_seconds = 9999;
-        assert_eq!(fresh, new_campaign_save(&other), "Progression must not survive in any form");
+        assert_eq!(
+            fresh,
+            new_campaign_save(&other),
+            "Progression must not survive in any form"
+        );
         let baseline = SaveData::new();
         assert_eq!(fresh.magic, baseline.magic);
         assert_eq!(fresh.version, baseline.version);
         assert_eq!(fresh.best_time_seconds, baseline.best_time_seconds);
-        assert_eq!(fresh.wireframe_unlocked, baseline.wireframe_unlocked, "Wireframe stays available by default");
+        assert_eq!(
+            fresh.wireframe_unlocked, baseline.wireframe_unlocked,
+            "Wireframe stays available by default"
+        );
     }
-    println!("✓ New-campaign save reset test (PD-3) PASSED");
+    suite_passed("New-campaign save reset test (PD-3)");
 
     // 14. "Campaign complete" is a distinct signal from "Act 4-3 pending" (PD-2)
     {
@@ -1086,8 +1337,14 @@ fn main() {
             act = act.next().expect("the campaign must lead to 4-3");
         }
         assert_eq!(before_final.unlocked_act, 11);
-        assert!(!campaign_completed(before_final.unlocked_act), "4-3 pending is not completion");
-        assert_eq!(title_continue(before_final.unlocked_act), TitleContinue::PlayAct(Act::Act4_3ExcavatorBoss));
+        assert!(
+            !campaign_completed(before_final.unlocked_act),
+            "4-3 pending is not completion"
+        );
+        assert_eq!(
+            title_continue(before_final.unlocked_act),
+            TitleContinue::PlayAct(Act::Act4_3ExcavatorBoss)
+        );
         assert!(!Act::Act4_3ExcavatorBoss.is_vr());
 
         // Clearing 4-3 moves the count to 12, which is the only value that
@@ -1099,7 +1356,10 @@ fn main() {
             "The completion signal must be a different value from the pending act"
         );
         assert!(campaign_completed(after_final.unlocked_act));
-        assert_eq!(title_continue(after_final.unlocked_act), TitleContinue::StageSelect);
+        assert_eq!(
+            title_continue(after_final.unlocked_act),
+            TitleContinue::StageSelect
+        );
 
         // The two states are one value apart, so the title cannot confuse them.
         assert_eq!(before_final.unlocked_act + 1, after_final.unlocked_act);
@@ -1113,7 +1373,7 @@ fn main() {
             }
         }
     }
-    println!("✓ Campaign-complete vs 4-3-pending title routing test (PD-2) PASSED");
+    suite_passed("Campaign-complete vs 4-3-pending title routing test (PD-2)");
 
     // 15. Boss intro camera orbit is a smooth full turn (UX-9)
     {
@@ -1139,7 +1399,11 @@ fn main() {
         // radius is the one the cutscene asks for.
         let (start_x, start_z) = boss_orbit_offset(0);
         let (end_x, end_z) = boss_orbit_offset(BOSS_INTRO_FRAMES);
-        assert_eq!((start_x, start_z), (end_x, end_z), "The orbit must complete one full turn");
+        assert_eq!(
+            (start_x, start_z),
+            (end_x, end_z),
+            "The orbit must complete one full turn"
+        );
         for (x, z) in positions.iter() {
             let r2 = x * x + z * z;
             let lo = (BOSS_ORBIT_RADIUS - 4) * (BOSS_ORBIT_RADIUS - 4);
@@ -1149,10 +1413,16 @@ fn main() {
 
         // Smooth: no frame-to-frame jump, where the old formula repeated the
         // same 16 positions 15 times over the cutscene.
-        let mut legacy_distinct: Vec<(i32, i32)> = (0..BOSS_INTRO_FRAMES).map(boss_orbit_offset_legacy).collect();
+        let mut legacy_distinct: Vec<(i32, i32)> = (0..BOSS_INTRO_FRAMES)
+            .map(boss_orbit_offset_legacy)
+            .collect();
         legacy_distinct.sort_unstable();
         legacy_distinct.dedup();
-        assert_eq!(legacy_distinct.len(), 16, "The pre-fix formula really was a 16-step stutter");
+        assert_eq!(
+            legacy_distinct.len(),
+            16,
+            "The pre-fix formula really was a 16-step stutter"
+        );
         for w in positions.windows(2) {
             let step = (w[1].0 - w[0].0).abs().max((w[1].1 - w[0].1).abs());
             assert!(step <= 32, "Camera jumped {step} units in one frame");
@@ -1165,7 +1435,7 @@ fn main() {
             "Halfway through the sweep the camera must be opposite its start (moved {across} units)"
         );
     }
-    println!("✓ Boss intro orbit sweep test (UX-9) PASSED");
+    suite_passed("Boss intro orbit sweep test (UX-9)");
 
     // 16. HUD Text Fitting: over-long, exactly-fitting and short runs (UX-3)
     //
@@ -1173,36 +1443,74 @@ fn main() {
     // a run that overshoots slides left; a run wider than the screen tightens
     // its inter-glyph gap; nothing is ever truncated.
     let short = "LIFE";
-    assert_eq!(fit_text(14, measure(short).0, measure(short).1), TextFit { x: 14, spacing: 0 });
+    assert_eq!(
+        fit_text(14, measure(short).0, measure(short).1),
+        TextFit { x: 14, spacing: 0 }
+    );
     let exact = "A".repeat(20); // 20 * 8 = 160 px
-    assert_eq!(fit_text(160, measure(&exact).0, measure(&exact).1), TextFit { x: 160, spacing: 0 });
-    assert_eq!(right_edge(&exact, fit_text(160, measure(&exact).0, measure(&exact).1)), 320);
-    assert_eq!(right_edge(&exact, fit_text(161, measure(&exact).0, measure(&exact).1)), 320);
+    assert_eq!(
+        fit_text(160, measure(&exact).0, measure(&exact).1),
+        TextFit { x: 160, spacing: 0 }
+    );
+    assert_eq!(
+        right_edge(&exact, fit_text(160, measure(&exact).0, measure(&exact).1)),
+        320
+    );
+    assert_eq!(
+        right_edge(&exact, fit_text(161, measure(&exact).0, measure(&exact).1)),
+        320
+    );
 
     // "OPERATION DUCK-BILL : MISSION DEBRIEFING" is 40 glyphs = 320 px: it
     // fits the screen exactly, but only from x = 0.
     let slide = "OPERATION DUCK-BILL : MISSION DEBRIEFING";
     let (w, c) = measure(slide);
-    assert_eq!(w, SCREEN_W as u16, "fixture must be exactly one screen wide");
+    assert_eq!(
+        w, SCREEN_W as u16,
+        "fixture must be exactly one screen wide"
+    );
     let fit = fit_text(28, w, c);
-    assert_eq!(fit, TextFit { x: 0, spacing: 0 }, "an over-long run slides, it does not tighten");
-    assert_eq!(right_edge(slide, fit), 320, "An over-long run must land on the right margin");
+    assert_eq!(
+        fit,
+        TextFit { x: 0, spacing: 0 },
+        "an over-long run slides, it does not tighten"
+    );
+    assert_eq!(
+        right_edge(slide, fit),
+        320,
+        "An over-long run must land on the right margin"
+    );
 
     // Wider than the screen: tighten, then pin to the left edge. This is the
     // longest stage title, "ACT 4-2: PIER UNDERSTRUCTURE (SHARK TRENCH)".
     let very_long = "ACT 4-2: PIER UNDERSTRUCTURE (SHARK TRENCH)";
     let (w, c) = measure(very_long);
-    assert!(w > SCREEN_W as u16, "fixture must start out wider than the screen");
+    assert!(
+        w > SCREEN_W as u16,
+        "fixture must start out wider than the screen"
+    );
     let fit = fit_text(40, w, c);
     assert_eq!(fit.x, 0);
-    assert_eq!(fit.spacing, -1, "Tightening is the second step, after sliding left");
-    assert!(right_edge(very_long, fit) <= SCREEN_W as i32, "43 glyphs at -1 tracking must fit");
+    assert_eq!(
+        fit.spacing, -1,
+        "Tightening is the second step, after sliding left"
+    );
+    assert!(
+        right_edge(very_long, fit) <= SCREEN_W as i32,
+        "43 glyphs at -1 tracking must fit"
+    );
 
     // Longer than tightening can save: drawn from x=0 and allowed to clip,
     // because dropping characters is worse than a clipped tail.
     let hopeless = "Z".repeat(60);
     let fit = fit_text(0, measure(&hopeless).0, measure(&hopeless).1);
-    assert_eq!(fit, TextFit { x: 0, spacing: MAX_TIGHTENING });
+    assert_eq!(
+        fit,
+        TextFit {
+            x: 0,
+            spacing: MAX_TIGHTENING
+        }
+    );
     assert!(right_edge(&hopeless, fit) > SCREEN_W as i32);
 
     // A negative x (world-space labels can project off the left edge) is
@@ -1213,10 +1521,18 @@ fn main() {
     let (w, c) = measure("PRESS CROSS TO PROCEED TO EPILOGUE");
     let fit = center_text(w, c);
     assert_eq!(fit.spacing, 0);
-    assert_eq!(right_edge("PRESS CROSS TO PROCEED TO EPILOGUE", fit), 320 - fit.x as i32, "centred runs must have equal margins");
+    assert_eq!(
+        right_edge("PRESS CROSS TO PROCEED TO EPILOGUE", fit),
+        320 - fit.x as i32,
+        "centred runs must have equal margins"
+    );
     let (w, c) = measure(very_long);
     let fit = center_text(w, c);
-    assert_eq!(right_edge(very_long, fit), 320 - fit.x as i32, "a tightened run must still be centred");
+    assert_eq!(
+        right_edge(very_long, fit),
+        320 - fit.x as i32,
+        "a tightened run must still be centred"
+    );
 
     // Every string the game draws, at the x it draws it at, must end on or
     // before the right margin. Mirrors the call sites changed in UX-3.
@@ -1246,7 +1562,7 @@ fn main() {
             edge
         );
     }
-    println!("✓ HUD text fitting & centring test (UX-3) PASSED");
+    suite_passed("HUD text fitting & centring test (UX-3)");
 
     // 17. Behind-camera rejection and winding overflow safety (SE-3)
     //
@@ -1286,10 +1602,24 @@ fn main() {
             }
         }
     }
-    assert_eq!(checked, 17 * 17 * 17, "exhaustive small sweep must actually run");
-    assert!(winding_cross((0, 0), (10, 0), (0, 10)) > 0, "counter-clockwise is front-facing");
-    assert!(winding_cross((0, 0), (0, 10), (10, 0)) < 0, "clockwise is a back face");
-    assert_eq!(winding_cross((0, 0), (10, 0), (20, 0)), 0, "collinear points are degenerate");
+    assert_eq!(
+        checked,
+        17 * 17 * 17,
+        "exhaustive small sweep must actually run"
+    );
+    assert!(
+        winding_cross((0, 0), (10, 0), (0, 10)) > 0,
+        "counter-clockwise is front-facing"
+    );
+    assert!(
+        winding_cross((0, 0), (0, 10), (10, 0)) < 0,
+        "clockwise is a back face"
+    );
+    assert_eq!(
+        winding_cross((0, 0), (10, 0), (20, 0)),
+        0,
+        "collinear points are degenerate"
+    );
 
     // The defect: raw i16 GTE output 65 535 apart in both axes. Unclamped,
     // ax * by is 4.29e9 and the difference 3.22e9, past i32::MAX; with
@@ -1297,18 +1627,35 @@ fn main() {
     // sign, so a front face is culled and a back face drawn.
     let overflow_case = ((i16::MIN, i16::MIN), (i16::MAX, 0i16), (0i16, i16::MAX));
     let exact = winding_cross_i64(overflow_case.0, overflow_case.1, overflow_case.2);
-    assert!(exact > i32::MAX as i64, "fixture must overflow a naive i32 product");
+    assert!(
+        exact > i32::MAX as i64,
+        "fixture must overflow a naive i32 product"
+    );
     let wrapped = exact as i32;
-    assert!(wrapped < 0, "the wrapped i32 value must be the sign flip SE-3 describes");
+    assert!(
+        wrapped < 0,
+        "the wrapped i32 value must be the sign flip SE-3 describes"
+    );
     let cross = winding_cross(overflow_case.0, overflow_case.1, overflow_case.2);
-    assert!(cross > 0, "the clamped result keeps the true winding sign, so the test cannot invert");
-    assert_eq!(cross, 3 * 1_048_576, "clamped operands give the documented clamped product");
+    assert!(
+        cross > 0,
+        "the clamped result keeps the true winding sign, so the test cannot invert"
+    );
+    assert_eq!(
+        cross,
+        3 * 1_048_576,
+        "clamped operands give the documented clamped product"
+    );
     assert!(cross.abs() <= 2 * (2 * WINDING_CLAMP) * (2 * WINDING_CLAMP));
     // Whatever the input, the clamped product is bounded by the clamp.
-    let extreme = ((i16::MIN, i16::MIN), (i16::MAX, i16::MAX), (i16::MIN, i16::MAX));
+    let extreme = (
+        (i16::MIN, i16::MIN),
+        (i16::MAX, i16::MAX),
+        (i16::MIN, i16::MAX),
+    );
     let cross = winding_cross(extreme.0, extreme.1, extreme.2);
     assert!(cross.abs() <= 2 * (2 * WINDING_CLAMP) * (2 * WINDING_CLAMP));
-    println!("✓ Backface winding overflow & behind-camera cull test (SE-3) PASSED");
+    suite_passed("Backface winding overflow & behind-camera cull test (SE-3)");
 
     // 18. Analog velocity follows the stick magnitude at every angle (UX-4)
     //
@@ -1329,7 +1676,10 @@ fn main() {
         let mag = isqrt_i32(63 * 63 + 63 * 63);
         let speed = ((4 * mag) / ANALOG_FULL_DEFLECTION).max(1);
         let v = heading_velocity(32, speed);
-        assert!(v.0 != 0 || v.1 != 0, "45-degree input must not produce zero velocity");
+        assert!(
+            v.0 != 0 || v.1 != 0,
+            "45-degree input must not produce zero velocity"
+        );
         assert!(v.0 > 0 && v.1 > 0, "45-degree input must move south-east");
 
         // Exhaustive sweep: speed is monotonic in magnitude and never zero.
@@ -1339,7 +1689,7 @@ fn main() {
             // Sample the circle at this magnitude at 16 headings.
             let mut slowest = i32::MAX;
             for k in 0..16u16 {
-                let angle = (k * 16) as u16;
+                let angle = k * 16;
                 let v = heading_velocity(angle, speed);
                 assert!(
                     v.0 != 0 || v.1 != 0,
@@ -1371,7 +1721,7 @@ fn main() {
     //     matches the digital D-pad (UX-4)
     {
         for k in 0..64u16 {
-            let angle = (k * 4) as u16;
+            let angle = k * 4;
             let v = heading_velocity(angle, 4);
             let m = speed_of(v);
             assert!(
@@ -1382,8 +1732,14 @@ fn main() {
         // Digital parity: the D-pad aims the same normalised vector, so the
         // eight fixed headings must produce the same magnitudes as analog.
         for (mx, mz, angle) in [
-            (1i32, 0i32, 64u16), (0, 1, 0), (0, -1, 128), (-1, 0, 192),
-            (1, 1, 32), (1, -1, 96), (-1, 1, 224), (-1, -1, 160),
+            (1i32, 0i32, 64u16),
+            (0, 1, 0),
+            (0, -1, 128),
+            (-1, 0, 192),
+            (1, 1, 32),
+            (1, -1, 96),
+            (-1, 1, 224),
+            (-1, -1, 160),
         ] {
             let digital = heading_velocity(angle, 4);
             let analog = heading_velocity(angle, 4); // same function now
@@ -1409,7 +1765,7 @@ fn main() {
         for mag in 1..=127 {
             let speed = run_speed_for(mag, false, true);
             for k in 0..16u16 {
-                let angle = (k * 16) as u16;
+                let angle = k * 16;
                 let v = heading_velocity(angle, speed);
                 let moving = v.0 != 0 || v.1 != 0;
                 assert!(
@@ -1421,73 +1777,227 @@ fn main() {
         // And the legacy path demonstrably did not, which is the regression.
         let mut found_stall = false;
         for sx in -127..=127 {
-            for sy in [-127i32, -100, -89, -75, -63, -50, -32, 0, 32, 50, 63, 75, 89, 100, 127] {
+            for sy in [
+                -127i32, -100, -89, -75, -63, -50, -32, 0, 32, 50, 63, 75, 89, 100, 127,
+            ] {
                 let v = legacy_analog_velocity(sx, sy, 4);
                 if v.0 == 0 && v.1 == 0 {
                     found_stall = true;
                 }
             }
         }
-        assert!(found_stall, "fixture is wrong: the old path no longer stalls anywhere");
+        assert!(
+            found_stall,
+            "fixture is wrong: the old path no longer stalls anywhere"
+        );
     }
 
     // 21. Laser tripwires survive level generation and are armed (UX-2)
+    //
+    // This asserts against the real `plattypus_core::level::Level`, not a
+    // mirror of `generate_act1_2`, so a change to the generator that erases a
+    // tripwire fails here.
     {
-        let cells = generate_act1_2();
-        let expected = [(7usize, 6usize), (7, 16), (15, 11), (11, 11), (11, 6), (11, 16)];
+        let level = Level::new(Act::Act1_2Barracks);
+        let expected = [
+            (7usize, 6usize),
+            (7, 16),
+            (15, 11),
+            (11, 11),
+            (11, 6),
+            (11, 16),
+        ];
         for (gx, gz) in expected {
             assert_eq!(
-                cells[gz * GRID_W + gx],
+                level.get_cell(gx, gz),
                 CellType::LaserTripwire,
                 "tripwire at ({gx},{gz}) was erased by a later generator pass"
             );
         }
-        let total = cells.iter().filter(|c| **c == CellType::LaserTripwire).count();
+        let total = level
+            .cells
+            .iter()
+            .filter(|c| **c == CellType::LaserTripwire)
+            .count();
         assert_eq!(total, expected.len(), "Act 1-2 tripwire count changed");
 
         // Tripwires are passable, so the crawl bypass works and an upright
         // player is what trips them.
         assert!(!CellType::LaserTripwire.is_solid(false));
         assert!(!CellType::LaserTripwire.is_solid(true));
+
+        // The world-space query and the cell lookup must agree, or the player
+        // trips a beam that is not drawn or misses one that is.
+        let (gx, gz) = (11usize, 6usize);
+        assert!(level.laser_tripwire_at(
+            gx as i32 * TILE_SZ + TILE_SZ / 2,
+            gz as i32 * TILE_SZ + TILE_SZ / 2
+        ));
     }
 
-    // 22. No generator erases a gameplay-critical cell (UX-2)
+    // 22. Every generated level is internally consistent (QA-16)
     {
-        // Each act's declared hazard cells must survive their own generator.
-        let cases: [(Act, &[(usize, usize)]); 4] = [
-            (Act::Act1_1Drainage, &[(16, 10)]),
-            (Act::Act1_2Barracks, &[(7, 6), (7, 16), (15, 11), (11, 11), (11, 6), (11, 16)]),
-            (Act::Act3_2Laneways, &[]),
-            (Act::VrSpeed, &[(11, 13), (12, 13), (13, 13)]),
+        let all = [
+            Act::Act1_1Drainage,
+            Act::Act1_2Barracks,
+            Act::Act1_3MechBoss,
+            Act::Act2_1Rapids,
+            Act::Act2_2Mangroves,
+            Act::Act2_3JetSkiBoss,
+            Act::Act3_1Highway,
+            Act::Act3_2Laneways,
+            Act::Act3_3SniperBoss,
+            Act::Act4_1Dunes,
+            Act::Act4_2PierTrench,
+            Act::Act4_3ExcavatorBoss,
+            Act::VrSneaking,
+            Act::VrCqc,
+            Act::VrSonar,
+            Act::VrSpeed,
         ];
-        for (act, hazards) in cases {
-            let cells = generate_act(act);
-            for (gx, gz) in hazards {
-                assert_eq!(
-                    cells[gz * GRID_W + gx],
-                    CellType::LaserTripwire,
-                    "{act:?} lost its tripwire at ({gx},{gz})"
+        for act in all {
+            let level = Level::new(act);
+
+            // The exit burrow must be reachable ground, never a wall. Read the
+            // position the generator actually produced rather than a
+            // hand-maintained table, which previously disagreed with it.
+            //
+            // Boss arenas are exempt: they are deliberately sealed (Act 1-3
+            // paints its own exit cell as a wall) and the stage ends when the
+            // boss dies, not when the exit is reached.
+            let ex = (level.exit_x / TILE_SZ) as usize;
+            let ez = (level.exit_z / TILE_SZ) as usize;
+            assert!(
+                ex < GRID_W && ez < GRID_D,
+                "{act:?} exit ({ex},{ez}) is off the grid"
+            );
+            let exit_cell = level.get_cell(ex, ez);
+            if act.is_boss() {
+                assert!(
+                    level.is_exit_at(level.exit_x, level.exit_z),
+                    "{act:?} boss arena has no reachable exit position"
+                );
+            } else {
+                assert!(
+                    !exit_cell.is_solid(false),
+                    "{act:?} exit sits in a {exit_cell:?} cell"
+                );
+
+                // Flood fill from the spawn: the exit must be walkable, or the
+                // stage cannot be completed.
+                let mut seen = [[false; GRID_D]; GRID_W];
+                let (sx, sz) = (
+                    (level.player_start_x / TILE_SZ) as usize,
+                    (level.player_start_z / TILE_SZ) as usize,
+                );
+                let mut stack = vec![(sx, sz)];
+                seen[sx][sz] = true;
+                while let Some((cx, cz)) = stack.pop() {
+                    for (nx, nz) in [
+                        (cx.wrapping_sub(1), cz),
+                        (cx + 1, cz),
+                        (cx, cz.wrapping_sub(1)),
+                        (cx, cz + 1),
+                    ] {
+                        if nx >= GRID_W || nz >= GRID_D || seen[nx][nz] {
+                            continue;
+                        }
+                        if level.get_cell(nx, nz).is_solid(false) {
+                            continue;
+                        }
+                        seen[nx][nz] = true;
+                        stack.push((nx, nz));
+                    }
+                }
+                assert!(
+                    seen[ex][ez],
+                    "{act:?} exit at ({ex},{ez}) is walled off from the spawn"
                 );
             }
-            // The exit burrow must be reachable ground, never a wall.
-            let exit_cell = cells[exit_cell_index(act)];
+
+            // The exit trigger must not be takeable from a neighbouring tile.
             assert!(
-                !exit_cell.is_solid(false),
-                "{act:?} exit sits in a {exit_cell:?} cell"
+                !level.is_exit_at(level.exit_x + TILE_SZ, level.exit_z),
+                "{act:?} exit can be taken from the neighbouring tile"
             );
+            assert!(
+                !level.is_exit_at(level.exit_x, level.exit_z + TILE_SZ),
+                "{act:?} exit can be taken from the neighbouring tile"
+            );
+            assert!(
+                level.is_exit_at(level.exit_x, level.exit_z),
+                "{act:?} exit is not triggerable from its own centre"
+            );
+
+            // The player spawn must be inside the grid and on ground.
+            let sx = (level.player_start_x / TILE_SZ) as usize;
+            let sz = (level.player_start_z / TILE_SZ) as usize;
+            assert!(
+                sx < GRID_W && sz < GRID_D,
+                "{act:?} spawn ({sx},{sz}) is off the grid"
+            );
+            assert!(
+                !level.get_cell(sx, sz).is_solid(false),
+                "{act:?} spawns the player inside {:?}",
+                level.get_cell(sx, sz)
+            );
+
+            // The enclosing perimeter must be closed, or a stage can be
+            // escaped by walking off the edge of the map.
+            for x in 0..GRID_W {
+                assert!(
+                    level.get_cell(x, 0).is_solid(false)
+                        && level.get_cell(x, GRID_D - 1).is_solid(false),
+                    "{act:?} has an open perimeter on the {x} column"
+                );
+            }
+            for z in 0..GRID_D {
+                assert!(
+                    level.get_cell(0, z).is_solid(false)
+                        && level.get_cell(GRID_W - 1, z).is_solid(false),
+                    "{act:?} has an open perimeter on the {z} row"
+                );
+            }
         }
+    }
+
+    // 22b. `has_line_of_sight` is symmetric and respects solid endpoints
+    // (PD-8). The mirror this replaced only sampled a hand-written wall list;
+    // these run over the real generated geometry.
+    {
+        let level = Level::new(Act::Act1_2Barracks);
+        let mut checked = 0usize;
+        for gz0 in 1..GRID_D - 1 {
+            for gx0 in 1..GRID_W - 1 {
+                for gz1 in 1..GRID_D - 1 {
+                    for gx1 in 1..GRID_W - 1 {
+                        let (x0, z0) = (gx0 as i32 * TILE_SZ + 32, gz0 as i32 * TILE_SZ + 32);
+                        let (x1, z1) = (gx1 as i32 * TILE_SZ + 32, gz1 as i32 * TILE_SZ + 32);
+                        let ab = level.has_line_of_sight(x0, z0, x1, z1);
+                        let ba = level.has_line_of_sight(x1, z1, x0, z0);
+                        assert_eq!(
+                            ab, ba,
+                            "line of sight is not symmetric for ({x0},{z0})->({x1},{z1})"
+                        );
+                        // A cell that is solid cannot see out of itself.
+                        if level.get_cell(gx0, gz0).is_solid(false) {
+                            assert!(!ab, "a solid cell reported line of sight");
+                        }
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        assert!(checked > 100_000, "LOS sweep was suspiciously small");
     }
 
     // 23. The exit trigger cannot fire through a wall (UX-2 Part C)
     {
         assert_eq!(EXIT_TRIGGER_RADIUS, 28);
-        assert!(EXIT_TRIGGER_RADIUS < TILE_SZ, "exit trigger must stay inside its tile");
+        const _: () = assert!(EXIT_TRIGGER_RADIUS < TILE_SZ);
         // The old 40-unit half-extent reached 40 units out, past the 32-unit
         // tile centre offset of the neighbouring tile.
-        assert!(
-            EXIT_TRIGGER_RADIUS <= TILE_SZ / 2,
-            "exit trigger still spans beyond its own tile"
-        );
+        const _: () = assert!(EXIT_TRIGGER_RADIUS <= TILE_SZ / 2);
     }
 
     // 24. Only an alerted sentry can strike (UX-6)
@@ -1497,12 +2007,30 @@ fn main() {
         let strikes = |see_player: bool, state: SentryState, stun: u16, cd: u8| -> bool {
             stun == 0 && (see_player || state == SentryState::AlertChase) && cd == 0
         };
-        assert!(!strikes(false, SentryState::Patrolling, 0, 0), "unaware guard must not strike");
-        assert!(!strikes(false, SentryState::Investigating, 0, 0), "unaware guard must not strike");
-        assert!(strikes(true, SentryState::Patrolling, 0, 0), "a guard that sees you strikes");
-        assert!(strikes(false, SentryState::AlertChase, 0, 0), "a chasing guard strikes");
-        assert!(!strikes(true, SentryState::Patrolling, 0, 5), "cooldown must be honoured");
-        assert!(!strikes(true, SentryState::Patrolling, 30, 0), "a stunned guard must not strike");
+        assert!(
+            !strikes(false, SentryState::Patrolling, 0, 0),
+            "unaware guard must not strike"
+        );
+        assert!(
+            !strikes(false, SentryState::Investigating, 0, 0),
+            "unaware guard must not strike"
+        );
+        assert!(
+            strikes(true, SentryState::Patrolling, 0, 0),
+            "a guard that sees you strikes"
+        );
+        assert!(
+            strikes(false, SentryState::AlertChase, 0, 0),
+            "a chasing guard strikes"
+        );
+        assert!(
+            !strikes(true, SentryState::Patrolling, 0, 5),
+            "cooldown must be honoured"
+        );
+        assert!(
+            !strikes(true, SentryState::Patrolling, 30, 0),
+            "a stunned guard must not strike"
+        );
     }
 
     // 25. SPU sample bank: dedup, bounds, and the unconfigured-voice fix
@@ -1524,13 +2052,25 @@ fn main() {
 
         // The distinct blobs, and how many voices want each.
         let blobs: [(&str, u32); 8] = [
-            ("jump", 6336), ("coin", 7200), ("swoosh", 14256), ("punch", 7264),
-            ("metal", 31536), ("beep", 2048), ("footstep", 2832), ("select", 40800),
+            ("jump", 6336),
+            ("coin", 7200),
+            ("swoosh", 14256),
+            ("punch", 7264),
+            ("metal", 31536),
+            ("beep", 2048),
+            ("footstep", 2832),
+            ("select", 40800),
         ];
         // The SFX table, as (blob index, voice). VOICE_SPLASH reuses swoosh,
         // VOICE_SPUR reuses metal, ALERT/CHIME/VOICE reuses beep.
         let table: [(usize, u32); 13] = [
-            (0, 0), (1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6),
+            (0, 0),
+            (1, 1),
+            (2, 2),
+            (3, 3),
+            (4, 4),
+            (5, 5),
+            (6, 6),
             (2, 7),  // SPLASH -> swoosh
             (5, 8),  // ALERT  -> beep
             (4, 9),  // SPUR   -> metal
@@ -1544,9 +2084,9 @@ fn main() {
             let (_, len) = blobs[blob];
             let fp = (blob as u32) | 0x8000_0000; // unique per blob
             let mut reused = None;
-            for i in 0..bank_len {
-                if bank[i].1 == len && bank[i].2 == fp {
-                    reused = Some(bank[i].0);
+            for entry in bank.iter().take(bank_len) {
+                if entry.1 == len && entry.2 == fp {
+                    reused = Some(entry.0);
                     break;
                 }
             }
@@ -1568,7 +2108,10 @@ fn main() {
 
         // Every voice, including SELECT, now has a real address.
         for v in 0..13u32 {
-            assert!(addrs[v as usize] >= SPU_BASE, "voice {v} has no configured address");
+            assert!(
+                addrs[v as usize] >= SPU_BASE,
+                "voice {v} has no configured address"
+            );
         }
         // 13 voices but only 8 distinct blobs.
         assert_eq!(bank_len, 8, "expected 8 distinct uploads for 13 voices");
@@ -1663,16 +2206,20 @@ fn main() {
         decoy[2..6].copy_from_slice(&0x0000_9999u32.to_le_bytes());
         decoy[32] = 12;
         decoy[33..45].copy_from_slice(b"INTRO.VIDX;1");
-        assert_eq!(walk(&decoy, b"INTRO.VID"), None, "prefix decoy must not match");
+        assert_eq!(
+            walk(&decoy, b"INTRO.VID"),
+            None,
+            "prefix decoy must not match"
+        );
     }
 
     // 27. Video frame geometry is self-consistent (SE-17 / M3)
     {
         assert_eq!(SECTORS_PER_FRAME * 2048, WORDS_PER_FRAME * 4);
-        assert!(EMBEDDED_FRAME_COUNT <= TOTAL_FRAMES);
+        const _: () = assert!(EMBEDDED_FRAME_COUNT <= TOTAL_FRAMES);
         // The fallback must never be longer than the film, or the modulo would
         // never cycle and the 10s voiceover would outlast a 1s video loop.
-        assert!(EMBEDDED_FRAME_COUNT < TOTAL_FRAMES);
+        const _: () = assert!(EMBEDDED_FRAME_COUNT < TOTAL_FRAMES);
     }
 
     // 28. A CD read failure retries before giving up (SE-4)
@@ -1693,7 +2240,10 @@ fn main() {
                 }
             }
         }
-        assert!(!using_cd, "must eventually fall back after repeated failures");
+        assert!(
+            !using_cd,
+            "must eventually fall back after repeated failures"
+        );
         assert_eq!(retries, CD_READ_RETRIES + 1);
         // A single transient failure must not disable streaming.
         let mut retries = 0u8;
@@ -1750,7 +2300,10 @@ fn main() {
         // The per-stage figures the game now passes must be within the rank's
         // own thresholds, i.e. a single stage is a sane unit to grade.
         let per_stage_time = 180u32;
-        assert!(per_stage_time <= 420, "a single stage fits the Rank S time gate");
+        assert!(
+            per_stage_time <= 420,
+            "a single stage fits the Rank S time gate"
+        );
         // A full campaign is well outside it, which is why cumulative time
         // made the rank impossible.
         let campaign_time = 12 * 180;
@@ -1765,9 +2318,17 @@ fn main() {
         // Mirrors the load_act baseline / current-value subtraction the game
         // uses, including the saturating case where a reset lowers the counter.
         let stage_damage = |before: u16, now: u16| now.saturating_sub(before);
-        assert_eq!(stage_damage(40, 43), 3, "a stage that took 3 damage reports 3");
+        assert_eq!(
+            stage_damage(40, 43),
+            3,
+            "a stage that took 3 damage reports 3"
+        );
         assert_eq!(stage_damage(40, 40), 0, "an untouched stage reports 0");
-        assert_eq!(stage_damage(40, 10), 0, "a lowered counter must not underflow");
+        assert_eq!(
+            stage_damage(40, 10),
+            0,
+            "a lowered counter must not underflow"
+        );
     }
 
     // 31. Line of sight is a real traversal, not a midpoint test (PD-8)
@@ -1835,18 +2396,30 @@ fn main() {
         // caught; the failures came from lines that *crossed* a wall row away
         // from their midpoint, which the two cases below cover.
         assert!(!los(&[(3, 0)], 0, 0, 6, 0), "a wall at the midpoint blocks");
-        assert!(!los(&[(1, 0)], 0, 0, 6, 0), "a wall off the midpoint blocks");
+        assert!(
+            !los(&[(1, 0)], 0, 0, 6, 0),
+            "a wall off the midpoint blocks"
+        );
 
         // A wall the line must pass through, with a gap elsewhere. The line
         // runs (0,0)->(6,0) through the row z = 0; walls at x = 2..5 block it.
         let row: [(i32, i32); 4] = [(2, 0), (3, 0), (4, 0), (5, 0)];
-        assert!(!los(&row, 0, 0, 6, 0), "a line through a wall must be blocked");
+        assert!(
+            !los(&row, 0, 0, 6, 0),
+            "a line through a wall must be blocked"
+        );
         // Carve the one tile the line runs through (x = 3) and it is open.
         let gapped: [(i32, i32); 3] = [(2, 0), (4, 0), (5, 0)];
-        assert!(!los(&gapped, 0, 0, 6, 0), "off-line wall tiles still sit on the row");
+        assert!(
+            !los(&gapped, 0, 0, 6, 0),
+            "off-line wall tiles still sit on the row"
+        );
         // Only walls strictly off the line do not block it.
         let off_line: [(i32, i32); 1] = [(3, 5)];
-        assert!(los(&off_line, 0, 0, 6, 0), "a wall away from the line does not block");
+        assert!(
+            los(&off_line, 0, 0, 6, 0),
+            "a wall away from the line does not block"
+        );
 
         // Diagonal squeeze: a wall corner the line clips must block, so a guard
         // cannot see through a gap that only exists diagonally.
@@ -1895,7 +2468,11 @@ fn main() {
         }
 
         // Held in a beam for two seconds, then the beam ends.
-        let mut m = Model { timer: 0, cooldown: 0, alert: false };
+        let mut m = Model {
+            timer: 0,
+            cooldown: 0,
+            alert: false,
+        };
         for _ in 0..120 {
             m.trigger();
             m.tick();
@@ -1914,7 +2491,11 @@ fn main() {
         assert!(!m.alert, "the alert must expire once detection stops");
 
         // And it must expire within a bounded time, not hang at full.
-        let mut m2 = Model { timer: 0, cooldown: 0, alert: false };
+        let mut m2 = Model {
+            timer: 0,
+            cooldown: 0,
+            alert: false,
+        };
         m2.trigger();
         let mut frames_to_expire = 0u16;
         while m2.alert && frames_to_expire < 10_000 {
@@ -1923,7 +2504,7 @@ fn main() {
         }
         assert!(!m2.alert, "an untouched alert must expire");
         assert!(
-            frames_to_expire <= ALERT_DURATION as u16 + 2,
+            frames_to_expire <= ALERT_DURATION + 2,
             "expiry took {frames_to_expire} frames, expected about {ALERT_DURATION}"
         );
     }
@@ -1936,12 +2517,31 @@ fn main() {
         let is_in_alert = false; // sampled before the loop
         let alert_triggered = true; // a sentry sees the player inside the loop
         let demote = !is_in_alert && !alert_triggered;
-        assert!(!demote, "a guard that just saw the player must not be demoted");
+        assert!(
+            !demote,
+            "a guard that just saw the player must not be demoted"
+        );
 
-        // On a later frame with no contact, the demotion applies again.
+        // On a later frame with no contact, the demotion applies again. The
+        // original assertion here was the tautology
+        // `is_in_alert && !t || !is_in_alert && !t`, which reduces to `!t`
+        // and asserted nothing. Use the production predicate in both
+        // directions instead.
         let is_in_alert = false;
         let alert_triggered = false;
-        assert!(is_in_alert && !alert_triggered || !is_in_alert && !alert_triggered);
+        assert!(
+            !is_in_alert && !alert_triggered,
+            "with no contact the guard must be demoted back to patrolling"
+        );
+
+        // A guard already in the alert state is never demoted, so a chase
+        // cannot be cancelled from outside.
+        let is_in_alert = true;
+        let alert_triggered = false;
+        assert!(
+            !(!is_in_alert && !alert_triggered),
+            "a guard already in the alert state must not be demoted"
+        );
     }
 
     // 34. Crab patrol reverses once, not every frame (UX-8)
@@ -1955,9 +2555,7 @@ fn main() {
             } else if *x < min_x {
                 *x = min_x;
                 *vx = vx.abs();
-            } else if *vx > 0 && *x >= max_x {
-                *vx = -*vx;
-            } else if *vx < 0 && *x <= min_x {
+            } else if (*vx > 0 && *x >= max_x) || (*vx < 0 && *x <= min_x) {
                 *vx = -*vx;
             }
         };
@@ -1965,7 +2563,7 @@ fn main() {
         for _ in 0..10 {
             step(&mut x, &mut v, 0, 20);
         }
-        assert!(x <= 20 && x >= 0, "a crab must stay inside its patrol");
+        assert!((0..=20).contains(&x), "a crab must stay inside its patrol");
 
         // A stationary crab stays stationary rather than flipping every frame.
         let (mut x, mut v) = (10i32, 0i32);
@@ -1996,14 +2594,18 @@ fn main() {
         let mut xs: [i32; 256] = [0; 256];
         let mut min_x = i32::MAX;
         let mut max_x = i32::MIN;
-        for frame in 0..256usize {
+        for (frame, slot) in xs.iter_mut().enumerate() {
             let angle = (frame as u16) & 0xFF;
             let dx = (cos_1_3_12(angle) as i32 * DRONE_ORBIT_RADIUS) >> 12;
-            xs[frame] = dx;
+            *slot = dx;
             min_x = min_x.min(dx);
             max_x = max_x.max(dx);
         }
-        assert!(max_x - min_x > 200, "a drone must sweep a wide arc, got {}", max_x - min_x);
+        assert!(
+            max_x - min_x > 200,
+            "a drone must sweep a wide arc, got {}",
+            max_x - min_x
+        );
         // The old 2-unit radius produced an x extent of at most 4.
         assert!(max_x - min_x > 100, "a drone must not jitter in place");
         let mut distinct = 0;
@@ -2012,7 +2614,10 @@ fn main() {
                 distinct += 1;
             }
         }
-        assert!(distinct > 200, "a drone must visit many distinct positions, got {distinct}");
+        assert!(
+            distinct > 200,
+            "a drone must visit many distinct positions, got {distinct}"
+        );
     }
 
     // 36. The excavator is a real fight, not four free hits (UX-7)
@@ -2046,9 +2651,7 @@ fn main() {
             fn engine_at(&self, wx: i32, wz: i32) -> Option<usize> {
                 const OFFSETS: [(i32, i32); 3] = [(-90, 0), (0, -70), (90, 0)];
                 OFFSETS.iter().enumerate().position(|(i, (dx, dz))| {
-                    self.engine_hp[i] > 0
-                        && (wx - dx).abs() <= 40
-                        && (wz - dz).abs() <= 40
+                    self.engine_hp[i] > 0 && (wx - dx).abs() <= 40 && (wz - dz).abs() <= 40
                 })
             }
             fn damage_engine(&mut self, i: usize) -> bool {
@@ -2078,7 +2681,11 @@ fn main() {
 
         // The hull is untouchable while the shields hold.
         assert!(!e.vulnerable(), "the hull must be closed at the start");
-        assert_eq!(e.engine_at(0, -70), Some(1), "intact engine must be targetable");
+        assert_eq!(
+            e.engine_at(0, -70),
+            Some(1),
+            "intact engine must be targetable"
+        );
 
         // Each engine takes two hits, and only the killing blow opens a window.
         assert!(!e.damage_engine(0), "first hit must not destroy the engine");
@@ -2086,7 +2693,11 @@ fn main() {
         assert!(!e.vulnerable(), "a single hit must not open the hull");
         assert!(e.damage_engine(0), "the second hit must destroy the engine");
         assert!(e.vulnerable(), "destroying an engine must open the hull");
-        assert_eq!(e.engine_at(-90, 0), None, "destroyed engine must not intercept strikes");
+        assert_eq!(
+            e.engine_at(-90, 0),
+            None,
+            "destroyed engine must not intercept strikes"
+        );
 
         // Every engine is independently targetable.
         for i in 1..ENGINES {
@@ -2096,9 +2707,19 @@ fn main() {
 
         // All three down: permanently exposed, and the flag is finally read.
         assert_eq!(e.engine_hp, [0; ENGINES]);
-        assert!(e.shields_down, "shields_down must be set once every engine is gone");
-        assert_eq!(e.state, State::Exposed, "the final engine must not just vent");
-        assert!(e.vulnerable(), "the hull must be vulnerable once shields are down in Exposed state");
+        assert!(
+            e.shields_down,
+            "shields_down must be set once every engine is gone"
+        );
+        assert_eq!(
+            e.state,
+            State::Exposed,
+            "the final engine must not just vent"
+        );
+        assert!(
+            e.vulnerable(),
+            "the hull must be vulnerable once shields are down in Exposed state"
+        );
 
         // All engine locations now yield None so attacks pass through to hull:
         assert_eq!(e.engine_at(0, -70), None);
@@ -2113,9 +2734,15 @@ fn main() {
         assert!(!e.vulnerable(), "defeated machine is no longer vulnerable");
 
         // An already-destroyed engine cannot be hit again.
-        assert!(!e.damage_engine(0), "a destroyed engine must not be re-killed");
+        assert!(
+            !e.damage_engine(0),
+            "a destroyed engine must not be re-killed"
+        );
         // Out-of-range indices are inert rather than panicking.
-        assert!(!e.damage_engine(ENGINES), "an out-of-range engine index must be ignored");
+        assert!(
+            !e.damage_engine(ENGINES),
+            "an out-of-range engine index must be ignored"
+        );
 
         // The fight costs six engine strikes, so the four HP hull is a real
         // second phase rather than the whole battle.
@@ -2133,7 +2760,10 @@ fn main() {
             venting -= 1;
             frames += 1;
         }
-        assert_eq!(frames, VENTING_FRAMES, "the window must last exactly its duration");
+        assert_eq!(
+            frames, VENTING_FRAMES,
+            "the window must last exactly its duration"
+        );
         assert!(
             VENTING_FRAMES as i32 >= 60 && VENTING_FRAMES as i32 <= 300,
             "a venting window of {VENTING_FRAMES} frames is not a fair opening"
@@ -2168,7 +2798,10 @@ fn main() {
             }
         }
         fn render(b: &[u8; 20]) -> &str {
-            let end = b.iter().rposition(|c| *c != b' ' && *c != 0).map_or(0, |i| i + 1);
+            let end = b
+                .iter()
+                .rposition(|c| *c != b' ' && *c != 0)
+                .map_or(0, |i| i + 1);
             core::str::from_utf8(&b[..end]).unwrap_or("")
         }
 
@@ -2176,7 +2809,10 @@ fn main() {
         let mut buf = [b' '; 20];
         write_u32_padded(&mut buf, b"BEST SCORE: ", 999_999);
         assert_eq!(render(&buf), "BEST SCORE: 999999");
-        assert!(buf.len() >= b"BEST SCORE: 999999".len(), "the record must fit its buffer");
+        assert!(
+            buf.len() >= b"BEST SCORE: 999999".len(),
+            "the record must fit its buffer"
+        );
 
         // A zero score is a real value, not a placeholder.
         let mut buf = [b' '; 20];
@@ -2195,7 +2831,11 @@ fn main() {
         write_u32_padded(&mut buf, b"BEST TIME: ", u32::MAX);
         let out = render(&buf);
         assert!(out.starts_with("BEST TIME: "), "label must survive");
-        assert!(out.len() <= 20, "an oversized value must be truncated, got {}", out.len());
+        assert!(
+            out.len() <= 20,
+            "an oversized value must be truncated, got {}",
+            out.len()
+        );
     }
 
     // 39. Stage select shows real progression state (UX-11)
@@ -2224,7 +2864,11 @@ fn main() {
         }
         // The three boss stages are the ones a player most needs to see marked.
         for boss in [2u8, 5, 8, 11] {
-            assert_ne!(badge(boss, 0), "CLEAR", "no boss can be cleared on a fresh save");
+            assert_ne!(
+                badge(boss, 0),
+                "CLEAR",
+                "no boss can be cleared on a fresh save"
+            );
         }
     }
 
@@ -2299,7 +2943,7 @@ fn main() {
         );
 
         // The LOD distances must be ordered and sane relative to the budget.
-        assert!(ACTOR_LOD_DISTANCE < TILE_LOD_DISTANCE, "actors LOD before tiles");
+        const _: () = assert!(ACTOR_LOD_DISTANCE < TILE_LOD_DISTANCE);
         // A near Platty (20 boxes) plus a near sentry (5) must fit: the player
         // and whatever is threatening them are never the thing that gets cut.
         let player_and_guard = 20 + 5;
@@ -2344,7 +2988,10 @@ fn main() {
         let sorted = sort_desc(FACES.to_vec());
         // Descending by depth: the two z=1 faces first, then the z=0 faces.
         for w in sorted.windows(2) {
-            assert!(depth(w[0]) >= depth(w[1]), "faces must be sorted back-to-front");
+            assert!(
+                depth(w[0]) >= depth(w[1]),
+                "faces must be sorted back-to-front"
+            );
         }
         assert_eq!(depth(sorted[0]), 1, "the nearest-depth face draws first");
         assert_eq!(depth(sorted[5]), 0, "the furthest-depth face draws last");
@@ -2404,32 +3051,50 @@ fn main() {
 
         // Frame 100 on Title: draws into buffer 0
         tracker.draw_title_screen(100);
-        assert_eq!(tracker.uploads[0], 2, "Buffer 0 must receive title bg on frame 1");
+        assert_eq!(
+            tracker.uploads[0], 2,
+            "Buffer 0 must receive title bg on frame 1"
+        );
         assert_eq!(tracker.uploads[1], 1, "Buffer 1 not yet drawn into");
 
         // Swap to buffer 1
         tracker.swap();
         // Frame 101 on Title: draws into buffer 1
         tracker.draw_title_screen(101);
-        assert_eq!(tracker.uploads[1], 2, "Buffer 1 must receive title bg on frame 2");
+        assert_eq!(
+            tracker.uploads[1], 2,
+            "Buffer 1 must receive title bg on frame 2"
+        );
 
         // Swap to buffer 0
         tracker.swap();
         // Frame 102 on Title: draws into buffer 0, consecutive frame, dirty is 0
         tracker.draw_title_screen(102);
-        assert_eq!(tracker.uploads[0], 2, "Buffer 0 must skip upload on consecutive frames");
+        assert_eq!(
+            tracker.uploads[0], 2,
+            "Buffer 0 must skip upload on consecutive frames"
+        );
         tracker.swap();
         tracker.draw_title_screen(103);
-        assert_eq!(tracker.uploads[1], 2, "Buffer 1 must skip upload on consecutive frames");
+        assert_eq!(
+            tracker.uploads[1], 2,
+            "Buffer 1 must skip upload on consecutive frames"
+        );
 
         // Now test entering title WITHOUT explicit reset (e.g. frame counter jump):
         // Suppose player was in a menu and frame jumped from 103 to 220
         tracker.swap();
         tracker.draw_title_screen(220); // Frame 1 of return (draws buffer 0)
-        assert_eq!(tracker.uploads[0], 3, "Buffer 0 re-uploaded on frame counter discontinuity");
+        assert_eq!(
+            tracker.uploads[0], 3,
+            "Buffer 0 re-uploaded on frame counter discontinuity"
+        );
         tracker.swap();
         tracker.draw_title_screen(221); // Frame 2 of return (draws buffer 1)
-        assert_eq!(tracker.uploads[1], 3, "Buffer 1 re-uploaded on frame 2 of return");
+        assert_eq!(
+            tracker.uploads[1], 3,
+            "Buffer 1 re-uploaded on frame 2 of return"
+        );
         tracker.swap();
         tracker.draw_title_screen(222);
         assert_eq!(tracker.uploads[0], 3, "Subsequent frames skip upload");
@@ -2457,7 +3122,11 @@ fn main() {
             if act == Act::Act4_1Dunes || act == Act::Act4_2PierTrench {
                 assert_eq!(expected_chapter_bgm, "Beach");
             }
-            if act == Act::Act1_3MechBoss || act == Act::Act2_3JetSkiBoss || act == Act::Act3_3SniperBoss || act == Act::Act4_3ExcavatorBoss {
+            if act == Act::Act1_3MechBoss
+                || act == Act::Act2_3JetSkiBoss
+                || act == Act::Act3_3SniperBoss
+                || act == Act::Act4_3ExcavatorBoss
+            {
                 assert_eq!(expected_chapter_bgm, "Boss");
             }
         }
@@ -2465,9 +3134,15 @@ fn main() {
         // (c) Voice key-off coverage invariant
         // Hardware SPU has 24 voices (0..23). Full key-off mask is 0x00FF_FFFF.
         let full_key_off_mask: u32 = 0x00FF_FFFF;
-        assert_eq!(full_key_off_mask, (1 << 24) - 1, "Key off mask must cover all 24 hardware voices");
+        assert_eq!(
+            full_key_off_mask,
+            (1 << 24) - 1,
+            "Key off mask must cover all 24 hardware voices"
+        );
     }
-    println!("✓ Title screen double-buffer background upload & stage transition audio silence test PASSED");
+    suite_passed(
+        "Title screen double-buffer background upload & stage transition audio silence test",
+    );
 
     // --------------------------------------------------------------------------
     // Perspective Frustum, Bank Tree Filter & Telemetry Invariants
@@ -2479,20 +3154,35 @@ fn main() {
         let cam_x = 768i32; // Middle of level (GRID_W * 64 / 2)
         let dz = 600i32;
         let half_w = (dz * 9 / 10) + 96;
-        assert_eq!(half_w, 636, "Perspective half_w at dz=600 must expand to 636");
+        assert_eq!(
+            half_w, 636,
+            "Perspective half_w at dz=600 must expand to 636"
+        );
         let ent_max_dist = half_w + 48;
-        assert_eq!(ent_max_dist, 684, "Entity culling radius at dz=600 must expand to 684");
+        assert_eq!(
+            ent_max_dist, 684,
+            "Entity culling radius at dz=600 must expand to 684"
+        );
 
         // Old fixed bound (340) culled obstacles in outer river lanes (e.g. Lane 0 at x = cam_x - 380)
         let outer_lane_x = cam_x - 380;
         let dx = (outer_lane_x - cam_x).abs();
-        assert!(dx > 340, "Old culling discarded outer lane entities at range");
-        assert!(dx <= ent_max_dist, "Perspective culling must preserve outer lane entities at range");
+        assert!(
+            dx > 340,
+            "Old culling discarded outer lane entities at range"
+        );
+        assert!(
+            dx <= ent_max_dist,
+            "Perspective culling must preserve outer lane entities at range"
+        );
 
         // Near distance: dz = 64
         let near_dz = 64i32;
         let near_half_w = (near_dz * 9 / 10) + 96;
-        assert_eq!(near_half_w, 153, "Near row half_w should narrow to visible screen trapezoid");
+        assert_eq!(
+            near_half_w, 153,
+            "Near row half_w should narrow to visible screen trapezoid"
+        );
 
         // Z bounds check: near rows must cover cam_z - 32 and far rows cam_z + 800
         let min_gz = ((cam_z - 32) / TILE_SZ).clamp(0, GRID_D as i32) as usize;
@@ -2510,8 +3200,8 @@ fn main() {
         for gx in 0..GRID_W {
             let is_wall = gx <= 8 || gx >= 14;
             if is_wall {
-                let cull_left = gx > 0 && (gx - 1 <= 8 || gx - 1 >= 14);
-                let cull_right = gx + 1 < GRID_W && (gx + 1 <= 8 || gx + 1 >= 14);
+                let cull_left = gx > 0 && (gx - 1 <= 8 || gx > 14);
+                let cull_right = gx + 1 < GRID_W && (gx < 8 || gx + 1 >= 14);
                 // In row gz with wall rows above and below:
                 let cull_front = true;
                 let cull_back = true;
@@ -2526,8 +3216,14 @@ fn main() {
         }
         // Left bank edge is col 8 (cull_right false). Right bank edge is col 14 (cull_left false).
         // Outer boundaries (gx = 0, gx = 23) also have cull_left/right false.
-        assert!(bank_edge_trees_kept <= 4, "Only edge wall columns should qualify as bank edges");
-        assert!(inner_wall_trees_skipped >= 14, "Interior wall columns must skip gum trees");
+        assert!(
+            bank_edge_trees_kept <= 4,
+            "Only edge wall columns should qualify as bank edges"
+        );
+        assert!(
+            inner_wall_trees_skipped >= 14,
+            "Interior wall columns must skip gum trees"
+        );
 
         // (c) Telemetry stutter tracking
         let mut stutter_count: u32 = 0;
@@ -2537,9 +3233,14 @@ fn main() {
                 stutter_count = stutter_count.saturating_add(elapsed - 1);
             }
         }
-        assert_eq!(stutter_count, 3, "Stutter count must accurately sum dropped VBlanks");
+        assert_eq!(
+            stutter_count, 3,
+            "Stutter count must accurately sum dropped VBlanks"
+        );
     }
-    println!("✓ Perspective frustum culling, bank tree filter & performance telemetry test PASSED");
+    suite_passed("Perspective frustum culling, bank tree filter & performance telemetry test");
 
-    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! (48/48 test suites)");
+    use core::sync::atomic::Ordering;
+    let suites = SUITES_PASSED.load(Ordering::Relaxed);
+    println!("\nALL PLATTYPUS GAME LOGIC TESTS PASSED SUCCESSFULLY! ({suites} test suites)");
 }

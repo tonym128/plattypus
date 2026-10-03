@@ -4,7 +4,6 @@
 /build/
 *.bin
 !game/title_bg.bin
-!game/video_mdec.bin
 *.cue
 *.exe
 *.iso
@@ -18,3 +17,8 @@
 .cargo-lock
 __pycache__/
 /scratch/
+
+# The web arcade bundle copies the mastered disc into web/roms/ for serving.
+# 29 MB of game data must never be committed by accident, and the deployed
+# bundle is staged from CI, not from the working tree.
+/web/roms/

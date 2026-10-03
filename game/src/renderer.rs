@@ -221,7 +221,7 @@ pub struct Renderer {
     /// Frame counter of the last title-screen draw. The title background lives
     /// in the framebuffer, so it is re-uploaded whenever this is not the
     /// previous frame's counter -- see `draw_title_screen`.
-    title_bg_frame: Cell<u8>,
+    title_bg_frame: Cell<u32>,
     /// Number of double-buffered framebuffer halves that still need the
     /// title background uploaded after returning from gameplay or a submenu.
     title_bg_dirty: Cell<u8>,
@@ -249,6 +249,12 @@ pub struct Renderer {
 /// so 1,600 quads leaves plenty of headroom for the two-sided cases and the HUD
 /// while keeping water and heavy stages bounded at 60 fps.
 const QUAD_BUDGET: i32 = 1_600;
+
+/// Height of the vision-cone and searchlight decals above the floor plane.
+/// The PS1 has no depth buffer and no polygon offset, so coplanar decals z-fight;
+/// a few units of separation is what keeps "you have been spotted" from
+/// flickering frame to frame.
+const CONE_DECAL_Y: i16 = 4;
 
 /// Beyond this distance an actor is drawn as a single billboard box instead of
 /// its full model. A sentry is five boxes and Platty is twenty, so distant
@@ -290,7 +296,7 @@ impl Renderer {
             // Boot already filled both framebuffer halves, so if the first
             // title frame happens to match this, skipping the re-upload is
             // still correct.
-            title_bg_frame: Cell::new(u8::MAX),
+            title_bg_frame: Cell::new(u32::MAX),
             title_bg_dirty: Cell::new(0),
             quad_budget: Cell::new(QUAD_BUDGET),
             vblanks_per_frame: 1,
@@ -305,7 +311,7 @@ impl Renderer {
     /// two successive frames after returning from gameplay or menus.
     pub fn reset_title_bg(&self) {
         self.title_bg_dirty.set(2);
-        self.title_bg_frame.set(u8::MAX);
+        self.title_bg_frame.set(u32::MAX);
     }
 
     pub fn apply_display_offset(&self) {
@@ -416,7 +422,7 @@ impl Renderer {
         level: &Level,
         platty: &Platypus,
         entities: &EntityManager,
-        frame: u8,
+        frame: u32,
     ) {
         // Clear backdrop tailored to stage atmosphere
         match level.act.chapter() {
@@ -424,13 +430,6 @@ impl Renderer {
             2 => gpu::draw_rect_flat(0, 0, 320, 240, 16, 40, 24), // Yarra forest canopy
             3 => gpu::draw_rect_flat(0, 0, 320, 240, 14, 16, 28), // Melbourne night sky
             _ => gpu::draw_rect_flat(0, 0, 320, 240, 50, 130, 210), // Coastal ocean sky
-        }
-
-        // Draw ground searchlights & vision cones on floor (Blended)
-        if level.act == Act::Act1_3MechBoss {
-            self.draw_boss_searchlights(&entities.boss_mech);
-        } else {
-            self.draw_vision_cones(entities);
         }
 
         // Row-based depth sorting (far to near) with perspective frustum culling
@@ -450,14 +449,22 @@ impl Renderer {
             let ent_max_dist = half_w + 48;
 
             // 1. Draw environmental tiles in this row
+            //
+            // Rows are walked far-to-near so the painter's order stays correct,
+            // which means the budget is consumed from the far edge first. The
+            // loop used to `break` the moment it ran out, so on a stage that
+            // needs more quads than the budget allows -- Act 2's rapids banks
+            // need roughly 4400 against a 1600 budget -- every *nearer* row was
+            // skipped entirely and the ground under the player's feet simply
+            // disappeared. When the budget is gone, fall back to the bare floor
+            // for the rest of the frame instead: walls and detail can be
+            // dropped, the floor cannot.
             for gx in row_min_gx..row_max_gx {
-                if !self.budget_available() {
-                    break;
-                }
                 let wx = (gx as i32) * TILE_SZ;
                 let wz = row_z_min;
                 let cell = level.get_cell(gx, gz);
-                self.draw_cell(level, cell, gx, gz, wx, wz, frame, detail);
+                let lod = detail && self.budget_available();
+                self.draw_cell(level, cell, gx, gz, wx, wz, frame, lod);
             }
 
             // 2. Draw entities situated in this row (with perspective frustum culling)
@@ -572,6 +579,20 @@ impl Renderer {
             }
         }
 
+        // Ground decals: vision cones and searchlight pools, blended and drawn
+        // last so they land on top of the floor instead of under it.
+        //
+        // These used to be issued before the tile traversal, with every vertex
+        // one world unit above a floor drawn at zero. The PS1 has no depth
+        // buffer and no polygon offset, so which of two coplanar primitives won
+        // was a sub-pixel rounding race -- and "a guard has spotted you" was
+        // flickering on and off.
+        if level.act == Act::Act1_3MechBoss {
+            self.draw_boss_searchlights(&entities.boss_mech);
+        } else {
+            self.draw_vision_cones(entities);
+        }
+
         // Draw Shockwave Ground Ring if Boss Stomps
         if level.act == Act::Act1_3MechBoss && entities.boss_mech.shockwave_active {
             self.draw_shockwave_ring(&entities.boss_mech);
@@ -591,7 +612,7 @@ impl Renderer {
         platty: &Platypus,
         entities: &EntityManager,
         level: &Level,
-        frame: u8,
+        frame: u32,
     ) {
         // 1. Concentric Sonar Pulse Wave expanding across ground
         let wave_progress = (180 - platty.electro_timer) as i32;
@@ -833,7 +854,7 @@ impl Renderer {
         gz: usize,
         wx: i32,
         wz: i32,
-        frame: u8,
+        frame: u32,
         detail: bool,
     ) {
         let act = level.act;
@@ -1104,7 +1125,7 @@ impl Renderer {
         );
     }
 
-    fn draw_water_tile(&self, wx: i32, wz: i32, act: Act, frame: u8, is_current: bool) {
+    fn draw_water_tile(&self, wx: i32, wz: i32, act: Act, frame: u32, is_current: bool) {
         let bob = if (frame / 8) % 2 == 0 { 2 } else { 0 };
         let y = 14 + bob;
         let v0 = Vec3I16::new(wx as i16, y, (wz + TILE_SZ) as i16);
@@ -1162,7 +1183,7 @@ impl Renderer {
         }
     }
 
-    fn draw_laser_tripwire(&self, wx: i32, wz: i32, frame: u8) {
+    fn draw_laser_tripwire(&self, wx: i32, wz: i32, frame: u32) {
         self.draw_box_3d(wx + 2, wz + 28, 8, 24, 8, (90, 95, 105));
         self.draw_box_3d(wx + 54, wz + 28, 8, 24, 8, (90, 95, 105));
 
@@ -1174,7 +1195,7 @@ impl Renderer {
         }
     }
 
-    fn draw_exit_hatch(&self, wx: i32, wz: i32, frame: u8) {
+    fn draw_exit_hatch(&self, wx: i32, wz: i32, frame: u32) {
         let v0 = Vec3I16::new(wx as i16, 0, (wz + 40) as i16);
         let v1 = Vec3I16::new((wx + 40) as i16, 0, (wz + 40) as i16);
         let v2 = Vec3I16::new(wx as i16, 0, wz as i16);
@@ -1762,10 +1783,10 @@ impl Renderer {
             let bx = s.beam_x as i16;
             let bz = s.beam_z as i16;
 
-            let c0 = scene::project_vertex(Vec3I16::new(bx - rad, 1, bz));
-            let c1 = scene::project_vertex(Vec3I16::new(bx, 1, bz - rad));
-            let c2 = scene::project_vertex(Vec3I16::new(bx + rad, 1, bz));
-            let c3 = scene::project_vertex(Vec3I16::new(bx, 1, bz + rad));
+            let c0 = scene::project_vertex(Vec3I16::new(bx - rad, CONE_DECAL_Y, bz));
+            let c1 = scene::project_vertex(Vec3I16::new(bx, CONE_DECAL_Y, bz - rad));
+            let c2 = scene::project_vertex(Vec3I16::new(bx + rad, CONE_DECAL_Y, bz));
+            let c3 = scene::project_vertex(Vec3I16::new(bx, CONE_DECAL_Y, bz + rad));
 
             if c0.sz > 20 && c1.sz > 20 && c2.sz > 20 && c3.sz > 20 {
                 gpu::draw_tri_flat_blended(
@@ -1802,9 +1823,9 @@ impl Renderer {
             let r_z = sz + ((cos_1_3_12(right_ang) as i32 * 180) >> 12) as i16;
 
             let [p_origin, p_left, p_right] = scene::project_triangle_scheduled(
-                Vec3I16::new(sx, 1, sz),
-                Vec3I16::new(l_x, 1, l_z),
-                Vec3I16::new(r_x, 1, r_z),
+                Vec3I16::new(sx, CONE_DECAL_Y, sz),
+                Vec3I16::new(l_x, CONE_DECAL_Y, l_z),
+                Vec3I16::new(r_x, CONE_DECAL_Y, r_z),
             );
 
             if p_origin.sz > 20 && p_left.sz > 20 && p_right.sz > 20 {
@@ -1839,10 +1860,10 @@ impl Renderer {
         let lx = mech.left_beam_x as i16;
         let lz = mech.left_beam_z as i16;
 
-        let lc0 = scene::project_vertex(Vec3I16::new(lx - rad, 1, lz));
-        let lc1 = scene::project_vertex(Vec3I16::new(lx, 1, lz - rad));
-        let lc2 = scene::project_vertex(Vec3I16::new(lx + rad, 1, lz));
-        let lc3 = scene::project_vertex(Vec3I16::new(lx, 1, lz + rad));
+        let lc0 = scene::project_vertex(Vec3I16::new(lx - rad, CONE_DECAL_Y, lz));
+        let lc1 = scene::project_vertex(Vec3I16::new(lx, CONE_DECAL_Y, lz - rad));
+        let lc2 = scene::project_vertex(Vec3I16::new(lx + rad, CONE_DECAL_Y, lz));
+        let lc3 = scene::project_vertex(Vec3I16::new(lx, CONE_DECAL_Y, lz + rad));
 
         if lc0.sz > 20 && lc1.sz > 20 && lc2.sz > 20 && lc3.sz > 20 {
             gpu::draw_tri_flat_blended(
@@ -1865,10 +1886,10 @@ impl Renderer {
         let rx = mech.right_beam_x as i16;
         let rz = mech.right_beam_z as i16;
 
-        let rc0 = scene::project_vertex(Vec3I16::new(rx - rad, 1, rz));
-        let rc1 = scene::project_vertex(Vec3I16::new(rx, 1, rz - rad));
-        let rc2 = scene::project_vertex(Vec3I16::new(rx + rad, 1, rz));
-        let rc3 = scene::project_vertex(Vec3I16::new(rx, 1, rz + rad));
+        let rc0 = scene::project_vertex(Vec3I16::new(rx - rad, CONE_DECAL_Y, rz));
+        let rc1 = scene::project_vertex(Vec3I16::new(rx, CONE_DECAL_Y, rz - rad));
+        let rc2 = scene::project_vertex(Vec3I16::new(rx + rad, CONE_DECAL_Y, rz));
+        let rc3 = scene::project_vertex(Vec3I16::new(rx, CONE_DECAL_Y, rz + rad));
 
         if rc0.sz > 20 && rc1.sz > 20 && rc2.sz > 20 && rc3.sz > 20 {
             gpu::draw_tri_flat_blended(
@@ -1943,7 +1964,7 @@ impl Renderer {
         }
     }
 
-    fn draw_searchlight_mech(&self, mech: &SearchlightMech, frame: u8) {
+    fn draw_searchlight_mech(&self, mech: &SearchlightMech, frame: u32) {
         let mx = mech.x;
         let my = mech.y;
         let mz = mech.z;
@@ -2099,7 +2120,7 @@ impl Renderer {
         }
     }
 
-    fn draw_power_conduit(&self, conduit: &PowerConduit, frame: u8) {
+    fn draw_power_conduit(&self, conduit: &PowerConduit, frame: u32) {
         let cx = conduit.x;
         let cz = conduit.z;
         let rot = Mat3I16::rotate_y(0);
@@ -2187,7 +2208,7 @@ impl Renderer {
         }
     }
 
-    fn draw_jetski_boss(&self, jetski: &crate::entities::JetSkiBoss, _frame: u8) {
+    fn draw_jetski_boss(&self, jetski: &crate::entities::JetSkiBoss, _frame: u32) {
         if !jetski.active {
             return;
         }
@@ -2217,7 +2238,7 @@ impl Renderer {
         self.draw_model_box(jx, jy, jz, -6, -10, -28, 12, 12, 8, &rot, (40, 45, 50));
     }
 
-    fn draw_sniper_kookaburra(&self, sniper: &crate::entities::SniperBoss, frame: u8) {
+    fn draw_sniper_kookaburra(&self, sniper: &crate::entities::SniperBoss, frame: u32) {
         if !sniper.active {
             return;
         }
@@ -2262,7 +2283,7 @@ impl Renderer {
         }
     }
 
-    fn draw_excavator_boss(&self, exc: &crate::entities::ExcavatorBoss, _frame: u8) {
+    fn draw_excavator_boss(&self, exc: &crate::entities::ExcavatorBoss, _frame: u32) {
         if !exc.active {
             return;
         }
@@ -2906,7 +2927,7 @@ impl Renderer {
         }
     }
 
-    fn draw_drone(&self, d: &Drone, frame: u8) {
+    fn draw_drone(&self, d: &Drone, frame: u32) {
         let rot = Mat3I16::rotate_y(d.angle);
         self.draw_model_box(d.x, d.y, d.z, -10, -10, -10, 20, 20, 20, &rot, (70, 75, 85));
         self.draw_model_box(d.x, d.y, d.z, -4, -4, 10, 8, 8, 4, &rot, (240, 45, 45));
@@ -2922,7 +2943,7 @@ impl Renderer {
     // ACT 2: YARRA RIVER 5-LANE RUNNER OBSTACLES
     // -------------------------------------------------------------------------
 
-    fn draw_river_obstacle(&self, obs: &RiverObstacle, frame: u8) {
+    fn draw_river_obstacle(&self, obs: &RiverObstacle, frame: u32) {
         let rot = Mat3I16::rotate_y(0);
         let ox = obs.x;
         let oy = obs.y;
@@ -3283,7 +3304,7 @@ impl Renderer {
         }
     }
 
-    fn draw_crab(&self, crab: &BeachCrab, frame: u8) {
+    fn draw_crab(&self, crab: &BeachCrab, frame: u32) {
         let rot = Mat3I16::rotate_y(if crab.vx > 0 { 64 } else { 192 });
         let cx = crab.x;
         let cy = crab.y;
@@ -3328,7 +3349,7 @@ impl Renderer {
     // COLLECTIBLES & PARTICLES
     // -------------------------------------------------------------------------
 
-    fn draw_collectible(&self, c: &Collectible, frame: u8) {
+    fn draw_collectible(&self, c: &Collectible, frame: u32) {
         let bob = if (frame / 6) % 2 == 0 { 2 } else { 0 };
         let p = scene::project_vertex(Vec3I16::new(c.x as i16, (c.y - bob) as i16, c.z as i16));
         if p.sz > 20 {
@@ -3420,7 +3441,7 @@ impl Renderer {
     // HUD & STAGE INTERFACES
     // -------------------------------------------------------------------------
 
-    pub fn draw_hud(&self, platty: &Platypus, entities: &EntityManager, level: &Level, frame: u8) {
+    pub fn draw_hud(&self, platty: &Platypus, entities: &EntityManager, level: &Level, frame: u32) {
         // TOP-LEFT: LIFE BAR & STAGE LABEL (x: 8, y: 8, w: 100, h: 36)
         gpu::draw_rect_flat(8, 8, 100, 36, 12, 18, 24);
         gpu::draw_rect_flat(10, 10, 96, 32, 4, 8, 12);
@@ -3578,6 +3599,13 @@ impl Renderer {
             }
         }
 
+        // CURRENT OBJECTIVE. `Act::subtitle()` holds the sixteen mission briefings and
+        // was never called from anywhere, so the game never once stated what it
+        // wanted the player to do. Drawn dim along the bottom edge, below the
+        // contextual prompt band (y=216..232), as reference text rather than
+        // another panel.
+        self.draw_text_clamped(4, 232, level.act.subtitle(), (150, 132, 96));
+
         // TACTICAL CONTEXTUAL ABILITY PROMPT
         self.draw_context_prompt(platty, entities, level, frame);
     }
@@ -3587,7 +3615,7 @@ impl Renderer {
         platty: &Platypus,
         entities: &EntityManager,
         level: &Level,
-        frame: u8,
+        frame: u32,
     ) {
         let mut prompt: Option<&'static str> = None;
 
@@ -3695,7 +3723,7 @@ impl Renderer {
         platty: &Platypus,
         entities: &EntityManager,
         level: &Level,
-        frame: u8,
+        frame: u32,
     ) {
         let rx: i16 = 236;
         let ry: i16 = 8;
@@ -3809,7 +3837,7 @@ impl Renderer {
 
     pub fn draw_title_screen(
         &self,
-        frame: u8,
+        frame: u32,
         selected_menu: usize,
         save_data: &crate::save::SaveData,
     ) {
@@ -3993,7 +4021,11 @@ impl Renderer {
             4 => "CROSS / START: KETTEI",
             _ => "DPAD: SELECT  |  START / CROSS: CONFIRM",
         };
-        self.draw_text_centered(216, footer_text, (100, 150, 160));
+        // Sits between the bottom of the mission menu box (y=202) and the top of the
+        // save-status OSD (y=214). At y=216 the footer glyphs overlapped the OSD
+        // and the two runs overprinted into unreadable mush the moment a new
+        // campaign wrote its save.
+        self.draw_text_centered(204, footer_text, (100, 150, 160));
     }
 
     pub fn draw_vr_menu(&self, selected_vr: usize, vr_cleared: u8) {
@@ -4281,13 +4313,26 @@ impl Renderer {
         }
         self.draw_text_clamped(26, 222, "CIRCLE: RETURN TO TITLE SCREEN", (130, 180, 210));
 
-        let mut stut_buf = [b'S', b'T', b'U', b'T', b':', b' ', b'0', b'0', b'0'];
-        let stut = self.stutter_count.min(999);
-        stut_buf[6] = (stut / 100) as u8 + b'0';
-        stut_buf[7] = ((stut / 10) % 10) as u8 + b'0';
-        stut_buf[8] = (stut % 10) as u8 + b'0';
-        if let Ok(st) = core::str::from_utf8(&stut_buf[..9]) {
-            self.draw_text_clamped(228, 222, st, (100, 200, 220));
+        // Was drawn at x=228, where the 30-character footer above reaches x=266,
+        // so the bottom line of the options screen read
+        // "CIRCLE: RETURN TO TITLE SCRSTUT:000" on every option row.
+        let mut stut_buf = [b'S', b':', b'0', b'0', b'0'];
+        Self::write_fixed(&mut stut_buf, 2, 3, self.stutter_count);
+        if let Ok(st) = core::str::from_utf8(&stut_buf[..5]) {
+            self.draw_text_clamped(272, 222, st, (100, 200, 220));
+        }
+    }
+
+    /// Write `value` into `buf` as `digits` decimal digits, saturating rather
+    /// than wrapping. The debriefing wrote `(v / 10) % 10` and `v % 10`
+    /// directly, so 142 alert phases rendered as `42` and 119 seconds as `19`
+    /// -- the one screen where a player checks whether a run was clean.
+    fn write_fixed(buf: &mut [u8], at: usize, digits: usize, value: u32) {
+        let max = 10u32.pow(digits as u32).saturating_sub(1);
+        let mut v = value.min(max);
+        for i in (0..digits).rev() {
+            buf[at + i] = (v % 10) as u8 + b'0';
+            v /= 10;
         }
     }
 
@@ -4322,10 +4367,8 @@ impl Renderer {
         let mut time_str = [
             b'T', b'I', b'M', b'E', b':', b' ', b'0', b'0', b':', b'0', b'0', 0,
         ];
-        time_str[6] = ((mins / 10) % 10) as u8 + b'0';
-        time_str[7] = (mins % 10) as u8 + b'0';
-        time_str[9] = ((secs / 10) % 10) as u8 + b'0';
-        time_str[10] = (secs % 10) as u8 + b'0';
+        Self::write_fixed(&mut time_str, 6, 2, mins);
+        Self::write_fixed(&mut time_str, 9, 2, secs);
         if let Ok(st) = core::str::from_utf8(&time_str[..11]) {
             self.font.draw_text(30, 54, st, (240, 240, 240));
         }
@@ -4335,8 +4378,7 @@ impl Renderer {
             b'A', b'L', b'E', b'R', b'T', b' ', b'P', b'H', b'A', b'S', b'E', b'S', b':', b' ',
             b'0', b'0', 0,
         ];
-        alert_str[14] = ((alerts / 10) % 10) as u8 + b'0';
-        alert_str[15] = (alerts % 10) as u8 + b'0';
+        Self::write_fixed(&mut alert_str, 14, 2, alerts as u32);
         if let Ok(st) = core::str::from_utf8(&alert_str[..16]) {
             self.font.draw_text(30, 68, st, (255, 120, 100));
         }
@@ -4346,8 +4388,7 @@ impl Renderer {
             b'C', b'Q', b'C', b' ', b'T', b'A', b'K', b'E', b'D', b'O', b'W', b'N', b'S', b':',
             b' ', b'0', b'0', 0,
         ];
-        cqc_str[15] = ((takedowns / 10) % 10) as u8 + b'0';
-        cqc_str[16] = (takedowns % 10) as u8 + b'0';
+        Self::write_fixed(&mut cqc_str, 15, 2, takedowns as u32);
         if let Ok(st) = core::str::from_utf8(&cqc_str[..17]) {
             self.font.draw_text(30, 82, st, (255, 230, 80));
         }
@@ -4357,8 +4398,7 @@ impl Renderer {
             b'D', b'A', b'M', b'A', b'G', b'E', b' ', b'T', b'A', b'K', b'E', b'N', b':', b' ',
             b'0', b'0', b' ', b'H', b'P', 0,
         ];
-        dmg_str[14] = ((damage / 10) % 10) as u8 + b'0';
-        dmg_str[15] = (damage % 10) as u8 + b'0';
+        Self::write_fixed(&mut dmg_str, 14, 2, damage as u32);
         if let Ok(st) = core::str::from_utf8(&dmg_str[..19]) {
             self.font.draw_text(30, 96, st, (255, 160, 140));
         }
@@ -4368,8 +4408,7 @@ impl Renderer {
             b'Y', b'A', b'B', b'B', b'I', b'E', b'S', b' ', b'C', b'A', b'C', b'H', b'E', b':',
             b' ', b'x', b'0', b'0', 0,
         ];
-        yab_str[16] = ((yabbies / 10) % 10) as u8 + b'0';
-        yab_str[17] = (yabbies % 10) as u8 + b'0';
+        Self::write_fixed(&mut yab_str, 16, 2, yabbies as u32);
         if let Ok(st) = core::str::from_utf8(&yab_str[..18]) {
             self.font.draw_text(30, 110, st, (100, 220, 255));
         }
@@ -4479,7 +4518,7 @@ impl Renderer {
         self.draw_text_centered(204, "PRESS CROSS FOR NEXT ACT BRIEFING", (255, 255, 255));
     }
 
-    pub fn draw_ending(&self, frame: u8, codename: Option<crate::save::Codename>) {
+    pub fn draw_ending(&self, frame: u32, codename: Option<crate::save::Codename>) {
         gpu::draw_rect_flat(0, 0, 320, 240, 30, 80, 140); // Sunset coastal sky
         gpu::draw_rect_flat(0, 142, 320, 98, 220, 190, 130); // Golden sand beach
 
@@ -4687,7 +4726,7 @@ impl Renderer {
             let col = i / 6;
             let row = i % 6;
             let col_x: i16 = if col == 0 { 14 } else { 164 };
-            let row_y: i16 = 38 + (row as i16 * 27);
+            let row_y: i16 = 38 + (row as i16 * 26);
             let w: u16 = 142;
             let h: u16 = 24;
 
@@ -4750,20 +4789,26 @@ impl Renderer {
         // Service records. The save has carried a score, a collectible total, a
         // best time, an alert record and a best rank since it was introduced;
         // none of them was ever displayed, so there was nothing to beat.
+        //
+        // These are the campaign's only visible progression feedback. The panel
+        // used to be drawn at y=202 and then painted over by the footer's
+        // opaque background at y=208, erasing the second half of every glyph;
+        // the three columns also overran each other and ran off the right edge
+        // of a 320 px screen. They now get their own two-line band.
         if let Some(save) = save {
             let (score, time, rank) = crate::save::service_records_from(save);
-            gpu::draw_rect_flat(14, 202, 292, 24, 10, 22, 18);
-            gpu::draw_rect_flat(16, 204, 288, 20, 5, 12, 9);
-            self.draw_text_clamped(20, 207, Self::record_str(&score), (255, 220, 120));
-            self.draw_text_clamped(120, 207, Self::record_str(&time), (150, 220, 255));
-            self.draw_text_clamped(210, 207, Self::record_str(&rank), (200, 160, 255));
+            gpu::draw_rect_flat(14, 194, 292, 24, 10, 22, 18);
+            gpu::draw_rect_flat(16, 196, 288, 20, 5, 12, 9);
+            self.draw_text_clamped(20, 198, Self::record_str(&score), (255, 220, 120));
+            self.draw_text_clamped(140, 198, Self::record_str(&time), (150, 220, 255));
+            self.draw_text_clamped(20, 208, Self::record_str(&rank), (200, 160, 255));
         }
 
         // Footer. One row cannot hold all three control names inside a 292 px
         // panel, so they are split rather than truncated or squeezed.
-        gpu::draw_rect_flat(14, 208, 292, 22, 10, 25, 20);
-        gpu::draw_rect_flat(16, 210, 288, 18, 5, 14, 10);
-        self.draw_text_centered(211, "DPAD: SELECT    CROSS: DEPLOY", (120, 230, 180));
-        self.draw_text_centered(220, "CIRCLE: BACK TO TITLE", (120, 230, 180));
+        gpu::draw_rect_flat(14, 220, 292, 18, 10, 25, 20);
+        gpu::draw_rect_flat(16, 222, 288, 14, 5, 14, 10);
+        self.draw_text_centered(222, "DPAD: SELECT    CROSS: DEPLOY", (120, 230, 180));
+        self.draw_text_centered(231, "CIRCLE: BACK TO TITLE", (120, 230, 180));
     }
 }

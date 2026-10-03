@@ -10,12 +10,10 @@
 //! `draw()` under the same conditions, and the report prints the gap
 //! between it and this module's `pipeline` total.
 
+use crate::video::{COLUMNS, RLE_WORDS, SLOT_WORDS, TOTAL_FRAMES, VIDEO_H};
 use psx_fmv::{bs, mdec, str as strfmt};
 use psx_pack::cd::{SectorReader, SECTOR_WORDS};
 use psx_vram::{dma_copy_to_vram, upload_words, VramRect};
-use crate::video::{
-    COLUMNS, RLE_WORDS, SLOT_WORDS, TOTAL_FRAMES, VIDEO_H,
-};
 
 use crate::timing::{Clock, Span};
 
@@ -174,9 +172,8 @@ impl<'a> Pass<'a> {
             if !got {
                 break;
             }
-            let sector: &[u8] = unsafe {
-                core::slice::from_raw_parts(s.sector_buf.as_ptr() as *const u8, 2048)
-            };
+            let sector: &[u8] =
+                unsafe { core::slice::from_raw_parts(s.sector_buf.as_ptr() as *const u8, 2048) };
             let Some(chunk) = strfmt::Chunk::parse(sector) else {
                 continue;
             };
@@ -207,11 +204,11 @@ impl<'a> Pass<'a> {
                 )
             };
             let frame_bytes: &[u8] = &buf[..frame.size as usize];
-            let words = match bs::decode_frame(frame_bytes, rle16, COLUMNS as u32 * 15, 15, &mut || {})
-            {
-                Ok(w) => w,
-                Err(_) => continue,
-            };
+            let words =
+                match bs::decode_frame(frame_bytes, rle16, COLUMNS as u32 * 15, 15, &mut || {}) {
+                    Ok(w) => w,
+                    Err(_) => continue,
+                };
             self.expand += clock.lap();
             if words == 0 {
                 continue;
@@ -288,9 +285,8 @@ fn open_video(name: &[u8], reader: &mut SectorReader) -> Option<u32> {
         return None;
     }
 
-    let bytes: &[u8] = unsafe {
-        core::slice::from_raw_parts(s.sector_buf.as_ptr() as *const u8, 2048)
-    };
+    let bytes: &[u8] =
+        unsafe { core::slice::from_raw_parts(s.sector_buf.as_ptr() as *const u8, 2048) };
 
     let mut off = 0usize;
     while off + 34 <= bytes.len() {
@@ -298,7 +294,12 @@ fn open_video(name: &[u8], reader: &mut SectorReader) -> Option<u32> {
         if record_len == 0 || off + record_len > bytes.len() {
             break;
         }
-        let lba = u32::from_le_bytes([bytes[off + 2], bytes[off + 3], bytes[off + 4], bytes[off + 5]]);
+        let lba = u32::from_le_bytes([
+            bytes[off + 2],
+            bytes[off + 3],
+            bytes[off + 4],
+            bytes[off + 5],
+        ]);
         let name_len = bytes[off + 32] as usize;
         if off + 33 + name_len <= bytes.len() {
             let entry = &bytes[off + 33..off + 33 + name_len];
@@ -388,9 +389,8 @@ pub fn check_integrity() -> (u32, u32, bool) {
         if !unsafe { reader.read_sector(&mut s.sector_buf) } {
             break;
         }
-        let sector: &[u8] = unsafe {
-            core::slice::from_raw_parts(s.sector_buf.as_ptr() as *const u8, 2048)
-        };
+        let sector: &[u8] =
+            unsafe { core::slice::from_raw_parts(s.sector_buf.as_ptr() as *const u8, 2048) };
         let buf: &mut [u8] = unsafe {
             let p = core::ptr::addr_of_mut!(s.slot) as *mut u8;
             core::slice::from_raw_parts_mut(p, SLOT_WORDS * 4)
@@ -404,8 +404,14 @@ pub fn check_integrity() -> (u32, u32, bool) {
                 RLE_WORDS * 2,
             )
         };
-        words = bs::decode_frame(&buf[..frame.size as usize], rle16, COLUMNS as u32 * 15, 15, &mut || {})
-            .unwrap_or(0);
+        words = bs::decode_frame(
+            &buf[..frame.size as usize],
+            rle16,
+            COLUMNS as u32 * 15,
+            15,
+            &mut || {},
+        )
+        .unwrap_or(0);
         break;
     }
     // SAFETY: as above.

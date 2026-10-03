@@ -236,3 +236,1083 @@ impl Act {
         *self as usize
     }
 }
+
+/// Tripwire cells guarding the Act 1-2 laser grid. Three of these sit on
+/// column 11, which a cosmetic grating pass also paints, so they are applied
+/// after every other pass in that generator.
+const ACT1_2_LASER_TRIPWIRES: [(usize, usize); 6] =
+    [(7, 6), (7, 16), (15, 11), (11, 11), (11, 6), (11, 16)];
+
+/// Half-extent of the stage-exit trigger, kept inside `TILE_SZ` so the exit
+/// cannot be taken from the adjacent tile.
+const EXIT_TRIGGER_RADIUS: i32 = TILE_SZ / 2 - 4;
+
+// SE-7: Compile-time overflow guard ensuring world coordinates fit in PS1 16-bit GTE/GPU limits
+const _: () = {
+    assert!((GRID_W as i32 * TILE_SZ) < (i16::MAX as i32));
+    assert!((GRID_D as i32 * TILE_SZ) < (i16::MAX as i32));
+};
+
+pub struct Level {
+    pub act: Act,
+    pub cells: [CellType; GRID_W * GRID_D],
+    pub player_start_x: i32,
+    pub player_start_z: i32,
+    pub exit_x: i32,
+    pub exit_z: i32,
+}
+
+impl Level {
+    pub fn new(act: Act) -> Self {
+        let mut level = Self {
+            act,
+            cells: [CellType::Floor; GRID_W * GRID_D],
+            player_start_x: 2 * TILE_SZ + 32,
+            player_start_z: 2 * TILE_SZ + 32,
+            exit_x: 21 * TILE_SZ + 32,
+            exit_z: 21 * TILE_SZ + 32,
+        };
+        level.generate();
+        level
+    }
+
+    #[inline]
+    pub fn cell_index(gx: usize, gz: usize) -> usize {
+        gz * GRID_W + gx
+    }
+
+    pub fn get_cell(&self, gx: usize, gz: usize) -> CellType {
+        if gx >= GRID_W || gz >= GRID_D {
+            CellType::Wall
+        } else {
+            self.cells[Self::cell_index(gx, gz)]
+        }
+    }
+
+    pub fn set_cell(&mut self, gx: usize, gz: usize, cell: CellType) {
+        if gx < GRID_W && gz < GRID_D {
+            let idx = Self::cell_index(gx, gz);
+            self.cells[idx] = cell;
+        }
+    }
+
+    pub fn is_solid_at(&self, wx: i32, wz: i32, is_crawling: bool) -> bool {
+        if wx < 0 || wz < 0 {
+            return true;
+        }
+        let gx = (wx / TILE_SZ) as usize;
+        let gz = (wz / TILE_SZ) as usize;
+        self.get_cell(gx, gz).is_solid(is_crawling)
+    }
+
+    pub fn is_water_at(&self, wx: i32, wz: i32) -> bool {
+        if wx < 0 || wz < 0 {
+            return false;
+        }
+        let gx = (wx / TILE_SZ) as usize;
+        let gz = (wz / TILE_SZ) as usize;
+        self.get_cell(gx, gz).is_water()
+    }
+
+    /// True when a security laser tripwire occupies this world position.
+    /// Tripwires are passable -- crawling under a beam is the intended
+    /// bypass -- so this is a separate query from `is_solid_at`.
+    pub fn laser_tripwire_at(&self, wx: i32, wz: i32) -> bool {
+        if wx < 0 || wz < 0 {
+            return false;
+        }
+        let gx = (wx / TILE_SZ) as usize;
+        let gz = (wz / TILE_SZ) as usize;
+        self.get_cell(gx, gz) == CellType::LaserTripwire
+    }
+
+    /// True when the given grid column is painted as Act 3 road marking.
+    /// The renderer used to hardcode these columns, which put level layout
+    /// knowledge in the draw path.
+    pub fn is_road_row(&self, gz: usize) -> bool {
+        gz == 18 || gz == 12
+    }
+
+    /// True when the given grid column is Act 3 sidewalk paving.
+    pub fn is_sidewalk_col(&self, gx: usize) -> bool {
+        gx == 4 || gx == 19
+    }
+
+    /// True when the given grid column is Act 4 dune sand.
+    pub fn is_dune_col(&self, gx: usize) -> bool {
+        gx == 6 || gx == 22
+    }
+
+    /// True when a sentry at `(x0, z0)` can see `(x1, z1)`.
+    ///
+    /// This walks every tile the sight line passes through rather than
+    /// sampling the midpoint. A midpoint test let a guard see straight through
+    /// a wall row whenever the midpoint happened to land in a one-tile gap,
+    /// which is the entire basis of the stealth game.
+    ///
+    /// The walk is a supercover variant: it visits both tiles whenever the line
+    /// crosses a corner, so a diagonal squeeze between two walls is blocked.
+    /// Erring toward "cannot see" is deliberate -- a guard that fails to spot
+    /// you is a missed opportunity, whereas one that spots you through a wall
+    /// makes the mechanic unfair and unreadable.
+    pub fn has_line_of_sight(&self, x0: i32, z0: i32, x1: i32, z1: i32) -> bool {
+        if x0 < 0 || z0 < 0 || x1 < 0 || z1 < 0 {
+            return false;
+        }
+        let mut gx = x0 / TILE_SZ;
+        let mut gz = z0 / TILE_SZ;
+        let mut end_gx = x1 / TILE_SZ;
+        let mut end_gz = z1 / TILE_SZ;
+
+        // Visibility is symmetric: if a sentry can see the player, the same
+        // tiles stand between the two points. The Bresenham tie-break below is
+        // not, though -- it steps differently depending on which end it starts
+        // from, so the two call orders walked different tile sets and could
+        // disagree. Canonicalise the direction so both orders run the identical
+        // walk. Both endpoints are still tested: the start at the top of the
+        // loop, the end when the walk arrives.
+        if end_gx < gx || (end_gx == gx && end_gz < gz) {
+            core::mem::swap(&mut gx, &mut end_gx);
+            core::mem::swap(&mut gz, &mut end_gz);
+        }
+
+        // Bresenham in tile space, stepping both axes together on a tie so a
+        // line that clips a corner is tested against both tiles it touches.
+        let dx = (end_gx - gx).abs();
+        let dz = (end_gz - gz).abs();
+        let step_x = if end_gx >= gx { 1 } else { -1 };
+        let step_z = if end_gz >= gz { 1 } else { -1 };
+        let mut err = dx - dz;
+        let mut guard = dx + dz + 2;
+
+        loop {
+            if self.get_cell(gx as usize, gz as usize).is_solid(false) {
+                return false;
+            }
+            if gx == end_gx && gz == end_gz {
+                return true;
+            }
+            let e2 = 2 * err;
+            let mut stepped_x = false;
+            let mut stepped_z = false;
+            if e2 > -dz {
+                err -= dz;
+                gx += step_x;
+                stepped_x = true;
+            }
+            if e2 < dx {
+                err += dx;
+                gz += step_z;
+                stepped_z = true;
+            }
+            if stepped_x && stepped_z {
+                // Corner crossing: a diagonal step from (px, pz) to (nx, nz)
+                // clips the corner of two side tiles, (nx, pz) and (px, nz).
+                // Both must be tested, or a gap that exists only diagonally is
+                // shootable through. Testing (gx - step_x, gz - step_z) here
+                // instead just re-tests the tile the walk already came from,
+                // which is why this walk used to disagree with itself when the
+                // endpoints were swapped.
+                let (px, pz) = (gx - step_x, gz - step_z);
+                if self.get_cell(gx as usize, pz as usize).is_solid(false)
+                    || self.get_cell(px as usize, gz as usize).is_solid(false)
+                {
+                    return false;
+                }
+            }
+            // The step can overshoot the goal once one axis is already done.
+            // The comparison has to follow the direction of travel: a plain
+            // `gx > end_gx` fired on the very first step of a backwards walk
+            // and reported every such sight line as clear.
+            let past_x = if step_x > 0 { gx > end_gx } else { gx < end_gx };
+            let past_z = if step_z > 0 { gz > end_gz } else { gz < end_gz };
+            if past_x || past_z {
+                return !self
+                    .get_cell(
+                        end_gx.clamp(0, GRID_W as i32 - 1) as usize,
+                        end_gz.clamp(0, GRID_D as i32 - 1) as usize,
+                    )
+                    .is_solid(false);
+            }
+            if guard == 0 {
+                return true;
+            }
+            guard -= 1;
+        }
+    }
+
+    pub fn is_tall_grass_at(&self, wx: i32, wz: i32) -> bool {
+        if wx < 0 || wz < 0 {
+            return false;
+        }
+        let gx = (wx / TILE_SZ) as usize;
+        let gz = (wz / TILE_SZ) as usize;
+        self.get_cell(gx, gz) == CellType::TallGrass
+    }
+
+    /// True when a world position is inside the exit burrow tile.
+    ///
+    /// The trigger is confined to its own tile. An earlier 40-unit half-extent
+    /// spanned 80 units across a 64-unit tile, so the exit could be taken from
+    /// the neighbouring tile and through a wall.
+    pub fn is_exit_at(&self, wx: i32, wz: i32) -> bool {
+        let dx = (wx - self.exit_x).abs();
+        let dz = (wz - self.exit_z).abs();
+        dx < EXIT_TRIGGER_RADIUS && dz < EXIT_TRIGGER_RADIUS
+    }
+
+    fn generate(&mut self) {
+        // Enclosing boundary perimeter walls
+        for x in 0..GRID_W {
+            self.set_cell(x, 0, CellType::Wall);
+            self.set_cell(x, GRID_D - 1, CellType::Wall);
+        }
+        for z in 0..GRID_D {
+            self.set_cell(0, z, CellType::Wall);
+            self.set_cell(GRID_W - 1, z, CellType::Wall);
+        }
+
+        match self.act {
+            Act::Act1_1Drainage => self.generate_act1_1(),
+            Act::Act1_2Barracks => self.generate_act1_2(),
+            Act::Act1_3MechBoss => self.generate_act1_3(),
+            Act::Act2_1Rapids => self.generate_act2_1(),
+            Act::Act2_2Mangroves => self.generate_act2_2(),
+            Act::Act2_3JetSkiBoss => self.generate_act2_3(),
+            Act::Act3_1Highway => self.generate_act3_1(),
+            Act::Act3_2Laneways => self.generate_act3_2(),
+            Act::Act3_3SniperBoss => self.generate_act3_3(),
+            Act::Act4_1Dunes => self.generate_act4_1(),
+            Act::Act4_2PierTrench => self.generate_act4_2(),
+            Act::Act4_3ExcavatorBoss => self.generate_act4_3(),
+            Act::VrSneaking => self.generate_vr_sneaking(),
+            Act::VrCqc => self.generate_vr_cqc(),
+            Act::VrSonar => self.generate_vr_sonar(),
+            Act::VrSpeed => self.generate_vr_speed(),
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // ACT 1-1: HEALESVILLE SANCTUARY (SECURITY DRAINAGE OUTFLOW)
+    // -------------------------------------------------------------------------
+    fn generate_act1_1(&mut self) {
+        self.player_start_x = 2 * TILE_SZ + 32;
+        self.player_start_z = 2 * TILE_SZ + 32;
+        self.exit_x = 21 * TILE_SZ + 32;
+        self.exit_z = 21 * TILE_SZ + 32;
+
+        // Security perimeter dividing fence with air duct shortcut
+        for z in 2..16 {
+            self.set_cell(8, z, CellType::Wall);
+        }
+        self.set_cell(8, 8, CellType::AirDuct); // Secret crawl tunnel through wall!
+
+        // Drainage sluice canal cutting diagonally across
+        for x in 4..12 {
+            self.set_cell(x, 14, CellType::Water);
+        }
+        for z in 14..22 {
+            self.set_cell(12, z, CellType::Water);
+        }
+
+        // Inner security compound walls
+        for x in 12..22 {
+            self.set_cell(x, 10, CellType::Wall);
+        }
+        self.set_cell(16, 10, CellType::LaserTripwire); // Security beam
+        self.set_cell(18, 10, CellType::AirDuct); // Vent pipe
+
+        // Cargo crates providing tactical cover
+        let crates = [
+            (3, 4),
+            (4, 4),
+            (5, 6),
+            (3, 9),
+            (4, 9),
+            (10, 4),
+            (11, 4),
+            (14, 5),
+            (15, 5),
+            (6, 17),
+            (7, 17),
+            (9, 19),
+            (10, 19),
+            (16, 14),
+            (17, 14),
+            (18, 16),
+            (19, 16),
+            (15, 20),
+            (16, 20),
+        ];
+        for (cx, cz) in crates {
+            self.set_cell(cx, cz, CellType::Crate);
+        }
+
+        // Camouflage tall grass patches near the water
+        let grass = [
+            (2, 12),
+            (3, 12),
+            (3, 13),
+            (10, 12),
+            (11, 12),
+            (11, 13),
+            (13, 17),
+            (14, 17),
+            (14, 18),
+        ];
+        for (gx, gz) in grass {
+            self.set_cell(gx, gz, CellType::TallGrass);
+        }
+
+        // Acoustic metal catwalks across guard patrol routes (loud footsteps when running!)
+        for z in 6..10 {
+            self.set_cell(5, z, CellType::MetalGrate);
+        }
+        for x in 16..20 {
+            self.set_cell(x, 4, CellType::MetalGrate);
+        }
+
+        // Exit burrow in far corner
+        self.set_cell(21, 21, CellType::ExitBurrow);
+    }
+
+    // -------------------------------------------------------------------------
+    // ACT 1-2: RESEARCH BARRACKS & LASER GRID MAZE
+    // -------------------------------------------------------------------------
+    fn generate_act1_2(&mut self) {
+        self.player_start_x = 2 * TILE_SZ + 32;
+        self.player_start_z = 21 * TILE_SZ + 32;
+        self.exit_x = 21 * TILE_SZ + 32;
+        self.exit_z = 2 * TILE_SZ + 32;
+
+        // Interior concrete dividing walls creating 4 security sectors
+        for z in 2..22 {
+            if z != 6 && z != 16 {
+                self.set_cell(7, z, CellType::Wall);
+            }
+            if z != 11 {
+                self.set_cell(15, z, CellType::Wall);
+            }
+        }
+        for x in 2..22 {
+            if x != 11 {
+                self.set_cell(x, 11, CellType::Wall);
+            }
+        }
+
+        // Ventilation duct crawl passages connecting sectors (stealth bypasses!)
+        self.set_cell(7, 4, CellType::AirDuct);
+        self.set_cell(7, 18, CellType::AirDuct);
+        self.set_cell(15, 8, CellType::AirDuct);
+        self.set_cell(15, 14, CellType::AirDuct);
+        self.set_cell(11, 4, CellType::AirDuct);
+        self.set_cell(11, 18, CellType::AirDuct);
+
+        // Barracks furniture, computer servers, and supply crates
+        let crates = [
+            (3, 4),
+            (4, 4),
+            (3, 7),
+            (4, 7),
+            (3, 14),
+            (4, 14),
+            (3, 17),
+            (4, 17),
+            (10, 3),
+            (10, 4),
+            (12, 3),
+            (12, 4),
+            (10, 18),
+            (10, 19),
+            (12, 18),
+            (12, 19),
+            (18, 5),
+            (19, 5),
+            (18, 8),
+            (19, 8),
+            (18, 14),
+            (19, 14),
+            (18, 17),
+            (19, 17),
+        ];
+        for (cx, cz) in crates {
+            self.set_cell(cx, cz, CellType::Crate);
+        }
+
+        // Acoustic metal grating in central guard patrol corridors
+        for z in 5..=17 {
+            self.set_cell(3, z, CellType::MetalGrate);
+            self.set_cell(11, z, CellType::MetalGrate);
+            self.set_cell(19, z, CellType::MetalGrate);
+        }
+
+        // Laser tripwires across high-security hallways.
+        //
+        // Placed last: `set_cell` is last-write-wins, and the grating pass
+        // above overwrites column 11 for z = 5..=17. Placing these earlier
+        // silently erased the three tripwires on that column, halving the grid
+        // this stage is named for. Hazards therefore go after every pass that
+        // paints walkable or cosmetic ground.
+        for (lx, lz) in ACT1_2_LASER_TRIPWIRES {
+            self.set_cell(lx, lz, CellType::LaserTripwire);
+        }
+
+        // Exit blast door burrow leading out to perimeter wall
+        self.set_cell(21, 2, CellType::ExitBurrow);
+    }
+
+    // -------------------------------------------------------------------------
+    // ACT 1-3: PERIMETER WALL (SEARCHLIGHT MECH BOSS)
+    // -------------------------------------------------------------------------
+    fn generate_act1_3(&mut self) {
+        self.player_start_x = 12 * TILE_SZ + 32;
+        self.player_start_z = 21 * TILE_SZ + 32;
+        self.exit_x = 12 * TILE_SZ + 32;
+        self.exit_z = TILE_SZ + 32;
+
+        // North perimeter security wall with central heavy blast gate
+        for x in 1..GRID_W - 1 {
+            self.set_cell(x, 1, CellType::Wall);
+            self.set_cell(x, 2, CellType::Wall);
+        }
+        // Blast gate in center initially locked
+        self.set_cell(11, 1, CellType::Wall);
+        self.set_cell(12, 1, CellType::Wall);
+        self.set_cell(13, 1, CellType::Wall);
+        self.set_cell(11, 2, CellType::Wall);
+        self.set_cell(12, 2, CellType::Wall);
+        self.set_cell(13, 2, CellType::Wall);
+
+        // Three deep drainage crawl trenches (crawling protects Platty from sweeps and stomps)
+        // 1. West generator trench (gx 3..6, gz 8..10)
+        for z in 8..=10 {
+            for x in 3..=6 {
+                self.set_cell(x, z, CellType::AirDuct);
+            }
+        }
+
+        // 2. East generator trench (gx 17..20, gz 8..10)
+        for z in 8..=10 {
+            for x in 17..=20 {
+                self.set_cell(x, z, CellType::AirDuct);
+            }
+        }
+
+        // 3. South generator trench (gx 9..14, gz 16..17)
+        for z in 16..=17 {
+            for x in 9..=14 {
+                self.set_cell(x, z, CellType::AirDuct);
+            }
+        }
+
+        // Concrete cover crates and blast barriers
+        let cover_crates = [
+            (5, 5),
+            (6, 5),
+            (17, 5),
+            (18, 5),
+            (8, 11),
+            (9, 11),
+            (14, 11),
+            (15, 11),
+            (5, 14),
+            (6, 14),
+            (17, 14),
+            (18, 14),
+            (11, 13),
+            (12, 13),
+        ];
+        for (cx, cz) in cover_crates {
+            self.set_cell(cx, cz, CellType::Crate);
+        }
+
+        // Camouflage tall grass patches near trenches
+        let grass = [(7, 9), (7, 10), (16, 9), (16, 10), (8, 17), (15, 17)];
+        for (gx, gz) in grass {
+            self.set_cell(gx, gz, CellType::TallGrass);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // ACT 2-1: UPPER GORGE RAPIDS (5-LANE RIVER RUNNER)
+    // -------------------------------------------------------------------------
+    fn generate_act2_1(&mut self) {
+        self.player_start_x = 11 * TILE_SZ + 32;
+        self.player_start_z = 21 * TILE_SZ + 32;
+        self.exit_x = 11 * TILE_SZ + 32;
+        self.exit_z = 2 * TILE_SZ + 32;
+
+        // 5-lane rushing river corridor (Lanes 0..4 = gx 9, 10, 11, 12, 13)
+        for z in 1..23 {
+            // Left forested bank
+            for x in 1..9 {
+                self.set_cell(x, z, CellType::Wall);
+            }
+            // 5 rushing water flume lanes
+            for x in 9..=13 {
+                self.set_cell(x, z, CellType::WaterCurrent);
+            }
+            // Right forested bank
+            for x in 14..23 {
+                self.set_cell(x, z, CellType::Wall);
+            }
+        }
+
+        // River exit flume leading into mangrove backwaters
+        self.set_cell(11, 2, CellType::ExitBurrow);
+    }
+
+    // -------------------------------------------------------------------------
+    // ACT 2-2: DANDENONG MURKY MANGROVES & CAVERN MAZE
+    // -------------------------------------------------------------------------
+    fn generate_act2_2(&mut self) {
+        self.player_start_x = 2 * TILE_SZ + 32;
+        self.player_start_z = 2 * TILE_SZ + 32;
+        self.exit_x = 21 * TILE_SZ + 32;
+        self.exit_z = 21 * TILE_SZ + 32;
+
+        // Swamp islands and root walls
+        for z in 4..19 {
+            if z != 8 && z != 14 {
+                self.set_cell(6, z, CellType::Wall);
+                self.set_cell(12, z, CellType::Wall);
+                self.set_cell(17, z, CellType::Wall);
+            }
+        }
+
+        // Winding murky water channels
+        for z in 1..23 {
+            for x in 1..23 {
+                if ((x + z) % 3 == 0 || x % 5 == 0) && self.get_cell(x, z) != CellType::Wall {
+                    self.set_cell(x, z, CellType::Water);
+                }
+            }
+        }
+
+        // Hollow log crawl tunnels beneath tangled mangrove root systems
+        self.set_cell(6, 8, CellType::AirDuct);
+        self.set_cell(6, 14, CellType::AirDuct);
+        self.set_cell(12, 8, CellType::AirDuct);
+        self.set_cell(12, 14, CellType::AirDuct);
+        self.set_cell(17, 8, CellType::AirDuct);
+        self.set_cell(17, 14, CellType::AirDuct);
+
+        // Fallen mossy logs
+        let logs = [
+            (3, 5),
+            (4, 5),
+            (9, 7),
+            (10, 7),
+            (14, 4),
+            (15, 4),
+            (3, 16),
+            (4, 16),
+            (9, 17),
+            (10, 17),
+            (14, 18),
+            (15, 18),
+            (8, 11),
+            (9, 11),
+            (14, 11),
+            (15, 11),
+        ];
+        for (lx, lz) in logs {
+            self.set_cell(lx, lz, CellType::Crate);
+        }
+
+        // Dense tall swamp reeds providing sonar concealment
+        for z in 2..22 {
+            for x in 2..22 {
+                if (x * 7 + z * 13) % 9 == 0 && self.get_cell(x, z) == CellType::Floor {
+                    self.set_cell(x, z, CellType::TallGrass);
+                }
+            }
+        }
+
+        // Exit burrow leading into the rapids pursuit channel
+        self.set_cell(21, 21, CellType::ExitBurrow);
+    }
+
+    // -------------------------------------------------------------------------
+    // ACT 2-3: RIVER RAPIDS PURSUIT (PARK RANGER JET SKI BOSS)
+    // -------------------------------------------------------------------------
+    fn generate_act2_3(&mut self) {
+        self.player_start_x = 11 * TILE_SZ + 32;
+        self.player_start_z = 21 * TILE_SZ + 32;
+        self.exit_x = 11 * TILE_SZ + 32;
+        self.exit_z = 2 * TILE_SZ + 32;
+
+        // Wide 6-lane rushing river canyon (gx 8..=15)
+        for z in 1..23 {
+            // Left canyon cliff
+            for x in 1..8 {
+                self.set_cell(x, z, CellType::Wall);
+            }
+            // 6-lane rushing water
+            for x in 8..=15 {
+                self.set_cell(x, z, CellType::WaterCurrent);
+            }
+            // Right canyon cliff
+            for x in 16..23 {
+                self.set_cell(x, z, CellType::Wall);
+            }
+        }
+
+        // Exit flume into city waterways
+        self.set_cell(11, 2, CellType::ExitBurrow);
+    }
+
+    // -------------------------------------------------------------------------
+    // ACT 3-1: MELBOURNE DOWNTOWN (CITY FROGGER)
+    // -------------------------------------------------------------------------
+    fn generate_act3_1(&mut self) {
+        self.player_start_x = 12 * TILE_SZ + 32;
+        self.player_start_z = 21 * TILE_SZ + 32;
+        self.exit_x = 12 * TILE_SZ + 32;
+        self.exit_z = 2 * TILE_SZ + 32;
+
+        // Flanking illuminated skyscrapers
+        for z in 1..23 {
+            for x in 1..4 {
+                self.set_cell(x, z, CellType::Container); // West tower blocks
+            }
+            for x in 20..23 {
+                self.set_cell(x, z, CellType::Container); // East tower blocks
+            }
+        }
+
+        // Central Park median strip with trees and grass
+        for x in 4..20 {
+            self.set_cell(x, 15, CellType::TallGrass);
+            self.set_cell(x, 16, CellType::TallGrass);
+            self.set_cell(x, 9, CellType::TallGrass);
+        }
+
+        // Destination: Laneways entrance at north end
+        self.set_cell(12, 2, CellType::ExitBurrow);
+    }
+
+    // -------------------------------------------------------------------------
+    // ACT 3-2: FLINDERS STREET LANEWAYS & ROOFTOP CATWALKS
+    // -------------------------------------------------------------------------
+    fn generate_act3_2(&mut self) {
+        self.player_start_x = 2 * TILE_SZ + 32;
+        self.player_start_z = 21 * TILE_SZ + 32;
+        self.exit_x = 21 * TILE_SZ + 32;
+        self.exit_z = 2 * TILE_SZ + 32;
+
+        // Brick buildings creating narrow Melbourne graffiti alleyways
+        for z in 3..21 {
+            if z != 7 && z != 15 {
+                self.set_cell(6, z, CellType::Container);
+                self.set_cell(12, z, CellType::Container);
+                self.set_cell(17, z, CellType::Container);
+            }
+        }
+
+        // Dumpsters, trash bins, and delivery crates
+        let bins = [
+            (3, 5),
+            (4, 5),
+            (3, 12),
+            (4, 12),
+            (3, 18),
+            (4, 18),
+            (9, 4),
+            (10, 4),
+            (9, 13),
+            (10, 13),
+            (9, 19),
+            (10, 19),
+            (14, 6),
+            (15, 6),
+            (14, 16),
+            (15, 16),
+            (19, 4),
+            (20, 4),
+            (19, 12),
+            (20, 12),
+            (19, 18),
+            (20, 18),
+        ];
+        for (bx, bz) in bins {
+            self.set_cell(bx, bz, CellType::Crate);
+        }
+
+        // Acoustic metal fire escapes & overhead catwalks
+        for z in 4..19 {
+            self.set_cell(4, z, CellType::MetalGrate);
+            self.set_cell(10, z, CellType::MetalGrate);
+            self.set_cell(15, z, CellType::MetalGrate);
+        }
+
+        // Low basement air vents connecting the laneways
+        self.set_cell(6, 7, CellType::AirDuct);
+        self.set_cell(6, 15, CellType::AirDuct);
+        self.set_cell(12, 7, CellType::AirDuct);
+        self.set_cell(12, 15, CellType::AirDuct);
+        self.set_cell(17, 7, CellType::AirDuct);
+        self.set_cell(17, 15, CellType::AirDuct);
+
+        // Antenna tower access ladder burrow
+        self.set_cell(21, 2, CellType::ExitBurrow);
+    }
+
+    // -------------------------------------------------------------------------
+    // ACT 3-3: ANTENNA TOWER & SNIPER KOOKABURRA BOSS
+    // -------------------------------------------------------------------------
+    fn generate_act3_3(&mut self) {
+        self.player_start_x = 12 * TILE_SZ + 32;
+        self.player_start_z = 21 * TILE_SZ + 32;
+        self.exit_x = 12 * TILE_SZ + 32;
+        self.exit_z = TILE_SZ + 32;
+
+        // North edge rooftop edge wall
+        for x in 1..GRID_W - 1 {
+            self.set_cell(x, 1, CellType::Wall);
+            self.set_cell(x, 2, CellType::Wall);
+        }
+        self.set_cell(11, 1, CellType::Wall);
+        self.set_cell(12, 1, CellType::Wall);
+
+        // 3 Large Broadcast Transmission Towers (perches for Sniper Kookaburra)
+        // 0: West tower (gx 4, gz 8)
+        self.set_cell(4, 7, CellType::Container);
+        self.set_cell(4, 8, CellType::Container);
+        // 1: North tower (gx 12, gz 5)
+        self.set_cell(12, 4, CellType::Container);
+        self.set_cell(12, 5, CellType::Container);
+        // 2: East tower (gx 19, gz 8)
+        self.set_cell(19, 7, CellType::Container);
+        self.set_cell(19, 8, CellType::Container);
+
+        // Heavy rooftop air conditioning chiller units (sniper cover)
+        let ac_units = [
+            (7, 10),
+            (8, 10),
+            (15, 10),
+            (16, 10),
+            (8, 15),
+            (9, 15),
+            (14, 15),
+            (15, 15),
+            (11, 12),
+            (12, 12),
+        ];
+        for (cx, cz) in ac_units {
+            self.set_cell(cx, cz, CellType::Crate);
+        }
+
+        // Low ventilation ducts beneath chillers (duck to avoid sniper crosshairs!)
+        self.set_cell(7, 11, CellType::AirDuct);
+        self.set_cell(16, 11, CellType::AirDuct);
+        self.set_cell(8, 16, CellType::AirDuct);
+        self.set_cell(15, 16, CellType::AirDuct);
+        self.set_cell(11, 13, CellType::AirDuct);
+        self.set_cell(12, 13, CellType::AirDuct);
+
+        // Acoustic metal grating surrounding generator pads
+        for z in 13..=14 {
+            for x in 9..=14 {
+                self.set_cell(x, z, CellType::MetalGrate);
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // ACT 4-1: COASTAL DUNES & SURF (3D PLATFORMER)
+    // -------------------------------------------------------------------------
+    fn generate_act4_1(&mut self) {
+        self.player_start_x = 4 * TILE_SZ + 32;
+        self.player_start_z = 21 * TILE_SZ + 32;
+        self.exit_x = 20 * TILE_SZ + 32;
+        self.exit_z = 3 * TILE_SZ + 32;
+
+        // Ocean surf and deep water along southwest edge
+        for z in 15..23 {
+            for x in 1..3 {
+                self.set_cell(x, z, CellType::Water);
+            }
+        }
+
+        // Stepped rock cliffs & platforms to climb
+        let rock_cliffs = [
+            (6, 12),
+            (7, 12),
+            (8, 12),
+            (10, 8),
+            (11, 8),
+            (12, 8),
+            (14, 14),
+            (15, 14),
+            (16, 14),
+            (17, 9),
+            (18, 9),
+            (19, 9),
+            (12, 4),
+            (13, 4),
+            (14, 4),
+            (18, 4),
+            (19, 4),
+            (20, 4),
+        ];
+        for (rx, rz) in rock_cliffs {
+            self.set_cell(rx, rz, CellType::Container);
+        }
+
+        // Coastal dune grass
+        let grass = [
+            (4, 18),
+            (5, 18),
+            (8, 17),
+            (11, 13),
+            (12, 13),
+            (16, 11),
+            (15, 6),
+            (16, 6),
+        ];
+        for (gx, gz) in grass {
+            self.set_cell(gx, gz, CellType::TallGrass);
+        }
+
+        // Pier access burrow atop the dunes
+        self.set_cell(20, 3, CellType::ExitBurrow);
+    }
+
+    // -------------------------------------------------------------------------
+    // ACT 4-2: PIER UNDERSTRUCTURE & DEEP WATER SHARK TRENCH
+    // -------------------------------------------------------------------------
+    fn generate_act4_2(&mut self) {
+        self.player_start_x = 3 * TILE_SZ + 32;
+        self.player_start_z = 21 * TILE_SZ + 32;
+        self.exit_x = 21 * TILE_SZ + 32;
+        self.exit_z = 2 * TILE_SZ + 32;
+
+        // Timber pier pilings supporting overhead deck
+        for z in 2..22 {
+            if z % 3 == 0 {
+                self.set_cell(5, z, CellType::Wall);
+                self.set_cell(10, z, CellType::Wall);
+                self.set_cell(15, z, CellType::Wall);
+            }
+        }
+
+        // Deep water channels throughout understructure
+        for z in 1..23 {
+            for x in 1..23 {
+                if self.get_cell(x, z) != CellType::Wall {
+                    self.set_cell(x, z, CellType::Water);
+                }
+            }
+        }
+
+        // Floating wooden supply rafts providing dry rest spots
+        let rafts = [
+            (3, 18),
+            (4, 18),
+            (3, 10),
+            (4, 10),
+            (7, 14),
+            (8, 14),
+            (7, 6),
+            (8, 6),
+            (12, 16),
+            (13, 16),
+            (12, 8),
+            (13, 8),
+            (17, 12),
+            (18, 12),
+            (17, 4),
+            (18, 4),
+        ];
+        for (rx, rz) in rafts {
+            self.set_cell(rx, rz, CellType::Floor);
+        }
+
+        // Submerged barnacle crawl archways
+        self.set_cell(5, 7, CellType::AirDuct);
+        self.set_cell(5, 14, CellType::AirDuct);
+        self.set_cell(10, 7, CellType::AirDuct);
+        self.set_cell(10, 14, CellType::AirDuct);
+        self.set_cell(15, 7, CellType::AirDuct);
+        self.set_cell(15, 14, CellType::AirDuct);
+
+        // Submerged coastal cavern burrow leading into nursery cove
+        self.set_cell(21, 2, CellType::ExitBurrow);
+    }
+
+    // -------------------------------------------------------------------------
+    // ACT 4-3: BURROW DEFENSE & DR. CANE TOAD'S EXCAVATOR (FINAL CLIMAX)
+    // -------------------------------------------------------------------------
+    fn generate_act4_3(&mut self) {
+        self.player_start_x = 12 * TILE_SZ + 32;
+        self.player_start_z = 21 * TILE_SZ + 32;
+        self.exit_x = 12 * TILE_SZ + 32;
+        self.exit_z = 2 * TILE_SZ + 32;
+
+        // Sandstone coastal bluffs surrounding nursery cove
+        for z in 1..8 {
+            for x in 1..8 {
+                self.set_cell(x, z, CellType::Wall);
+            }
+            for x in 16..23 {
+                self.set_cell(x, z, CellType::Wall);
+            }
+        }
+
+        // Pip's nursery burrow nestled into the cliffside
+        self.set_cell(11, 2, CellType::Wall);
+        self.set_cell(12, 2, CellType::ExitBurrow);
+        self.set_cell(13, 2, CellType::Wall);
+
+        // Mud drainage crawl trenches (crawling dodges sweeping shovel arm)
+        for z in 14..=15 {
+            for x in 4..=9 {
+                self.set_cell(x, z, CellType::AirDuct);
+            }
+            for x in 14..=19 {
+                self.set_cell(x, z, CellType::AirDuct);
+            }
+        }
+
+        // Supply crates and sandbags
+        let crates = [
+            (4, 10),
+            (5, 10),
+            (18, 10),
+            (19, 10),
+            (9, 17),
+            (10, 17),
+            (13, 17),
+            (14, 17),
+        ];
+        for (cx, cz) in crates {
+            self.set_cell(cx, cz, CellType::Crate);
+        }
+
+        // Tall coastal beach grass
+        let grass = [
+            (6, 12),
+            (7, 12),
+            (16, 12),
+            (17, 12),
+            (10, 19),
+            (11, 19),
+            (12, 19),
+            (13, 19),
+        ];
+        for (gx, gz) in grass {
+            self.set_cell(gx, gz, CellType::TallGrass);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // VR-01: SNEAKING SIMULATOR
+    // -------------------------------------------------------------------------
+    fn generate_vr_sneaking(&mut self) {
+        self.player_start_x = 3 * TILE_SZ + 32;
+        self.player_start_z = 21 * TILE_SZ + 32;
+        self.exit_x = 21 * TILE_SZ + 32;
+        self.exit_z = 3 * TILE_SZ + 32;
+
+        // Digital holographic barrier walls & pillars
+        for z in 5..19 {
+            if z % 4 == 0 {
+                for x in 4..20 {
+                    if x != 8 && x != 16 {
+                        self.set_cell(x, z, CellType::Container);
+                    }
+                }
+            }
+        }
+
+        // Low crawl vents under barriers
+        self.set_cell(8, 8, CellType::AirDuct);
+        self.set_cell(16, 12, CellType::AirDuct);
+        self.set_cell(8, 16, CellType::AirDuct);
+
+        // Simulation exit pad
+        self.set_cell(21, 3, CellType::ExitBurrow);
+    }
+
+    // -------------------------------------------------------------------------
+    // VR-02: CQC SPUR TAKEDOWN
+    // -------------------------------------------------------------------------
+    fn generate_vr_cqc(&mut self) {
+        self.player_start_x = 12 * TILE_SZ + 32;
+        self.player_start_z = 21 * TILE_SZ + 32;
+        self.exit_x = 12 * TILE_SZ + 32;
+        self.exit_z = 3 * TILE_SZ + 32;
+
+        // Partition walls creating 3 ambush staging lanes
+        for z in 5..18 {
+            self.set_cell(7, z, CellType::Wall);
+            self.set_cell(17, z, CellType::Wall);
+        }
+
+        // Cover crates to sneak behind guards
+        self.set_cell(11, 16, CellType::Crate);
+        self.set_cell(13, 16, CellType::Crate);
+        self.set_cell(4, 11, CellType::Crate);
+        self.set_cell(20, 11, CellType::Crate);
+
+        self.set_cell(12, 3, CellType::ExitBurrow);
+    }
+
+    // -------------------------------------------------------------------------
+    // VR-03: SONAR LABYRINTH
+    // -------------------------------------------------------------------------
+    fn generate_vr_sonar(&mut self) {
+        self.player_start_x = 3 * TILE_SZ + 32;
+        self.player_start_z = 21 * TILE_SZ + 32;
+        self.exit_x = 21 * TILE_SZ + 32;
+        self.exit_z = 3 * TILE_SZ + 32;
+
+        // Entire floor is pitch black submerged cyber tank
+        for z in 1..23 {
+            for x in 1..23 {
+                self.set_cell(x, z, CellType::Water);
+            }
+        }
+
+        // S-curve labyrinth barriers
+        for x in 1..18 {
+            self.set_cell(x, 7, CellType::Wall);
+            self.set_cell(GRID_W - 1 - x, 14, CellType::Wall);
+        }
+
+        // Underwater crawl tunnels
+        self.set_cell(8, 7, CellType::AirDuct);
+        self.set_cell(15, 14, CellType::AirDuct);
+
+        self.set_cell(21, 3, CellType::ExitBurrow);
+    }
+
+    // -------------------------------------------------------------------------
+    // VR-04: SPEED HURDLES
+    // -------------------------------------------------------------------------
+    fn generate_vr_speed(&mut self) {
+        self.player_start_x = 12 * TILE_SZ + 32;
+        self.player_start_z = 21 * TILE_SZ + 32;
+        self.exit_x = 12 * TILE_SZ + 32;
+        self.exit_z = 2 * TILE_SZ + 32;
+
+        // Water hazard pit surrounding elevated walkway
+        for z in 1..23 {
+            for x in 1..23 {
+                if !(10..=14).contains(&x) {
+                    self.set_cell(x, z, CellType::Water);
+                }
+            }
+        }
+
+        // Low crawl obstacles and crates on the sprint path
+        self.set_cell(12, 17, CellType::Crate);
+        self.set_cell(11, 13, CellType::LaserTripwire);
+        self.set_cell(12, 13, CellType::LaserTripwire);
+        self.set_cell(13, 13, CellType::LaserTripwire);
+        self.set_cell(12, 9, CellType::AirDuct);
+
+        self.set_cell(12, 2, CellType::ExitBurrow);
+    }
+}

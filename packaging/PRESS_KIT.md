@@ -11,7 +11,7 @@
 * **Platform**: Sony PlayStation 1 (PS1 / PSX)
 * **Release Format**: CD-ROM (CUE/BIN Image), CD-R Homebrew, Physical Retail Jewel Case Edition
 * **Target Audience**: Retro gaming enthusiasts, PS1 collectors, Metal Gear Solid fans, Rust embedded developers
-* **Language Support**: 5 Languages (English, Français, Deutsch, Español, 日本語 / Romaji)
+* **Language Support**: 5 menu languages (English, Français, Deutsch, Español, 日本語 / Romaji). In-game text, dialogue and the HUD are English-only; localisation currently covers menu and options labels.
 * **Hardware Compatibility**: All PS1 consoles (NTSC-U/C, PAL, NTSC-J) via Modchip, UniROM, XStation, PSIO; Emulators (DuckStation, RetroArch, PCSX-Redux, Mednafen)
 * **Peripherals Supported**: Standard Digital Controller, DualShock® Analog Controller (360° analog stick + dual-motor vibration feedback), PlayStation Memory Card (1 Block)
 * **Serial Number**: `BASLUS-00001` (Unified Master ID) / `SCES-00001` (PAL Catalog Reference)
@@ -25,7 +25,7 @@
 
 Step into the webbed feet of **Agent Platty**, an elite bio-augmented duck-billed operative on an urgent stealth mission: infiltrate a heavily guarded nature reserve, bypass corporate searchlight mechs and patrol boats, and reach Burrow Command before the birth of his baby sister Pip. 
 
-Featuring genuine 3D environments accelerated by the PS1 Geometry Transformation Engine (GTE), full-motion MDEC video cutscenes with interleaved 37.8 kHz CD-XA ADPCM stereo audio, authentic multi-frequency CODEC radio transmissions, cardboard box subterfuge, and dual-motor DualShock® rumble.
+Featuring genuine 3D environments accelerated by the PS1 Geometry Transformation Engine (GTE), full-motion MDEC video cutscenes, authentic multi-frequency CODEC radio transmissions, cardboard box subterfuge, and dual-motor DualShock® rumble.
 
 ---
 
@@ -34,12 +34,12 @@ Featuring genuine 3D environments accelerated by the PS1 Geometry Transformation
 ### 1. Genuine Bare-Metal Rust Engineering
 * Compiled directly to **MIPS R3000A** bare-metal machine code using `rustc` and the open-source **PSoXide** SDK.
 * Zero runtime overhead, `#![no_std]` architecture, 100% manual memory management adhering strictly to the PS1's 2 MB main RAM constraint.
-* Clean separation of concerns with an independent shared logic crate (`plattypus-core`) validated by 46 automated host test suites.
+* Clean separation of concerns with an independent shared logic crate (`plattypus-core`), validated by 23 automated host test suites that exercise the real level generators, save format and rank evaluator.
 
-### 2. Full-Motion Video with Hardware MDEC & CD-XA Audio
+### 2. Full-Motion Video with Hardware MDEC Decoding
 * High-resolution 320x240 full-screen cinematics at 15 fps.
 * Decoded using the PlayStation’s specialized **Motion Decoder (MDEC)** coprocessor.
-* **Interleaved CD-XA Form 2 ADPCM Audio**: 37.8 kHz stereo audio streamed directly off disc sectors straight into the SPU CD audio mixer, offloading the CPU entirely.
+* **CD-XA (designed, not yet enabled)**: 37.8 kHz stereo ADPCM decoded by the CD drive into the SPU CD input mixer. The player shipped here falls back to embedded SPU samples for cinema audio; see `docs/perf/why-6fps.md`.
 
 ### 3. Tactical Stealth Infiltration
 * **Soliton Radar System**: Real-time overhead radar display tracking sentry positions, directional headings, and patrol cones.
@@ -57,7 +57,7 @@ Featuring genuine 3D environments accelerated by the PS1 Geometry Transformation
 
 ### 5. Classic 90s PlayStation Polish
 * **Multi-Frequency CODEC Radio**: Authentic wireless communications with frequency tuning (Burrow Command: 140.85, Field Save: 140.96, Bushland Intel: 141.12, Tactical Gear: 141.80).
-* **Memory Card BIOS Integration**: 1-block save file featuring a custom 16x16 3-frame animated icon visible in the official PlayStation BIOS Memory Card manager.
+* **Memory Card BIOS Integration**: 1-block save file with a custom 16x16 16-colour icon visible in the official PlayStation BIOS Memory Card manager. It is a single static frame; the PS1 BIOS format cannot animate it.
 * **Red Book CD-DA Title Soundtrack**: Uncompressed 44.1 kHz 16-bit stereo CD audio track mastered onto Track 2.
 * **DualShock® Analog & Rumble Support**: Full 360° analog sneaking sensitivity and dual-motor force feedback during explosions, sonar discharges, and hits.
 
@@ -87,16 +87,18 @@ With zero time to spare, Platty dons his combat headband, checks his venom spurs
 
 ## 📦 Retail & Packaging Specs
 
-Burrow Command Studios has prepared complete commercial-grade physical packaging specifications:
-* **NTSC-U/C Single Jewel Case**: Standard 120mm front booklet with staple binding, back tray card with spine titles, technical compatibility badges, and ESRB 10+ rating metadata.
-* **PAL Thick Double Jewel Case**: European double-thickness case with signature left blue banner, multi-language back blurbs in 5 languages, and PEGI/ELSPA rating icons.
+**Not yet released. Nothing here is orderable.** What exists today:
+* **NTSC-U/C Single Jewel Case**: Vector layout for a 120mm front booklet with staple binding and back tray card with spine titles. **No rating badge, no version string, and the three screenshot panels hold vector placeholders rather than game captures.**
+* **PAL Thick Double Jewel Case**: Vector layout with the signature left blue banner and localisation blurbs in EN/FR/DE/ES/JA-romaji. **No rating badge; screenshots likewise placeholders.**
+
+Deliberately absent from all artwork, and staying absent: any ESRB or PEGI rating (none has been issued), the Sony Seal of Quality and the Compact Disc logo (licensed marks), and a barcode (GS1 prefixes are issued per company).
 * **Screen-Printed CD-ROM Surface**: 3-color silk-screen disc face artwork adhering strictly to ECMA-130 Red Book CD tolerances.
 
 ---
 
 ## 📸 Media Assets
 
-* **Hero Screenshot**: `Images/frontscreen.png` (320x240 native PS1 frame buffer capture of Agent Platty ready for deployment).
+* **Hero Image**: `Images/frontscreen.png` (1275x769 key art -- *not* a frame buffer capture). Real 320x240 in-game captures are taken from `dist/plattypus.cue`; the three screenshot panels in the back insert are still vector placeholders and must be replaced before any print run.
 * **Vector Jewel Case Covers**:
   * `packaging/jewel_case_cover_ntsc.svg`
   * `packaging/jewel_case_back_ntsc.svg`

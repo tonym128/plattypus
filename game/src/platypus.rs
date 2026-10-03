@@ -12,7 +12,12 @@ use psx_gte_core::transform::{cos_1_3_12, sin_1_3_12};
 use psx_pad::{button, ButtonState, Deadzone, PadState};
 
 // PD-7: Named constants for combat, stun durations, hitboxes, and scores
-pub const STUN_SONAR_PULSE_FRAMES: u16 = 300;
+pub const STUN_SONAR_PULSE_FRAMES: u16 = 150;
+
+/// Half-extent of the electro-sonar stun, in world units. Kept well inside the
+/// 5-tile reach it used to have, and deliberately shorter than the 180 frame
+/// recharge so a stun cannot be held open indefinitely.
+pub const SONAR_STUN_RADIUS: i32 = 90;
 pub const STUN_FRONTAL_SPUR_FRAMES: u16 = 400;
 pub const STUN_SILENT_TAKEDOWN_FRAMES: u16 = 900;
 
@@ -48,6 +53,13 @@ pub const SCORE_EXCAVATOR_ENGINE: u32 = 750;
 /// Deflection that counts as a full-tilt analog push, matching
 /// `psx_pad::Deadzone`'s normalised output.
 pub const ANALOG_FULL_DEFLECTION: i32 = 127;
+
+/// Post-deadzone magnitude at which the stick counts as a committed push.
+pub const ANALOG_RUN_THRESHOLD: i32 = 65;
+
+/// Magnitude at which a committed push reaches the top run speed. ~88 % of
+/// travel, rather than absolute maximum.
+pub const ANALOG_FAST_THRESHOLD: i32 = 112;
 
 /// Radial deadzone applied to every analog stick, in raw stick units about
 /// centre. One value for both sticks: the right stick aims the sonar and CQC
@@ -197,7 +209,7 @@ impl Platypus {
         self.electro_charge = 0;
         self.electro_timer = 0;
         self.strike_timer = 0;
-        self.invuln_timer = 90; // 1.5 seconds of respawn invulnerability
+        self.invuln_timer = 30; // brief spawn grace so the opening second is readable
         self.noise_radius = 0;
         self.screen_shake = 0;
         self.on_ground = true;
@@ -476,12 +488,23 @@ impl Platypus {
                     );
                 }
 
-                // Stun nearby sentries & drones
+                // Stun nearby sentries & drones.
+                //
+                // The pulse used to stun anything within 150 units on both
+                // axes, through walls, for 300 frames -- longer than the 180
+                // frame recharge. One held button therefore disabled the whole
+                // detection layer of a stage permanently and silently, which
+                // removed the reason to use the box, the vents, the grass or
+                // the crawl bypass at all. It now respects walls, and the stun
+                // expires before the pulse can be recharged.
                 for s in entities.sentries.iter_mut() {
                     if s.active {
                         let dx = (self.x - s.x).abs();
                         let dz = (self.z - s.z).abs();
-                        if dx < 150 && dz < 150 {
+                        if dx < SONAR_STUN_RADIUS
+                            && dz < SONAR_STUN_RADIUS
+                            && level.has_line_of_sight(self.x, self.z, s.x, s.z)
+                        {
                             s.stun_timer = STUN_SONAR_PULSE_FRAMES;
                             s.state = SentryState::Stunned;
                         }
@@ -491,7 +514,10 @@ impl Platypus {
                     if d.active {
                         let dx = (self.x - d.x).abs();
                         let dz = (self.z - d.z).abs();
-                        if dx < 160 && dz < 160 {
+                        if dx < SONAR_STUN_RADIUS
+                            && dz < SONAR_STUN_RADIUS
+                            && level.has_line_of_sight(self.x, self.z, d.x, d.z)
+                        {
                             d.stun_timer = STUN_SONAR_PULSE_FRAMES;
                         }
                     }
@@ -845,7 +871,7 @@ impl Platypus {
                     }
                 } else if !self.on_ground {
                     4
-                } else if mag < 65 {
+                } else if mag < ANALOG_RUN_THRESHOLD {
                     2 // Stalking / sneak speed
                 } else {
                     4 // Full run speed
@@ -857,7 +883,20 @@ impl Platypus {
                 // moderate diagonal input truncated to a velocity of zero
                 // while the player still counted as Running and emitted full
                 // footstep noise.
-                let speed = (max_speed * mag) / ANALOG_FULL_DEFLECTION;
+                //
+                // A committed push has to read as a run. Under a flat
+                // `max_speed * mag / 127`, the entire upper half of the stick
+                // travelled at speed 2 -- identical to a stalk -- so the player
+                // moved at half speed while being classified Running and
+                // emitting full footstep noise. Speed 4 also needed the stick
+                // pinned at absolute maximum, a one-count window no human
+                // reaches. Spread the top two speeds across the committed half
+                // of the travel instead.
+                let speed = if max_speed >= 4 && mag >= ANALOG_RUN_THRESHOLD {
+                    3 + i32::from(mag >= ANALOG_FAST_THRESHOLD)
+                } else {
+                    (max_speed * mag) / ANALOG_FULL_DEFLECTION
+                };
                 let speed = speed.max(1);
 
                 self.vx = heading_vx(self.angle, speed);

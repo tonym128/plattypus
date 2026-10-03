@@ -121,7 +121,7 @@ pub static ACT1_1_DIALOGUE: &[CodecPage] = &[
     CodecPage {
         speaker: Speaker::Mom,
         line1: "Crawl through drainage pipes",
-        line2: "with CIRCLE or DOWN.",
+        line2: "with CIRCLE.",
     },
     CodecPage {
         speaker: Speaker::Dad,

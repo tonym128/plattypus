@@ -1,5 +1,15 @@
-# PLATTYPUS MGS — PHYSICAL JEWEL CASE SPECIFICATIONS
-## Commercial Retail Print & Packaging Guide
+# PLATTYPUS: TACTICAL ESPIONAGE ACTION — JEWEL CASE SPECIFICATIONS
+## Print & Packaging Guide (Non-Commercial Homebrew)
+
+> **This is not a retail packaging programme.** Plattypus is unlicensed,
+> non-commercial homebrew; it is not for sale, and it has no commercial
+> relationship with Sony or any distributor. These are print specifications for
+> anyone who wants to produce a **personal** jewel-case insert or disc face.
+>
+> The artwork deliberately carries no rating badge (none has been issued), no
+> Sony Seal of Quality, no Compact Disc logo and no barcode (GS1 prefixes are
+> issued per company). Reproducing any of those marks would be a trademark
+> infringement, which is why they are absent rather than merely omitted.
 
 ---
 
@@ -12,8 +22,13 @@
   * Top-Left: Vertical Black PlayStation banner stripe with White "PlayStation" logotype.
   * Main Hero Art: 3D rendered Platty crouching in tactical sneaking stance with leathery bill, green headband flutter, and golden venom spurs.
   * Title Logo: Foil-embossed metallic silver and green **"PLATTYPUS : TACTICAL ESPIONAGE ACTION"**.
-  * Bottom-Left: ESRB Rating Badge (**EVERYONE 10+** - Animated Violence, Comic Mischief).
-  * Bottom-Right: Official Sony Computer Entertainment seal of quality.
+  * Bottom-Left: Rating placeholder box -- **"NOT YET RATED"**, dashed outline.
+    Nothing has been submitted to ESRB, so the position is reserved and the
+    badge is added only once a rating has actually been issued.
+  * Bottom-Right: Publisher mark -- `BURROW COMMAND STUDIOS` lockup plus the
+    "PlayStation" wordmark used nominatively to state hardware compatibility.
+    **No Sony Seal of Quality, no ESRB/PEGI mark, and no Compact Disc logo**
+    without a licence; all three are licensed marks and are deliberately absent.
 
 ### B. Rear Inlay (Back Tray Card)
 * **Dimensions**: $150.0\,\text{mm} \times 118.0\,\text{mm}$ total:
@@ -26,16 +41,22 @@
 * **Back Cover Elements**:
   * Top Headline: *"THE DUCK-BILLED OPERATIVE HAS ARRIVED."*
   * Promotional Blurb: Detailed synopsis of the 4-chapter campaign and VR simulator.
-  * 3 Full-Color Game Screenshots with tactical captions:
-    1. Chapter 1.2: Sneaking past sentry laser gates.
-    2. Chapter 2.1: High-speed river rapids runner.
-    3. Chapter 3.3: Antenna tower sniper confrontation.
+  * 3 Full-Color Game Screenshots, captured from `dist/plattypus.cue` at
+    320x240 and 2x nearest-neighbour upscaled to 640x480, with tactical captions:
+    1. Act 1-2 Research Barracks -- laser grid and sentry cones.
+    2. Act 2-1 Upper Gorge Rapids -- the 5-lane river runner.
+    3. Act 3-3 Antenna Tower -- the Kooky duel.
+    The current SVG holds hand-drawn vector stand-ins in these panels. They are
+    layout placeholders and MUST be replaced with real captures before any
+    print run.
   * Technical Compatibility Icons:
     * `[1 PLAYER]`
     * `[MEMORY CARD: 1 BLOCK]`
     * `[ANALOG CONTROL COMPATIBLE]`
     * `[VIBRATION FUNCTION COMPATIBLE]`
-  * UPC Barcode: EAN-13 / UPC-A format `0 711719 000015`.
+  * UPC Barcode: **PLACEHOLDER -- DO NOT PRINT.** GS1 prefixes are issued
+    per-company; the artwork reserves the position only and carries
+    `0 000000 000000` until a real prefix is issued.
 
 ---
 
@@ -48,13 +69,14 @@
 * **Back Inlay**: $150.0\,\text{mm} \times 118.0\,\text{mm}$ with dual $6.5\,\text{mm}$ spine folds.
 * **Spine Text**: `BASLUS-00001  PLATTYPUS : TACTICAL ESPIONAGE ACTION`.
 
-### B. Multi-Language Blurbs (PAL 5-Language Standard)
+### B. Multi-Language Blurbs (PAL Localisation)
 * English: *"Tactical espionage action meets Australian wildlife in full 3D!"*
 * French: *"L'action d'espionnage tactique rencontre la faune australienne en 3D intégrale !"*
 * German: *"Taktische Spionage-Action trifft auf australische Wildtiere in echtem 3D!"*
 * Spanish: *"¡La acción de espionaje táctico se une a la fauna australiana en 3D completo!"*
-* Italian: *"L'azione di spionaggio tattico incontra la fauna australiana in 3D!"*
-* Ratings: ELSPA 3-10 / PEGI 7+ icon.
+* Japanese (romaji): *"Taktichi espionage action ga Australia no yasei doubutsu to deau!"*
+* Ratings: **none.** Nothing here has been submitted to PEGI. ELSPA was
+  discontinued in 2003 and must not appear on the artwork.
 
 ---
 

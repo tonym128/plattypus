@@ -1,4 +1,4 @@
-# Plattypus: Tactical Espionage Action — Commercial PSX Release Plan
+# Plattypus: Tactical Espionage Action — PSX Completion Plan (Superseded)
 
 > **Status: largely superseded — kept for historical reference.**
 > Phases 1-6 below are implemented. The campaign shipped as 12 acts across
@@ -12,7 +12,13 @@
 
 **Plattypus: Tactical Espionage Action** is a 3D tactical stealth action game developed for the original PlayStation (PS1 / PSX) hardware using Rust and the `psoxide` SDK. 
 
-The goal of this plan is to guide the game from its current 4-stage technical prototype into a **commercially viable, fully sellable PlayStation 1 release** available both as physical pressed CD-ROMs in retro jewel-case packaging and digital disc images (`.cue`/`.bin`) for emulators and optical drive emulators (XStation, PSIO, MiSTer FPGA).
+The goal of this plan was to guide the game from a 4-stage technical prototype into a complete PlayStation 1 release, distributed as digital disc images (`.cue`/`.bin`) for emulators and optical drive emulators (XStation, PSIO, MiSTer FPGA).
+
+> **Superseded on the distribution question.** This project is unlicensed
+> non-commercial homebrew and is not for sale. Any "commercial release",
+> "retail" or "sellable" language left in the historical text below is a
+> leftover from the original plan and does not describe the project's intent.
+> See [LICENSE](LICENSE).
 
 ---
 
@@ -51,9 +57,9 @@ flowchart TD
 
 ---
 
-## Phase 1: Recommended Immediate Steps (The Commercial Foundation)
+## Phase 1: Recommended Immediate Steps (Foundations)
 
-These five items deliver the largest leap from homebrew demo to commercial-grade retail product:
+These five items delivered the largest leap from prototype to playable game:
 
 ### 1. Audio Engine & Dynamic Soundtrack
 * **SPU ADPCM Sound Effects**: Implement 24-channel SPU hardware playback for footsteps (metal, grass, water, pavement), sentry alert exclamation chords (`!`), weapon discharges, and water dive splashes.

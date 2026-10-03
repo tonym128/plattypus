@@ -59,6 +59,35 @@ pub enum Codename {
 }
 
 impl Codename {
+    /// Rank ordering, 0 being the best. The variants are declared best-first,
+    /// so the discriminant *is* the ordering; `pub fn rank` states that
+    /// explicitly rather than leaving it as an implementation detail.
+    pub fn rank(&self) -> u8 {
+        *self as u8
+    }
+
+    /// The worst rank, used as the starting point when carrying the best rank
+    /// of a campaign.
+    pub const ROOKIE: Self = Codename::DuckbillRookie;
+
+    pub fn from_index(index: u8) -> Self {
+        const ALL: [Codename; 12] = [
+            Codename::BigPlatypus,
+            Codename::GhostPlatypus,
+            Codename::SpeedyWallaby,
+            Codename::TasmanianDevil,
+            Codename::LurkingEchidna,
+            Codename::IronBill,
+            Codename::SlyPossum,
+            Codename::BushKoala,
+            Codename::VenomousTaipan,
+            Codename::WombatTunnel,
+            Codename::CardboardHermit,
+            Codename::DuckbillRookie,
+        ];
+        ALL[(index as usize).min(ALL.len() - 1)]
+    }
+
     pub fn name(&self) -> &'static str {
         match self {
             Codename::BigPlatypus => "BIG PLATYPUS",

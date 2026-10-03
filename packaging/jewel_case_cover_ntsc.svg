@@ -81,7 +81,7 @@
     <rect x="-35" y="30" width="55" height="50" rx="8" fill="#523318" stroke="#331e0c" stroke-width="3"/>
     <rect x="-10" y="22" width="22" height="14" rx="2" fill="#faf0d7"/>
 
-    <!-- Head & Brow -->
+    <!-- Head &amp; Brow -->
     <ellipse cx="85" cy="20" rx="75" ry="60" fill="#7a4b24"/>
 
     <!-- Iconic Duck Bill (+Z Facing) -->
@@ -100,7 +100,7 @@
     <path d="M 36 12 C 15 28 -15 25 -40 45 C -20 35 10 35 36 20 Z" fill="#1e7e34"/>
   </g>
 
-  <!-- Tactical Radar Blips & Sonar Waves -->
+  <!-- Tactical Radar Blips &amp; Sonar Waves -->
   <g stroke="#00ffcc" stroke-width="2" fill="none" opacity="0.8" filter="url(#glow)">
     <path d="M 580 380 A 70 70 0 0 1 630 460"/>
     <path d="M 600 360 A 100 100 0 0 1 670 470"/>
@@ -122,22 +122,22 @@
     <text x="2" y="115" font-family="'Helvetica Neue', Arial, sans-serif" font-weight="700" font-size="16" fill="#88c999" letter-spacing="2">PROJECT PSOXIDE 3D // 32-BIT GTE</text>
   </g>
 
-  <!-- ESRB Rating Badge (Bottom-Left) -->
-  <g transform="translate(115, 680)">
-    <rect width="90" height="90" fill="#ffffff" stroke="#000000" stroke-width="2"/>
-    <text x="45" y="42" font-family="'Arial Black', sans-serif" font-size="34" font-weight="900" fill="#000" text-anchor="middle">E</text>
-    <rect x="5" y="52" width="80" height="32" fill="#000000"/>
-    <text x="45" y="66" font-family="Arial, sans-serif" font-size="9" font-weight="bold" fill="#fff" text-anchor="middle">EVERYONE 10+</text>
-    <text x="45" y="78" font-family="Arial, sans-serif" font-size="7" fill="#fff" text-anchor="middle">COMIC MISCHIEF</text>
+  <!-- Rating: NOT YET RATED. The position is reserved; a rating badge is added
+       only after one has been issued by ESRB. Do not draw a rating we hold. -->
+  <g transform="translate(115, 700)">
+    <rect width="90" height="34" fill="none" stroke="#556655" stroke-width="1" stroke-dasharray="3 3"/>
+    <text x="45" y="22" font-family="Arial, sans-serif" font-size="9" fill="#556655" text-anchor="middle">NOT YET RATED</text>
   </g>
 
-  <!-- Official Sony Seal & Serial (Bottom-Right) -->
-  <g transform="translate(620, 710)">
-    <circle cx="50" cy="30" r="30" fill="none" stroke="#d4af37" stroke-width="2"/>
-    <text x="50" y="24" font-family="Georgia, serif" font-size="7" font-weight="bold" fill="#d4af37" text-anchor="middle">OFFICIAL</text>
-    <text x="50" y="34" font-family="Georgia, serif" font-size="8" font-weight="bold" fill="#d4af37" text-anchor="middle">PlayStation</text>
-    <text x="50" y="44" font-family="Georgia, serif" font-size="7" font-weight="bold" fill="#d4af37" text-anchor="middle">SEAL OF QUALITY</text>
+  <!-- Publisher mark. The Sony "Seal of Quality" and the Compact Disc logo are
+       licensed marks and are deliberately not reproduced. "PlayStation" is used
+       nominatively to state hardware compatibility. -->
+  <g transform="translate(600, 712)">
+    <text x="50" y="18" font-family="Georgia, serif" font-size="10" font-weight="bold" fill="#d4af37" text-anchor="middle">BURROW COMMAND</text>
+    <text x="50" y="32" font-family="Georgia, serif" font-size="10" font-weight="bold" fill="#d4af37" text-anchor="middle">STUDIOS</text>
+    <text x="50" y="50" font-family="Georgia, serif" font-size="7" fill="#d4af37" text-anchor="middle">for PlayStation</text>
   </g>
 
-  <text x="770" y="785" font-family="monospace" font-size="11" fill="#668877" text-anchor="end">SLUS-00001 / NTSC-U/C</text>
+
+  <text x="770" y="785" font-family="monospace" font-size="11" fill="#668877" text-anchor="end">BASLUS-00001 / NTSC-U/C</text>
 </svg>

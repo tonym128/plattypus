@@ -44,14 +44,20 @@
 2. **Official PlayStation® Trademark**:
    * Classic PlayStation logo positioned prominently with trademark registration symbol.
 3. **Product Serial Identification**:
-   * `BASLUS-00001` (Universal Disc Master ID)
-   * `SCES-00001 / SLUS-00001` (Retail regional catalog references)
+   * `BASLUS-00001` (NTSC-U/C)
+   * `SLES-00001` (PAL / Australasia)
+   * One codex, not one disc that boots everywhere. Real PlayStation hardware is
+     region-locked and the two masters are separate images.
 4. **Copyright & Rights Line**:
-   * `© 2026 Burrow Command Studios / PSoxide Project. Licensed by Sony Computer Entertainment Inc.`
+   * `© 2026 Burrow Command Studios. Licensed GPL-2.0-or-later.`
+   * `Independent homebrew. Not affiliated with or endorsed by Sony Computer`
+     ` Entertainment Inc. Full source in the project repository.`
 5. **Red Book Audio Track Map**:
    * Track 1: MODE2/2352 data -- ISO 9660 image carrying the game executable,
      assets, and MDEC video streams (from 00:00:00).
    * Track 2: AUDIO -- 44.1 kHz 16-bit stereo CD-DA title soundtrack, with a
-     2-sector pregap (INDEX 00 at 01:27:68, INDEX 01 at 01:29:68).
-     Derived from the mastered `dist/plattypus.cue`; regenerate with `make disc`
-     rather than editing by hand if the media changes.
+     2-second (150-sector) pregap between INDEX 00 and INDEX 01.
+     **Do not hand-edit the MSF values.** Read them from `dist/plattypus.cue`
+     after `make disc`; a mismatch means the printed art and the pressed master
+     disagree. (`01:29:68` was previously quoted here and is not even a legal
+     MSF value -- frames run 0..74.)

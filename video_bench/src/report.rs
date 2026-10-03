@@ -156,11 +156,7 @@ pub fn build_report(
     let p95 = percentile_from_hist(&iv_hist, measured, 95);
 
     // Presented frame rate: 60 Hz display / mean interval.
-    let fps_x1000 = if iv_mean > 0 {
-        60_000 / iv_mean
-    } else {
-        0
-    };
+    let fps_x1000 = if iv_mean > 0 { 60_000 / iv_mean } else { 0 };
     let avg_frame_time_us = iv_mean * us_per_vblank;
 
     // Work overrun: `draw()` consuming a whole display period or more is
@@ -396,12 +392,26 @@ pub fn draw_on_screen(
     font.draw_text(8, y, l.as_str(), WHITE);
     y += 14;
 
-    l.clear().text(b"work   ").num(s.work_vb_mean_x100, 3).ch(b'%').text(b" of 1 vb");
-    font.draw_text(8, y, l.as_str(), if s.work_overruns == 0 { GOOD } else { BAD });
+    l.clear()
+        .text(b"work   ")
+        .num(s.work_vb_mean_x100, 3)
+        .ch(b'%')
+        .text(b" of 1 vb");
+    font.draw_text(
+        8,
+        y,
+        l.as_str(),
+        if s.work_overruns == 0 { GOOD } else { BAD },
+    );
     y += 16;
 
     l.clear().text(b"budget ").num(s.budget_pct, 3).ch(b'%');
-    font.draw_text(8, y, l.as_str(), if s.budget_pct > 100 { BAD } else { GOOD });
+    font.draw_text(
+        8,
+        y,
+        l.as_str(),
+        if s.budget_pct > 100 { BAD } else { GOOD },
+    );
     y += 16;
 
     font.draw_text(8, y, "per-frame us", DIM);
@@ -462,21 +472,39 @@ pub fn emit_paced_only(
     let mut stutters = 0u32;
     let mut measured = 0u32;
     for p in items {
-        if p.interval == 0 { continue; }
+        if p.interval == 0 {
+            continue;
+        }
         measured += 1;
         iv_sum += p.interval as u64;
-        if p.interval < iv_min { iv_min = p.interval; }
-        if p.interval > iv_max { iv_max = p.interval; }
-        if p.interval != VBLANKS_PER_VIDEO_FRAME { stutters += 1; }
+        if p.interval < iv_min {
+            iv_min = p.interval;
+        }
+        if p.interval > iv_max {
+            iv_max = p.interval;
+        }
+        if p.interval != VBLANKS_PER_VIDEO_FRAME {
+            stutters += 1;
+        }
     }
-    if measured == 0 { iv_min = 0; }
-    let iv_mean = if measured > 0 { (iv_sum / measured as u64) as u32 } else { VBLANKS_PER_VIDEO_FRAME };
+    if measured == 0 {
+        iv_min = 0;
+    }
+    let iv_mean = if measured > 0 {
+        (iv_sum / measured as u64) as u32
+    } else {
+        VBLANKS_PER_VIDEO_FRAME
+    };
     let fps_x1000 = if iv_mean > 0 { 60_000 / iv_mean } else { 0 };
     let avg_us = iv_mean * crate::timing::US_PER_VBLANK;
     let kv = |tag: &str, name: &str, value: u32| {
-        tty::print("@@VB1 "); tty::print(tag); tty::print(" ");
-        tty::print(name); tty::print("=");
-        tty::print_hex_u32(value); tty::print("\n");
+        tty::print("@@VB1 ");
+        tty::print(tag);
+        tty::print(" ");
+        tty::print(name);
+        tty::print("=");
+        tty::print_hex_u32(value);
+        tty::print("\n");
     };
     tty::println("@@VB1 PACED_ONLY 1");
     kv("paced_only", "using_cd", using_cd as u32);

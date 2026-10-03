@@ -87,7 +87,7 @@ pub struct Game {
     pub codec: CodecManager,
     pub video: crate::video::VideoPlayer,
     pub prev_buttons: ButtonState,
-    pub frame: u8,
+    pub frame: u32,
     pub idle_timer: u16,
     pub memcard: crate::save::MemoryCardManager,
     pub save_data: crate::save::SaveData,
@@ -105,6 +105,10 @@ pub struct Game {
     /// `total_damage` when the current stage began, so a stage's damage taken
     /// is the difference. The codename ranks grade a single mission.
     pub stage_start_damage: u16,
+    /// Best rank achieved on any single stage so far. The rank used to be
+    /// graded once, on the final mission, which left ten of the twelve codenames
+    /// unreachable and made Rank S automatic.
+    pub best_stage_rank: u8,
     /// Whether a formatted card is present, from a probe run when the CODEC is
     /// opened. `memcard.status` cannot answer this: it is a self-clearing
     /// message, not a card state.
@@ -159,6 +163,7 @@ impl Game {
             stage_alerts: 0,
             stage_start_takedowns: 0,
             stage_start_damage: 0,
+            best_stage_rank: crate::save::Codename::ROOKIE.rank(),
             card_present,
             sound_test_track: 0,
         };
@@ -295,7 +300,23 @@ impl Game {
                                 0 => {
                                     // Campaign Infiltration
                                     AudioManager::stop_cdda();
-                                    self.start_new_campaign();
+                                    // A save file was found but refused -- corrupt,
+                                    // or written by an older version. Without this
+                                    // the first thing a returning player does is
+                                    // silently overwrite a file the loader just
+                                    // rejected, and the only warning lives on the
+                                    // options screen they have not opened yet.
+                                    let refused = matches!(
+                                        self.memcard.last_load,
+                                        crate::save::LoadOutcome::Corrupt
+                                            | crate::save::LoadOutcome::Incompatible
+                                    );
+                                    if refused {
+                                        self.state = GameState::ConfirmNewCampaign;
+                                        self.idle_timer = 0;
+                                    } else {
+                                        self.start_new_campaign();
+                                    }
                                 }
                                 1 => {
                                     // VR Training Simulator
@@ -1012,11 +1033,16 @@ impl Game {
                                 .platty
                                 .takedowns
                                 .saturating_sub(self.stage_start_takedowns);
-                            let codename = crate::save::Codename::evaluate(
+                            let final_rank = crate::save::Codename::evaluate(
                                 self.stage_alerts,
                                 stage_damage,
                                 time_s,
                                 stage_takedowns,
+                            );
+                            // The campaign record is the best rank earned on any
+                            // stage, so a player has to actually go and earn it.
+                            let codename = crate::save::Codename::from_index(
+                                self.best_stage_rank.min(final_rank.rank()),
                             );
 
                             // Award unlocks
@@ -1046,6 +1072,32 @@ impl Game {
                             self.video.start_outro();
                             self.state = GameState::OutroVideo { codename };
                         } else {
+                            // Grade this stage too and carry the best rank into
+                            // the campaign record. Only grading the final boss
+                            // left Speedy Wallaby, Tasmanian Devil, Lurking
+                            // Echidna, Iron Bill, Sly Possum, Bush Koala, Venomous
+                            // Taipan, Wombat Tunnel and Cardboard Hermit
+                            // unreachable -- Act 4-3 has no sentries, no
+                            // tripwires and (before the boss hit-test landed) no
+                            // way to take damage, so it was always evaluated as
+                            // (0 alerts, 0 damage, t, 0 takedowns).
+                            let time_s = self.stage_time_frames / self.frames_per_second();
+                            let stage_damage = self
+                                .platty
+                                .total_damage
+                                .saturating_sub(self.stage_start_damage);
+                            let stage_takedowns = self
+                                .platty
+                                .takedowns
+                                .saturating_sub(self.stage_start_takedowns);
+                            let stage_rank = crate::save::Codename::evaluate(
+                                self.stage_alerts,
+                                stage_damage,
+                                time_s,
+                                stage_takedowns,
+                            );
+                            self.best_stage_rank = self.best_stage_rank.min(stage_rank.rank());
+
                             self.commit_progress(Some(self.level.act));
                             self.state = GameState::StageClear;
                             AudioManager::stop_all();
@@ -1409,6 +1461,7 @@ impl Game {
         self.apply_save_preferences();
         self.save_card();
         self.mission_stats = MissionStats::default();
+        self.best_stage_rank = crate::save::Codename::ROOKIE.rank();
         self.platty.reset_for_new_game();
         self.video.start();
         self.state = GameState::IntroVideo;

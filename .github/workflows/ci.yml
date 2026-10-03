@@ -1,7 +1,7 @@
 name: CI
 
-# The PSoXide submodule carries its own workflow, but that one only builds and
-# tests the SDK. This workflow is what actually gates the game.
+# The PSoXide SDK is vendored under `psoxide/` and carries its own upstream
+# workflow. This workflow gates the game.
 
 on:
   push:
@@ -9,10 +9,66 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  game:
-    name: Game build and logic tests
+  # Cheap checks first and separately. A red fmt or clippy step used to abort the
+  # build job before the logic suite ever ran, so a formatting slip silently
+  # disabled the only test signal the project has.
+  host:
+    name: Host tests, lint, format
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: rustup show
+
+      # Scope the gate to this project's four crates. `cargo fmt --all` from the
+      # game manifest walks the whole path-dependency graph, which now includes
+      # the vendored SDK -- upstream code this repository does not reformat.
+      - name: Check formatting
+        run: |
+          for m in game crates/plattypus-core tools/test_game_logic video_bench; do
+            echo "::group::$m"
+            cargo fmt --manifest-path "$m/Cargo.toml" --all -- --check
+            echo "::endgroup::"
+          done
+
+      - name: Clippy
+        run: |
+          cargo clippy --locked --offline --manifest-path crates/plattypus-core/Cargo.toml --all-targets -- -D warnings
+          cargo clippy --locked --offline --manifest-path tools/test_game_logic/Cargo.toml --all-targets -- -D warnings
+
+      - name: Run host-side game logic tests
+        run: cargo run --locked --offline --manifest-path tools/test_game_logic/Cargo.toml
+
+      # `game/` and `video_bench/` both resolve crates.io dependencies and
+      # video_bench textually includes the game's video.rs and audio.rs, so a
+      # lockfile that disagrees on a registry dependency is the one way those two
+      # binaries can diverge.
+      - name: Lockfiles agree on registry dependencies
+        run: |
+          set -euo pipefail
+          for l in game/Cargo.lock video_bench/Cargo.lock; do
+            awk '/^name = /{n=$3} /^version = /{print n" "$3}' "$l" | sort > "/tmp/$(basename "$l").reg"
+          done
+          diff -u /tmp/Cargo.lock.reg /tmp/video_bench.Cargo.lock.reg
+
+  game:
+    name: PSX build
+    needs: host
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -21,24 +77,32 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y binutils-mipsel-linux-gnu
 
-      # rustup picks the pinned nightly up from rust-toolchain.toml, including
-      # the rust-src component that build-std needs.
       - name: Show toolchain
         run: rustup show
 
+      # MUST run with the working directory set to game/: the cross-build target
+      # lives in game/.cargo/config.toml and Cargo only reads that from the cwd.
       - name: Build the PSX executable
         working-directory: game
         run: cargo build --release --locked
 
-      - name: Check formatting
-        run: cargo fmt --manifest-path game/Cargo.toml --all -- --check
-
-      - name: Run host-side game logic tests
-        run: cargo run --locked --manifest-path tools/test_game_logic/Cargo.toml
+      - name: Verify the executable exists and fits the console
+        working-directory: game
+        run: |
+          exe=target/mipsel-sony-psx/release/plattypus.exe
+          test -f "$exe"
+          size=$(stat -c%s "$exe")
+          echo "exe = $size bytes ($(( size * 100 / 2097152 ))% of PS1 RAM)"
+          if [ "$size" -ge 2097152 ]; then
+            echo "::error::executable exceeds the 2 MB main RAM of a PlayStation"
+            exit 1
+          fi
 
   disc:
     name: Disc mastering smoke test
+    needs: game
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -51,3 +115,17 @@ jobs:
       # local path, and proves `make disc` can still master an image.
       - name: Master the disc image
         run: make disc
+
+      # `make iso` is a separate product that the Pages workflow publishes, so
+      # it cannot be left unbuilt here.
+      - name: Master the ISO image
+        run: make iso
+
+      - name: Verify the cue names a file that exists
+        run: |
+          set -euo pipefail
+          grep -q '^FILE' dist/plattypus.cue
+          named=$(awk '/^FILE/{gsub(/"/,"",$2); print $2}' dist/plattypus.cue | head -1)
+          echo "cue references: $named"
+          test -f "$named" || test -f "dist/$(basename "$named")"
+          ls -l dist/plattypus.bin dist/plattypus.cue dist/plattypus.iso

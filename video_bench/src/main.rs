@@ -235,7 +235,6 @@ fn run_paced(r: &mut renderer::Renderer) -> (stages::Presents, bool, u32, u32, u
     )
 }
 
-
 /// Times the shipped decode path with no display pacing, as a closure
 /// check against `stages::run_burst`.
 fn run_real_player_burst(r: &mut renderer::Renderer, clock: &mut timing::Clock) -> timing::Span {
@@ -248,7 +247,10 @@ fn run_real_player_burst(r: &mut renderer::Renderer, clock: &mut timing::Clock) 
         player.present(r);
         let after = interrupts::vblank_count();
         if after > before {
-            total += timing::Span { vblanks: after - before, cycles: 0 };
+            total += timing::Span {
+                vblanks: after - before,
+                cycles: 0,
+            };
         }
         if player.is_finished() {
             break;

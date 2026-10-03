@@ -1,5 +1,5 @@
 Plattypus: Tactical Espionage Action
-Copyright (C) 2026 Burrow Command Studios
+Copyright (C) 2026 Burrow Command Studios. All rights reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -15,20 +15,56 @@ this program; if not, write to the Free Software Foundation, Inc., 51 Franklin
 Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 --------------------------------------------------------------------------------
+Status: non-commercial homebrew. Copyright retained.
+--------------------------------------------------------------------------------
+
+Copyright in this game is retained by the author and is **not** dedicated to the
+public domain. All rights are reserved except for the freedoms the GPL grants.
+
+The author's official builds are published free of charge for personal, private,
+non-commercial use. **They are not for sale, and no commercial use, resale or
+retail distribution is authorised or endorsed by the author.**
+
+Note that the GPL itself places no restriction on commercial use -- anyone who
+accepts its terms may use the code commercially. "Non-commercial" here is a
+statement of the author's intent for their own releases, not a restriction the
+licence imposes on others. If you want to distribute this commercially, you must
+clear the third-party assets listed in ASSETS.md independently; several have no
+recorded licence at all and are the author's own problem to solve.
+
+--------------------------------------------------------------------------------
 Third-party components
 --------------------------------------------------------------------------------
 
-PSoXide SDK (https://github.com/EBonura/PSoXide) -- the bare-metal PS1 SDK
-this game is built on, included as a git submodule. It is independently
-licensed; see psoxide/LICENSE for its own notice and attribution. No PSoXide
-source is vendored into this repository.
+PSoXide SDK (https://github.com/EBonura/PSoXide) -- the bare-metal PS1 SDK this
+game is built on. Its source is **vendored in-tree under `psoxide/`**, not pulled
+in as a submodule, so the build needs no network access. It is independently
+licensed; see psoxide/LICENSE for its own notice and attribution.
 
-Sound effects under game/src/audio.rs originate from the Freesound "PSAU"
-collection redistributed with the PSoXide SDK (see psoxide/assets/audio/freesfx).
+Sound effects originate from the Freesound "PSAU" collection redistributed with
+the PSoXide SDK (see psoxide/assets/audio/freesfx and
+psoxide/sdk/crates/psx-font/vendor/PROVENANCE.md for per-file provenance).
+
+All third-party assets, their origins and their licences are recorded in
+ASSETS.md. Assets whose licence is unknown are marked as such there and must not
+be redistributed without the author resolving them.
+
+--------------------------------------------------------------------------------
+Trademarks
+--------------------------------------------------------------------------------
 
 PlayStation is a trademark of Sony Computer Entertainment Inc. This is
 non-commercial homebrew. It is not affiliated with or endorsed by Sony, and no
-Sony firmware or commercial game assets are included.
+Sony firmware, BIOS image or commercial game assets are included.
+
+The packaging artwork carries no rating badge, no Sony Seal of Quality, no
+Compact Disc logo and no barcode. None of those marks has been issued or
+licensed for this project, and reproducing them would be a trademark
+infringement. "PlayStation" appears in the documentation and artwork used
+nominatively, to state hardware compatibility only.
+
+Metal Gear Solid is a trademark of Konami Digital Entertainment. This project is
+an independent homage and contains no Konami assets.
 
                     GNU GENERAL PUBLIC LICENSE
                        Version 2, June 1991

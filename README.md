@@ -1,6 +1,6 @@
 # Plattypus: Tactical Espionage Action 🦆 (Sony PlayStation 1 / PSX)
 
-[![CI](actions/workflows/ci.yml/badge.svg)](actions/workflows/ci.yml)
+[![CI](https://github.com/tonym128/plattypus/actions/workflows/ci.yml/badge.svg)](https://github.com/tonym128/plattypus/actions/workflows/ci.yml)
 
 A 3D tactical stealth action infiltration thriller for the original **Sony PlayStation (PS1 / PSX)**, developed in bare-metal **Rust** using the **[PSoXide](https://github.com/EBonura/PSoXide)** SDK.
 
@@ -21,7 +21,7 @@ Equipped with his combat headband, venomous ankle spurs, and bio-electric electr
 
 * **Bare-Metal Rust on 1994 Hardware**: Compiled to native MIPS R3000A machine code using `rustc` with `#![no_std]`, targeting 2 MB of main RAM with zero operating system dependencies.
 * **3D Tactical Espionage Gameplay**: Fully 3D environments with GTE-accelerated fixed-point math, directional Gouraud shading, and affine texture mapping.
-* **Hardware MDEC Cinematics & CD-XA Audio**: 320x240 full-screen video at 15 fps decoded via the PlayStation Motion Decoder (MDEC) coprocessor, with interleaved 37.8 kHz stereo **CD-XA ADPCM audio** streaming directly off disc sectors into the SPU CD audio mixer.
+* **Hardware MDEC Cinematics**: 320x240 full-screen video at 15 fps decoded on the PlayStation Motion Decoder (MDEC) coprocessor and streamed off disc sectors into VRAM over DMA channel 2. Cinema audio currently plays from embedded SPU samples; the CD-XA path is built but not yet enabled in the shipped player ([why](docs/perf/why-6fps.md)).
 * **Red Book CD-DA Title Soundtrack**: Uncompressed 44.1 kHz 16-bit stereo CD digital audio mastered directly onto Track 2.
 * **Soliton Radar System**: Real-time tactical radar displaying enemy positions, patrol headings, and vision cones.
 * **Multi-Frequency CODEC Radio**: Authentic MGS-style wireless communications with frequency tuning (Burrow Command: 140.85, Field Save: 140.96, Bushland Intel: 141.12, Tactical Gear: 141.80).
@@ -38,9 +38,9 @@ Equipped with his combat headband, venomous ankle spurs, and bio-electric electr
   * **Chapter 4**: Coastal Beachhead (Sandstone Cliff Platforming, Pier Shark Trench, Dr. Cane Toad's Excavator Climax).
 * **VR Training Simulator**: 4 standalone training missions (Sneaking, CQC, Sonar Labyrinth, Speed Hurdles).
 * **DualShock® Analog & Rumble Support**: Full 360° analog stealth speed control and dual-motor vibration feedback.
-* **PlayStation Memory Card Integration**: 1-block save support with custom animated 16x16 3-frame BIOS save icon.
-* **Clean Shared Architecture (`plattypus-core`)**: Pure `#![no_std]` game logic, save formats, and level geometry verified by 46 automated host test suites (`make test`).
-* **Commercial Retail Packaging**: Production-ready print specifications for NTSC-U/C and PAL jewel cases, instruction manual, and silk-screened disc face (see [`packaging/PRESS_KIT.md`](packaging/PRESS_KIT.md) and [`packaging/`](packaging/)).
+* **PlayStation Memory Card Integration**: 1-block save with a custom 16x16 16-colour BIOS save icon.
+* **Clean Shared Architecture (`plattypus-core`)**: Pure `#![no_std]` game logic, save formats, and the level generators themselves -- so the host suite tests the real code, not a copy of it. 23 automated host test suites (`make test`), including an exhaustive checksum/bit-flip sweep and a full 4-D sweep of the rank evaluator.
+* **Packaging Specifications**: Print specifications for NTSC-U/C and PAL jewel cases, instruction manual, and silk-screened disc face (see [`packaging/PRESS_KIT.md`](packaging/PRESS_KIT.md) and [`packaging/`](packaging/)). The artwork deliberately carries **no rating badge, no Sony Seal of Quality and no barcode** -- none has been issued or licensed. Nothing is for sale; see [`LICENSE`](LICENSE).
 
 ---
 
@@ -62,7 +62,7 @@ Equipped with his combat headband, venomous ankle spurs, and bio-electric electr
 ## 🛠️ Building & Mastering
 
 ### Prerequisites
-- `git` (the PSoXide SDK is a submodule and must be initialised)
+- `git` (the PSoXide SDK is vendored in-tree under `psoxide/`; no submodule initialisation is needed)
 - The Rust nightly pinned in [`rust-toolchain.toml`](rust-toolchain.toml).
   `rustup` installs it automatically on first build; it needs `rust-src` and
   `llvm-tools` for the `mipsel-sony-psx` cross build.
@@ -70,18 +70,15 @@ Equipped with his combat headband, venomous ankle spurs, and bio-electric electr
 
 ### Getting the source
 
-The PSoXide SDK is a git submodule, so a plain clone is not enough.
+The PSoXide SDK is vendored in this repository, so a plain clone is enough --
+there is no submodule to initialise.
 
 ```sh
-git clone --recurse-submodules <repository-url>
-cd plattypus-psoxide
-
-# If you already cloned without --recurse-submodules:
-git submodule update --init --recursive
+git clone https://github.com/tonym128/plattypus.git
+cd plattypus
 ```
 
-The build fails with an unhelpful `psx-asset` manifest error if the `psoxide/`
-submodule is missing, so check `ls psoxide/sdk` before building.
+Check `ls psoxide/sdk` before building; the cross build needs it present.
 
 ### Build Targets
 
@@ -104,6 +101,22 @@ them; the directory is listed in `.gitignore`.
 - `dist/plattypus.exe` — Bare-metal MIPS R3000 PlayStation executable
 - `dist/plattypus.bin` — Raw 2352-byte/sector disc image
 - `dist/plattypus.cue` — Red-book disc cue sheet with CD-DA title audio track
+
+---
+
+## 📚 Documentation
+
+| Doc | What it is |
+|---|---|
+| [`docs/perf/why-6fps.md`](docs/perf/why-6fps.md) | How the intro cinematic went from 6.00 to 15.00 fps: the measurements, the fixes that did *not* work, and why the codec mattered more than the scheduler |
+| [`packaging/MANUAL.md`](packaging/MANUAL.md) | Full instruction manual |
+| [`packaging/PRESS_KIT.md`](packaging/PRESS_KIT.md) | Fact sheet, synopsis, character list, media assets |
+| [`packaging/JEWEL_CASE_SPEC.md`](packaging/JEWEL_CASE_SPEC.md) · [`packaging/DISC_SURFACE_SPEC.md`](packaging/DISC_SURFACE_SPEC.md) | Print specifications |
+| [`ASSETS.md`](ASSETS.md) | Every third-party asset, its origin and its licence |
+| [`CHANGELOG.md`](CHANGELOG.md) | Release notes |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to build, test and contribute |
+| [`PLAN.md`](PLAN.md) · [`TODO.md`](TODO.md) | Historical plan and build checklist (superseded -- kept for context) |
+| [`LICENSE`](LICENSE) | GPL-2.0-or-later |
 
 ---
 

@@ -8,7 +8,7 @@
 
 ## Priority Phase 1: Recommended Immediate Steps (Foundations)
 
-These 5 items form the core technical foundation required for a commercial-grade PlayStation experience.
+These 5 items form the core technical foundation for the game.
 
 ## 🚨 Active Issues & Bug Fixes
 
@@ -109,7 +109,7 @@ These 5 items form the core technical foundation required for a commercial-grade
 
 ---
 
-## Phase 5: Replayability, Modes & Commercial Polish
+## Phase 5: Replayability, Modes & Polish
 
 - [x] **MGS Codename Mission Ranking**
   - [x] Track stats: time elapsed, alert phases, rations eaten, guards neutralized, damage taken

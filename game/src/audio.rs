@@ -303,30 +303,45 @@ impl AudioManager {
             ADDR_SINE = addr_sin;
         }
 
-        // Configure Music Voices with looping wave tones
+        // Configure Music Voices with looping wave tones.
+        //
+        // Two problems here. `Adsr::default_tone()` holds sustain level 0xF and
+        // the SPU has no retrigger: `key_on` on a voice already at full sustain
+        // leaves the envelope alone, so the voice kept looping the sample while
+        // `set_pitch` stepped it between notes -- one continuous oscillator, a
+        // pitch-bending drone with `VOICE_DRUM` buzzing underneath, not a
+        // melody. `percussive()` self-fades in the sustain phase so each note
+        // ends and the next can attack.
+        //
+        // Second, the four voices at unity main volume summed to 2.13x while all
+        // three were keyed, which the SPU saturates per channel -- a sustained
+        // clip in every level, before any sound effect. `VOICE_BASS` drops from
+        // 1/5 to 1/7, bringing the unconditional trio to 0.48. The main volume is
+        // left at MAX on purpose: turning it down would halve every sound
+        // effect too.
         VOICE_BASS.configure_sample(
             addr_tri,
             tones::NATIVE_HZ,
-            Volume::linear(1, 5),
-            Adsr::default_tone(),
+            Volume::linear(1, 7),
+            Adsr::percussive(),
         );
         VOICE_LEAD.configure_sample(
             addr_saw,
             tones::NATIVE_HZ,
             Volume::linear(1, 6),
-            Adsr::default_tone(),
+            Adsr::percussive(),
         );
         VOICE_HARMONY.configure_sample(
             addr_sqr,
             tones::NATIVE_HZ,
             Volume::linear(1, 7),
-            Adsr::default_tone(),
+            Adsr::percussive(),
         );
         VOICE_DRUM.configure_sample(
             addr_sqr,
             tones::NATIVE_HZ,
             Volume::linear(1, 6),
-            Adsr::default_tone(),
+            Adsr::percussive(),
         );
     }
 
@@ -700,8 +715,15 @@ impl AudioManager {
     }
 
     /// Check if CD-DA was playing but has now finished (for attract demo trigger).
+    ///
+    /// `is_cdda_playing()` has to be called *first*. `CDDA_WAS_PLAYING` is only
+    /// ever set inside that function, and `reset_cdda_tracking()` clears it as
+    /// the title screen starts its track -- so testing the flag first
+    /// short-circuits the `&&`, the poll never happens, the flag never gets set,
+    /// and the attract demo could never start at all.
     pub fn cdda_finished() -> bool {
-        unsafe { CDDA_WAS_PLAYING && !Self::is_cdda_playing() }
+        let playing = Self::is_cdda_playing();
+        unsafe { CDDA_WAS_PLAYING && !playing }
     }
 
     /// Reset CDDA play tracking (call when starting title music).
