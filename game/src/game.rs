@@ -830,6 +830,7 @@ impl Game {
                             };
                             AudioManager::play_electro();
                         } else {
+                            self.platty.invuln_timer = 30;
                             self.state = GameState::Playing;
                             AudioManager::play_jump();
                         }
@@ -855,9 +856,11 @@ impl Game {
                     *turn_back_timer = turn_back_timer.saturating_add(substeps as u16);
                 }
                 let elapsed = *timer;
+                self.platty.anim_frame = self.platty.anim_frame.wrapping_add(1);
 
                 if *turn_back_timer >= TURN_BACK_FRAMES {
                     self.snap_camera_to_player();
+                    self.platty.invuln_timer = 30;
                     self.state = GameState::Playing;
                     AudioManager::play_jump();
                 } else {
@@ -897,6 +900,7 @@ impl Game {
                     *turn_back_timer = turn_back_timer.saturating_add(substeps as u16);
                 }
                 let elapsed = *timer;
+                self.platty.anim_frame = self.platty.anim_frame.wrapping_add(1);
 
                 if prev_timer == 0 && elapsed >= 1 {
                     AudioManager::play_alert();
@@ -904,6 +908,7 @@ impl Game {
 
                 if *turn_back_timer >= TURN_BACK_FRAMES {
                     self.snap_camera_to_player();
+                    self.platty.invuln_timer = 30;
                     self.state = GameState::Playing;
                     AudioManager::play_alert();
                 } else {

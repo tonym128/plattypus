@@ -209,7 +209,7 @@ impl Platypus {
         self.electro_charge = 0;
         self.electro_timer = 0;
         self.strike_timer = 0;
-        self.invuln_timer = 30; // brief spawn grace so the opening second is readable
+        self.invuln_timer = 0; // Spawn grace begins when active gameplay starts
         self.noise_radius = 0;
         self.screen_shake = 0;
         self.on_ground = true;

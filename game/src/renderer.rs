@@ -4640,17 +4640,17 @@ impl Renderer {
         };
 
         let card_x: i16 = 20;
-        let card_y: i16 = 84;
+        let card_y: i16 = 26;
         let card_w: u16 = 280;
-        let card_h: u16 = 72;
+        let card_h: u16 = 58;
 
         gpu::draw_rect_flat(card_x, card_y, card_w, card_h, 16, 48, 36);
         gpu::draw_rect_flat(card_x + 2, card_y + 2, card_w - 4, card_h - 4, 6, 18, 14);
         gpu::draw_rect_flat(card_x, card_y, 4, card_h, 60, 220, 140); // Emerald green accent strip
 
-        self.draw_text_clamped(card_x + 12, card_y + 10, act_name, (255, 230, 80));
-        self.draw_text_clamped(card_x + 12, card_y + 28, op_name, (255, 255, 255));
-        self.draw_text_clamped(card_x + 12, card_y + 46, sub_name, (120, 240, 180));
+        self.draw_text_clamped(card_x + 12, card_y + 8, act_name, (255, 230, 80));
+        self.draw_text_clamped(card_x + 12, card_y + 24, op_name, (255, 255, 255));
+        self.draw_text_clamped(card_x + 12, card_y + 40, sub_name, (120, 240, 180));
 
         if timer > 45 && (timer / 15) % 2 == 0 {
             self.draw_text_clamped(170, 222, "START / X: BEGIN", (160, 160, 160));
@@ -4685,9 +4685,9 @@ impl Renderer {
         };
 
         let card_x: i16 = 20;
-        let card_y: i16 = 145;
+        let card_y: i16 = 26;
         let card_w: u16 = 280;
-        let card_h: u16 = 62;
+        let card_h: u16 = 58;
 
         gpu::draw_rect_flat(card_x, card_y, card_w, card_h, 12, 18, 24);
         gpu::draw_rect_flat(card_x + 2, card_y + 2, card_w - 4, card_h - 4, 4, 8, 12);
