@@ -15,6 +15,37 @@ document.addEventListener('DOMContentLoaded', () => {
   const gamepadStatus = document.getElementById('gamepad-status');
   const gamepadName = document.getElementById('gamepad-name');
 
+  // Gamepad HUD SVG elements
+  const svgElements = {
+    cross: document.getElementById('svg-cross'),
+    circle: document.getElementById('svg-circle'),
+    square: document.getElementById('svg-square'),
+    triangle: document.getElementById('svg-triangle'),
+    up: document.getElementById('svg-dpad-up'),
+    down: document.getElementById('svg-dpad-down'),
+    left: document.getElementById('svg-dpad-left'),
+    right: document.getElementById('svg-dpad-right'),
+    l1: document.getElementById('svg-l1'),
+    r1: document.getElementById('svg-r1'),
+    start: document.getElementById('svg-start'),
+    select: document.getElementById('svg-select'),
+    stickL: document.getElementById('svg-stick-l'),
+    stickR: document.getElementById('svg-stick-r')
+  };
+
+  function setButtonState(name, active) {
+    const el = svgElements[name];
+    if (el) {
+      if (active) {
+        el.setAttribute('fill', '#00d2ff');
+        el.setAttribute('filter', 'drop-shadow(0 0 6px #00d2ff)');
+      } else {
+        el.removeAttribute('fill');
+        el.removeAttribute('filter');
+      }
+    }
+  }
+
   let isMuted = false;
   let isRunning = false;
 
@@ -84,12 +115,233 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (btnFullscreen) {
     btnFullscreen.addEventListener('click', () => {
-      const container = document.querySelector('.screen-container');
+      const target = (touchEnabled && isMobile())
+        ? (document.querySelector('.arcade-bezel') || document.querySelector('.screen-container'))
+        : document.querySelector('.screen-container');
       if (!document.fullscreenElement) {
-        if (container.requestFullscreen) container.requestFullscreen();
-        else if (container.webkitRequestFullscreen) container.webkitRequestFullscreen();
+        if (target.requestFullscreen) target.requestFullscreen();
+        else if (target.webkitRequestFullscreen) target.webkitRequestFullscreen();
       } else {
         if (document.exitFullscreen) document.exitFullscreen();
+      }
+    });
+  }
+
+  // --- PS1 Mobile On-Screen Touch Controller ---
+  const btnTouch = document.getElementById('btn-touch');
+  const touchControls = document.getElementById('touch-controls');
+  const touchDpad = document.getElementById('touch-dpad');
+
+  const PS_PAD = {
+    SELECT:   1 << 0,  // 0x0001
+    L3:       1 << 1,  // 0x0002
+    R3:       1 << 2,  // 0x0004
+    START:    1 << 3,  // 0x0008
+    UP:       1 << 4,  // 0x0010
+    RIGHT:    1 << 5,  // 0x0020
+    DOWN:     1 << 6,  // 0x0040
+    LEFT:     1 << 7,  // 0x0080
+    L2:       1 << 8,  // 0x0100
+    R2:       1 << 9,  // 0x0200
+    L1:       1 << 10, // 0x0400
+    R1:       1 << 11, // 0x0800
+    TRIANGLE: 1 << 12, // 0x1000
+    CIRCLE:   1 << 13, // 0x2000
+    CROSS:    1 << 14, // 0x4000
+    SQUARE:   1 << 15  // 0x8000
+  };
+
+  const BUTTON_CONFIG = {
+    up:       { mask: PS_PAD.UP,       key: 'ArrowUp',    code: 'ArrowUp' },
+    down:     { mask: PS_PAD.DOWN,     key: 'ArrowDown',  code: 'ArrowDown' },
+    left:     { mask: PS_PAD.LEFT,     key: 'ArrowLeft',  code: 'ArrowLeft' },
+    right:    { mask: PS_PAD.RIGHT,    key: 'ArrowRight', code: 'ArrowRight' },
+    cross:    { mask: PS_PAD.CROSS,    key: 'x',          code: 'KeyX' },
+    circle:   { mask: PS_PAD.CIRCLE,   key: 'c',          code: 'KeyC' },
+    square:   { mask: PS_PAD.SQUARE,   key: 'z',          code: 'KeyZ' },
+    triangle: { mask: PS_PAD.TRIANGLE, key: 'v',          code: 'KeyV' },
+    l1:       { mask: PS_PAD.L1,       key: 'q',          code: 'KeyQ' },
+    r1:       { mask: PS_PAD.R1,       key: 'e',          code: 'KeyE' },
+    select:   { mask: PS_PAD.SELECT,   key: 'Tab',        code: 'Tab' },
+    start:    { mask: PS_PAD.START,    key: 'Enter',      code: 'Enter' }
+  };
+
+  const isMobile = () => {
+    return (
+      'ontouchstart' in window ||
+      navigator.maxTouchPoints > 0 ||
+      window.matchMedia('(pointer: coarse)').matches ||
+      window.innerWidth <= 900
+    );
+  };
+
+  let touchEnabled = false;
+  const savedTouchPref = localStorage.getItem('plattypus_touch_controls');
+  if (savedTouchPref === 'enabled') {
+    touchEnabled = true;
+  } else if (savedTouchPref === 'disabled') {
+    touchEnabled = false;
+  } else {
+    touchEnabled = isMobile();
+  }
+
+  function updateTouchVisibility() {
+    if (touchControls) {
+      touchControls.classList.toggle('touch-hidden', !touchEnabled);
+    }
+    if (btnTouch) {
+      btnTouch.classList.toggle('active', touchEnabled);
+      btnTouch.textContent = touchEnabled ? '📱 Touch (On)' : '📱 Touch Controls';
+    }
+  }
+  updateTouchVisibility();
+
+  if (btnTouch) {
+    btnTouch.addEventListener('click', () => {
+      touchEnabled = !touchEnabled;
+      localStorage.setItem('plattypus_touch_controls', touchEnabled ? 'enabled' : 'disabled');
+      updateTouchVisibility();
+    });
+  }
+
+  let activeTouchButtons = new Set();
+  let currentPadMask = 0;
+
+  function dispatchKeyEvent(code, key, type) {
+    if (!iframe || !iframe.contentWindow) return;
+    try {
+      const doc = iframe.contentDocument || iframe.contentWindow.document;
+      const ev = new KeyboardEvent(type, {
+        code: code,
+        key: key,
+        bubbles: true,
+        cancelable: true
+      });
+      if (doc) doc.dispatchEvent(ev);
+      iframe.contentWindow.dispatchEvent(ev);
+    } catch (_) {}
+  }
+
+  function applyActiveButtons(newActiveButtons) {
+    let newMask = 0;
+    const newlyPressed = [];
+
+    for (const [btnName, cfg] of Object.entries(BUTTON_CONFIG)) {
+      const wasActive = activeTouchButtons.has(btnName);
+      const isActive = newActiveButtons.has(btnName);
+
+      if (isActive) {
+        newMask |= cfg.mask;
+      }
+
+      if (isActive && !wasActive) {
+        newlyPressed.push(btnName);
+        dispatchKeyEvent(cfg.code, cfg.key, 'keydown');
+        if (typeof setButtonState === 'function') setButtonState(btnName, true);
+      } else if (!isActive && wasActive) {
+        dispatchKeyEvent(cfg.code, cfg.key, 'keyup');
+        if (typeof setButtonState === 'function') setButtonState(btnName, false);
+      }
+    }
+
+    // Gentle tactile haptic feedback
+    if (newlyPressed.length > 0 && navigator.vibrate) {
+      try { navigator.vibrate(12); } catch (_) {}
+    }
+
+    // Update DOM visual active states
+    if (touchControls) {
+      const buttons = touchControls.querySelectorAll('[data-btn]');
+      buttons.forEach((b) => {
+        const name = b.dataset.btn;
+        b.classList.toggle('active', newActiveButtons.has(name));
+      });
+    }
+
+    // Bridge mask to emulator iframe
+    currentPadMask = newMask;
+    if (iframe && iframe.contentWindow) {
+      try {
+        iframe.contentWindow._psoxideVirtualPadMask = newMask;
+      } catch (_) {}
+      try {
+        iframe.contentWindow.postMessage({ type: 'psoxide-pad', mask: newMask }, window.location.origin);
+      } catch (_) {}
+    }
+
+    activeTouchButtons = newActiveButtons;
+  }
+
+  if (touchControls) {
+    function processTouchInput(e) {
+      if (!touchEnabled) return;
+      if (e.cancelable) e.preventDefault();
+
+      const newButtons = new Set();
+      const touches = e.touches;
+
+      for (let i = 0; i < touches.length; i++) {
+        const touch = touches[i];
+
+        // Check D-pad analog tracking
+        if (touchDpad) {
+          const rect = touchDpad.getBoundingClientRect();
+          const margin = 14;
+          if (
+            touch.clientX >= rect.left - margin &&
+            touch.clientX <= rect.right + margin &&
+            touch.clientY >= rect.top - margin &&
+            touch.clientY <= rect.bottom + margin
+          ) {
+            const cx = rect.left + rect.width / 2;
+            const cy = rect.top + rect.height / 2;
+            const dx = touch.clientX - cx;
+            const dy = touch.clientY - cy;
+            const dist = Math.hypot(dx, dy);
+
+            if (dist >= 12) {
+              if (dy < -14) newButtons.add('up');
+              if (dy > 14) newButtons.add('down');
+              if (dx < -14) newButtons.add('left');
+              if (dx > 14) newButtons.add('right');
+            }
+            continue;
+          }
+        }
+
+        // Check discrete button hit
+        const el = document.elementFromPoint(touch.clientX, touch.clientY);
+        const btn = el ? el.closest('[data-btn]') : null;
+        if (btn && btn.dataset.btn) {
+          newButtons.add(btn.dataset.btn);
+        }
+      }
+
+      applyActiveButtons(newButtons);
+    }
+
+    touchControls.addEventListener('touchstart', processTouchInput, { passive: false });
+    touchControls.addEventListener('touchmove', processTouchInput, { passive: false });
+    touchControls.addEventListener('touchend', processTouchInput, { passive: false });
+    touchControls.addEventListener('touchcancel', processTouchInput, { passive: false });
+
+    // Desktop mouse fallback for testing
+    let isMouseDown = false;
+
+    touchControls.addEventListener('mousedown', (e) => {
+      const btn = e.target.closest('[data-btn]');
+      if (btn && btn.dataset.btn) {
+        isMouseDown = true;
+        const set = new Set(activeTouchButtons);
+        set.add(btn.dataset.btn);
+        applyActiveButtons(set);
+      }
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (isMouseDown) {
+        isMouseDown = false;
+        applyActiveButtons(new Set());
       }
     });
   }
@@ -134,38 +386,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // 6. Gamepad API & Virtual Controller Highlighting
-  const svgElements = {
-    cross: document.getElementById('svg-cross'),
-    circle: document.getElementById('svg-circle'),
-    square: document.getElementById('svg-square'),
-    triangle: document.getElementById('svg-triangle'),
-    up: document.getElementById('svg-dpad-up'),
-    down: document.getElementById('svg-dpad-down'),
-    left: document.getElementById('svg-dpad-left'),
-    right: document.getElementById('svg-dpad-right'),
-    l1: document.getElementById('svg-l1'),
-    r1: document.getElementById('svg-r1'),
-    start: document.getElementById('svg-start'),
-    select: document.getElementById('svg-select'),
-    stickL: document.getElementById('svg-stick-l'),
-    stickR: document.getElementById('svg-stick-r')
-  };
-
-  function setButtonState(name, active) {
-    const el = svgElements[name];
-    if (el) {
-      if (active) {
-        el.setAttribute('fill', '#00d2ff');
-        el.setAttribute('filter', 'drop-shadow(0 0 6px #00d2ff)');
-      } else {
-        el.removeAttribute('fill');
-        el.removeAttribute('filter');
-      }
-    }
-  }
-
-  // Keyboard mapping mirror for visualization
+  // 6. Keyboard mapping mirror for visualization
   const keyMap = {
     'KeyW': 'up',
     'ArrowUp': 'up',

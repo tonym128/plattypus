@@ -604,3 +604,477 @@ footer {
   border-top: 1px solid var(--border-color);
   margin-top: 3rem;
 }
+
+/* ==========================================================================
+   PS1 Mobile On-Screen Touch Controller
+   ========================================================================== */
+.touch-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-top: 1.25rem;
+  padding: 1.25rem 1.5rem;
+  background: radial-gradient(circle at 50% 0%, #242a38 0%, #151820 100%);
+  border-radius: 20px;
+  border: 2px solid #2e3748;
+  box-shadow:
+    inset 0 2px 4px rgba(255, 255, 255, 0.08),
+    0 10px 30px rgba(0, 0, 0, 0.6);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  position: relative;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.touch-controls.touch-hidden {
+  display: none !important;
+}
+
+/* Button Reset for Virtual Pad */
+.touch-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Controller Clusters */
+.touch-cluster {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.touch-shoulder-row {
+  margin-bottom: 8px;
+}
+
+.touch-btn-shoulder {
+  width: 84px;
+  height: 32px;
+  border-radius: 8px 8px 4px 4px;
+  background: linear-gradient(180deg, #323b4c 0%, #222734 100%);
+  border: 1px solid #414d64;
+  color: #94a3b8;
+  font-family: monospace;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  box-shadow:
+    0 4px 8px rgba(0, 0, 0, 0.4),
+    inset 0 1px 2px rgba(255, 255, 255, 0.12);
+  transition: all 0.08s ease;
+}
+
+.touch-btn-shoulder:active,
+.touch-btn-shoulder.active {
+  background: #00d2ff;
+  color: #0b1118;
+  border-color: #38bdf8;
+  box-shadow: 0 0 16px rgba(0, 210, 255, 0.7);
+  transform: translateY(2px);
+}
+
+/* --- D-Pad --- */
+.touch-dpad {
+  position: relative;
+  width: 130px;
+  height: 130px;
+}
+
+.touch-dpad-dish {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: #12151c;
+  box-shadow:
+    inset 0 2px 8px rgba(0, 0, 0, 0.9),
+    0 1px 2px rgba(255, 255, 255, 0.05);
+}
+
+.touch-dpad-core {
+  position: absolute;
+  top: 43px;
+  left: 43px;
+  width: 44px;
+  height: 44px;
+  background: #202633;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.touch-dpad-btn {
+  position: absolute;
+  z-index: 3;
+  background: #293140;
+  color: #8493a8;
+  border: 1px solid #3c4659;
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: all 0.06s ease;
+}
+
+.touch-dpad-up {
+  top: 2px;
+  left: 43px;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px 8px 2px 2px;
+}
+
+.touch-dpad-down {
+  bottom: 2px;
+  left: 43px;
+  width: 44px;
+  height: 44px;
+  border-radius: 2px 2px 8px 8px;
+}
+
+.touch-dpad-left {
+  top: 43px;
+  left: 2px;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px 2px 2px 8px;
+}
+
+.touch-dpad-right {
+  top: 43px;
+  right: 2px;
+  width: 44px;
+  height: 44px;
+  border-radius: 2px 8px 8px 2px;
+}
+
+.touch-dpad-btn:active,
+.touch-dpad-btn.active {
+  background: #3b82f6 !important;
+  color: #fff !important;
+  box-shadow: 0 0 14px rgba(59, 130, 246, 0.8) !important;
+  transform: scale(0.95);
+}
+
+/* --- Action Buttons (▲ ● ✖ ■) --- */
+.touch-actions {
+  position: relative;
+  width: 130px;
+  height: 130px;
+}
+
+.touch-actions-dish {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: #12151c;
+  box-shadow:
+    inset 0 2px 8px rgba(0, 0, 0, 0.9),
+    0 1px 2px rgba(255, 255, 255, 0.05);
+}
+
+.touch-action-btn {
+  position: absolute;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: #202532;
+  border: 2px solid #323c4d;
+  font-size: 1.15rem;
+  font-weight: bold;
+  cursor: pointer;
+  z-index: 3;
+  box-shadow:
+    0 4px 8px rgba(0, 0, 0, 0.5),
+    inset 0 1px 2px rgba(255, 255, 255, 0.1);
+  transition: all 0.06s ease;
+}
+
+.touch-action-triangle {
+  top: 3px;
+  left: 44px;
+}
+
+.touch-action-circle {
+  top: 44px;
+  right: 3px;
+}
+
+.touch-action-cross {
+  bottom: 3px;
+  left: 44px;
+}
+
+.touch-action-square {
+  top: 44px;
+  left: 3px;
+}
+
+.ps-glyph.glyph-triangle { color: #32e096; }
+.ps-glyph.glyph-circle   { color: #ff4d6a; }
+.ps-glyph.glyph-cross    { color: #4d88ff; }
+.ps-glyph.glyph-square   { color: #ff77d2; }
+
+.touch-action-triangle:active,
+.touch-action-triangle.active {
+  background: rgba(50, 224, 150, 0.3) !important;
+  border-color: #32e096 !important;
+  box-shadow: 0 0 18px #32e096 !important;
+  transform: scale(0.92);
+}
+
+.touch-action-circle:active,
+.touch-action-circle.active {
+  background: rgba(255, 77, 106, 0.3) !important;
+  border-color: #ff4d6a !important;
+  box-shadow: 0 0 18px #ff4d6a !important;
+  transform: scale(0.92);
+}
+
+.touch-action-cross:active,
+.touch-action-cross.active {
+  background: rgba(77, 136, 255, 0.3) !important;
+  border-color: #4d88ff !important;
+  box-shadow: 0 0 18px #4d88ff !important;
+  transform: scale(0.92);
+}
+
+.touch-action-square:active,
+.touch-action-square.active {
+  background: rgba(255, 119, 210, 0.3) !important;
+  border-color: #ff77d2 !important;
+  box-shadow: 0 0 18px #ff77d2 !important;
+  transform: scale(0.92);
+}
+
+/* --- Center Section: SELECT & START --- */
+.touch-center {
+  justify-content: space-between;
+  height: 100%;
+  min-height: 120px;
+  padding-bottom: 6px;
+}
+
+.touch-brand-mark {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  margin-top: 4px;
+}
+
+.touch-brand-sony {
+  font-family: var(--font-retro);
+  font-size: 0.75rem;
+  letter-spacing: 2px;
+  color: #556276;
+  font-weight: bold;
+}
+
+.touch-brand-dots {
+  display: flex;
+  gap: 4px;
+  font-size: 0.6rem;
+}
+
+.touch-brand-dots span:nth-child(1) { color: #32e096; }
+.touch-brand-dots span:nth-child(2) { color: #ff4d6a; }
+.touch-brand-dots span:nth-child(3) { color: #4d88ff; }
+.touch-brand-dots span:nth-child(4) { color: #ff77d2; }
+
+.touch-center-buttons {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+}
+
+.touch-pill-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.touch-btn-pill {
+  width: 42px;
+  height: 16px;
+  border-radius: 8px;
+  background: #252b38;
+  border: 1px solid #3b4557;
+  transform: rotate(-25deg);
+  cursor: pointer;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.8), 0 2px 4px rgba(0, 0, 0, 0.3);
+  transition: all 0.08s ease;
+}
+
+.touch-pill-group label {
+  font-family: monospace;
+  font-size: 0.65rem;
+  color: #64748b;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.touch-btn-pill:active,
+.touch-btn-pill.active {
+  background: #00d2ff !important;
+  box-shadow: 0 0 12px #00d2ff !important;
+  transform: rotate(-25deg) scale(0.92);
+}
+
+/* --- Mobile Landscape Floating Controls --- */
+@media (orientation: landscape) and (max-width: 1024px),
+       (orientation: landscape) and (max-height: 520px) {
+  .touch-controls {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    margin: 0;
+    padding: 16px 24px;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    pointer-events: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+  }
+
+  .touch-controls .touch-left {
+    pointer-events: auto;
+    background: rgba(20, 24, 32, 0.82);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    padding: 10px 14px;
+    border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  }
+
+  .touch-controls .touch-right {
+    pointer-events: auto;
+    background: rgba(20, 24, 32, 0.82);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    padding: 10px 14px;
+    border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  }
+
+  .touch-controls .touch-center {
+    pointer-events: auto;
+    position: fixed;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(20, 24, 32, 0.82);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    padding: 6px 18px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+    flex-direction: row;
+    gap: 16px;
+    align-items: center;
+    min-height: auto;
+    height: auto;
+  }
+
+  .touch-controls .touch-brand-mark {
+    display: none;
+  }
+}
+
+/* Mobile Portrait Responsive Tweaks */
+@media (max-width: 600px) {
+  .arcade-bezel {
+    padding: 0.75rem 0.5rem;
+  }
+  .touch-controls {
+    padding: 0.75rem 0.5rem;
+    margin-top: 0.75rem;
+  }
+  .touch-dpad,
+  .touch-actions {
+    width: 114px;
+    height: 114px;
+  }
+  .touch-dpad-dish,
+  .touch-actions-dish {
+    width: 114px;
+    height: 114px;
+  }
+  .touch-dpad-core {
+    top: 38px;
+    left: 38px;
+    width: 38px;
+    height: 38px;
+  }
+  .touch-dpad-up {
+    top: 2px;
+    left: 38px;
+    width: 38px;
+    height: 38px;
+  }
+  .touch-dpad-down {
+    bottom: 2px;
+    left: 38px;
+    width: 38px;
+    height: 38px;
+  }
+  .touch-dpad-left {
+    top: 38px;
+    left: 2px;
+    width: 38px;
+    height: 38px;
+  }
+  .touch-dpad-right {
+    top: 38px;
+    right: 2px;
+    width: 38px;
+    height: 38px;
+  }
+  .touch-action-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 1rem;
+  }
+  .touch-action-triangle {
+    top: 2px;
+    left: 39px;
+  }
+  .touch-action-circle {
+    top: 39px;
+    right: 2px;
+  }
+  .touch-action-cross {
+    bottom: 2px;
+    left: 39px;
+  }
+  .touch-action-square {
+    top: 39px;
+    left: 2px;
+  }
+  .touch-btn-shoulder {
+    width: 72px;
+    height: 28px;
+    font-size: 0.75rem;
+  }
+  .touch-center-buttons {
+    gap: 8px;
+  }
+  .touch-btn-pill {
+    width: 34px;
+    height: 14px;
+  }
+}
+

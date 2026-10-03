@@ -77,7 +77,72 @@
               <option value="trinitron">Retro Trinitron Glow</option>
               <option value="off">Off (Crisp Raw Pixels)</option>
             </select>
+            <button id="btn-touch" class="btn-tool" title="Toggle On-Screen Touch Controls">📱 Touch Controls</button>
             <button id="btn-fullscreen" class="btn-tool" title="Toggle Fullscreen">⛶ Fullscreen</button>
+          </div>
+        </div>
+
+        <!-- PS1 Touch Controller (Mobile / Touchscreen) -->
+        <div id="touch-controls" class="touch-controls" aria-label="PlayStation Virtual Controller">
+          <!-- Left Wing: L1 Shoulder & D-Pad -->
+          <div class="touch-cluster touch-left">
+            <div class="touch-shoulder-row">
+              <button class="touch-btn touch-btn-shoulder" data-btn="l1" id="touch-l1" aria-label="L1 Shoulder">
+                <span>L1</span>
+              </button>
+            </div>
+            <div class="touch-dpad" id="touch-dpad" aria-label="Directional Pad">
+              <div class="touch-dpad-dish"></div>
+              <button class="touch-btn touch-dpad-btn touch-dpad-up" data-btn="up" aria-label="Up">▲</button>
+              <button class="touch-btn touch-dpad-btn touch-dpad-right" data-btn="right" aria-label="Right">▶</button>
+              <button class="touch-btn touch-dpad-btn touch-dpad-down" data-btn="down" aria-label="Down">▼</button>
+              <button class="touch-btn touch-dpad-btn touch-dpad-left" data-btn="left" aria-label="Left">◀</button>
+              <div class="touch-dpad-core"></div>
+            </div>
+          </div>
+
+          <!-- Center Wing: PlayStation Brand & Select / Start -->
+          <div class="touch-cluster touch-center">
+            <div class="touch-brand-mark">
+              <span class="touch-brand-sony">SONY</span>
+              <div class="touch-brand-dots">
+                <span>▲</span><span>●</span><span>✖</span><span>■</span>
+              </div>
+            </div>
+            <div class="touch-center-buttons">
+              <div class="touch-pill-group">
+                <button class="touch-btn touch-btn-pill" data-btn="select" id="touch-select" aria-label="Select"></button>
+                <label>SELECT</label>
+              </div>
+              <div class="touch-pill-group">
+                <button class="touch-btn touch-btn-pill" data-btn="start" id="touch-start" aria-label="Start"></button>
+                <label>START</label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Wing: R1 Shoulder & Action Buttons (▲ ● ✖ ■) -->
+          <div class="touch-cluster touch-right">
+            <div class="touch-shoulder-row">
+              <button class="touch-btn touch-btn-shoulder" data-btn="r1" id="touch-r1" aria-label="R1 Shoulder">
+                <span>R1</span>
+              </button>
+            </div>
+            <div class="touch-actions" id="touch-actions" aria-label="Action Buttons">
+              <div class="touch-actions-dish"></div>
+              <button class="touch-btn touch-action-btn touch-action-triangle" data-btn="triangle" aria-label="Triangle">
+                <span class="ps-glyph glyph-triangle">▲</span>
+              </button>
+              <button class="touch-btn touch-action-btn touch-action-circle" data-btn="circle" aria-label="Circle">
+                <span class="ps-glyph glyph-circle">●</span>
+              </button>
+              <button class="touch-btn touch-action-btn touch-action-cross" data-btn="cross" aria-label="Cross">
+                <span class="ps-glyph glyph-cross">✖</span>
+              </button>
+              <button class="touch-btn touch-action-btn touch-action-square" data-btn="square" aria-label="Square">
+                <span class="ps-glyph glyph-square">■</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>

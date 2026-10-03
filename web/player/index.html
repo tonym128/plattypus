@@ -293,8 +293,8 @@
          <body> starts the wasm (at once, or on the poster click in embed
          mode). -->
     
-    <script>window.psoxideWasm = { js: './frontend-ace41a956a8b6f53.js', wasm: './frontend-ace41a956a8b6f53_bg.wasm' };</script>
-  <link rel="modulepreload" href="./frontend-ace41a956a8b6f53.js"></head>
+    <script>window.psoxideWasm = { js: './frontend-ca75761857dce414.js', wasm: './frontend-ca75761857dce414_bg.wasm' };</script>
+  <link rel="modulepreload" href="./frontend-ca75761857dce414.js"></head>
   <body>
     <div id="psoxide-loader" class="psoxide-loader" role="status" aria-live="polite">
       <div class="psoxide-loader-card">
@@ -412,11 +412,20 @@
             post(event, message);
           };
 
+          window.psoxideSetVirtualPad = function (mask) {
+            window._psoxideVirtualPadMask = (mask | 0);
+          };
+
           window.addEventListener("message", function (e) {
             // Only the embedding page may drive the player.
             if (e.source !== window.parent || e.origin !== location.origin) return;
             var data = e.data;
-            if (!data || typeof data !== "object" || data.type !== "psoxide-command") return;
+            if (!data || typeof data !== "object") return;
+            if (data.type === "psoxide-pad") {
+              window._psoxideVirtualPadMask = (data.mask | 0);
+              return;
+            }
+            if (data.type !== "psoxide-command") return;
             if (COMMANDS.indexOf(data.command) < 0) {
               console.warn("PSoXide embed: ignoring unknown command", data.command);
               return;
