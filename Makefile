@@ -50,8 +50,7 @@ help:
 web:
 	@mkdir -p $(ROOT)/web/roms
 	@cp $(DIST)/plattypus.exe $(DIST)/plattypus.cue $(DIST)/plattypus.bin $(DIST)/plattypus.iso $(ROOT)/web/roms/ 2>/dev/null || true
-	@echo "Serving Plattypus Web Arcade on http://localhost:8080 ..."
-	@python3 -m http.server 8080 --directory $(ROOT)/web
+	@python3 $(ROOT)/tools/serve_web.py 8080 $(ROOT)/web
 
 test:
 	cargo run --manifest-path $(ROOT)/tools/test_game_logic/Cargo.toml

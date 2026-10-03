@@ -293,8 +293,8 @@
          <body> starts the wasm (at once, or on the poster click in embed
          mode). -->
     
-    <script>window.psoxideWasm = { js: './frontend-856b85e38d578374.js', wasm: './frontend-856b85e38d578374_bg.wasm' };</script>
-  <link rel="modulepreload" href="./frontend-856b85e38d578374.js"></head>
+    <script>window.psoxideWasm = { js: './frontend-ace41a956a8b6f53.js', wasm: './frontend-ace41a956a8b6f53_bg.wasm' };</script>
+  <link rel="modulepreload" href="./frontend-ace41a956a8b6f53.js"></head>
   <body>
     <div id="psoxide-loader" class="psoxide-loader" role="status" aria-live="polite">
       <div class="psoxide-loader-card">
@@ -474,7 +474,7 @@
           if (psoxideNoSimd) {
             fail("This browser lacks WebAssembly SIMD - please update it");
           } else if (!disc || disc.startsWith("/") || /[:\\]/.test(disc) || disc.includes("//")) {
-            fail("Choose a same-origin relative .exe or .bin path with ?disc=");
+            fail("Choose a same-origin relative .cue, .bin, or .exe path with ?disc=");
           } else {
             document.getElementById("psoxide-poster-title").textContent =
               disc.split("/").pop().replace(/\.[^.]+$/, "");

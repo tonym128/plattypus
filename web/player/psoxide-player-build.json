@@ -2,7 +2,7 @@
   "schema": 1,
   "emulator_revision": "c7bad9322089c7ef81ce96c8528e970e749628ed",
   "source_url": "https://github.com/EBonura/PSoXide-emulator/tree/c7bad9322089c7ef81ce96c8528e970e749628ed",
-  "emulator_dirty": false,
+  "emulator_dirty": true,
   "components_lock_sha256": "9ca71f25d155876c9f57d2db77ac4199c49264cd3a17dbb61c605baf611608ca",
   "rustc": "rustc 1.96.0-nightly (362211dc2 2026-03-24)",
   "trunk": "trunk 0.21.14",
@@ -14,17 +14,17 @@
       "bytes": 1826978,
       "sha256": "fd460ca8fcee520953f5bb451a622e9b020d16d43b4553242908a0088da7627d"
     },
-    "frontend-856b85e38d578374.js": {
+    "frontend-ace41a956a8b6f53.js": {
       "bytes": 155476,
-      "sha256": "fc1476b29789c9e8703be1e9774c8e1cc52060f7ce59f50a8a0cb4d0313e9891"
+      "sha256": "34a62dd9f4defd9d16f9481cd446bf2efad1e6ed2d3169fd01b0d510adabc6af"
     },
-    "frontend-856b85e38d578374_bg.wasm": {
-      "bytes": 7595266,
-      "sha256": "c5e3c3937d12226cb3ffb7ad03c486c89e6e99c8e6013afe82ab3f735c1869ed"
+    "frontend-ace41a956a8b6f53_bg.wasm": {
+      "bytes": 7607868,
+      "sha256": "9b0aadba1071dfea146380747f7de58e7aab903e6ecc483285553b391c5330fa"
     },
     "index.html": {
-      "bytes": 21398,
-      "sha256": "2c894642118a9fba9497603bb17b1dab953b41df88d91a0009ada979079e52ad"
+      "bytes": 21405,
+      "sha256": "c58cbddcc2e50ea4ccf0ff2cc6fadb63637c6e135640ee2f0e20f380208b3c39"
     },
     "psoxide-app-icon-99e5b83a2cf87470.png": {
       "bytes": 107591,
@@ -47,5 +47,5 @@
       "sha256": "82dc21e5e00f9252f36ffce74110c5f75ae725cd5cd931a866bd22cf27ea4de2"
     }
   },
-  "total_bytes": 9715580
+  "total_bytes": 9728189
 }

@@ -49,7 +49,7 @@
         <!-- Monitor Screen with Shader Overlay -->
         <div class="screen-container">
           <iframe id="emulator-frame"
-                  src="player/?embed=1&disc=../roms/plattypus.exe"
+                  src="player/?embed=1&disc=../roms/plattypus.cue"
                   title="Plattypus PS1 Web Player"
                   allow="autoplay; gamepad; fullscreen"
                   loading="eager">
@@ -61,9 +61,10 @@
         <div class="arcade-toolbar">
           <div class="toolbar-group">
             <select id="disc-select" class="select-tool" title="Select Game Disc Format">
-              <option value="../roms/plattypus.exe">🚀 Fast Boot (Standalone EXE - 614 KB)</option>
-              <option value="../roms/plattypus.bin">💿 Master CD-ROM (Full Audio & FMVs - 59 MB)</option>
+              <option value="../roms/plattypus.cue" selected>💿 Master CD-ROM (Full Audio & FMVs - CUE/BIN)</option>
+              <option value="../roms/plattypus.bin">💿 Master CD-ROM (BIN Track - 59 MB)</option>
               <option value="../roms/plattypus.iso">📀 Compact Disc ISO (Data Track - 2 MB)</option>
+              <option value="../roms/plattypus.exe">🚀 Fast Boot (Standalone EXE - 614 KB)</option>
             </select>
             <button id="btn-reset" class="btn-tool" title="Cold Boot / Reset PS1">🔄 Reset</button>
             <button id="btn-mute" class="btn-tool" title="Mute/Unmute Audio">🔊 Audio</button>
