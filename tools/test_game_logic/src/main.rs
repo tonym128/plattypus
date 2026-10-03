@@ -2,7 +2,7 @@
 //! Tests save serialization, checksum verification, codename ranking,
 //! act progression, and cell collisions without requiring bare-metal MIPS hardware.
 
-use plattypus_core::{level::*, save::*};
+use plattypus_core::{compute_substeps, level::*, save::*, MAX_SUBSTEPS};
 
 // --------------------------------------------------------------------------
 // Campaign progress (game/src/game.rs)
@@ -3239,6 +3239,143 @@ fn main() {
         );
     }
     suite_passed("Perspective frustum culling, bank tree filter & performance telemetry test");
+
+    // 24. Fixed-Timestep Sub-Stepping, Clamp Bounds & Input Edge-Trigger Invariants
+    {
+        // (a) Sub-step computation and spiral-of-death clamp verification
+        assert_eq!(
+            compute_substeps(0),
+            1,
+            "0 vblanks should fallback to 1 substep"
+        );
+        assert_eq!(
+            compute_substeps(1),
+            1,
+            "60 FPS (1 vblank) should execute 1 substep"
+        );
+        assert_eq!(
+            compute_substeps(2),
+            2,
+            "30 FPS (2 vblanks) should execute 2 substeps"
+        );
+        assert_eq!(
+            compute_substeps(3),
+            3,
+            "20 FPS (3 vblanks) should execute 3 substeps"
+        );
+        assert_eq!(
+            compute_substeps(4),
+            4,
+            "15 FPS (4 vblanks) should execute 4 substeps"
+        );
+        assert_eq!(
+            compute_substeps(5),
+            MAX_SUBSTEPS,
+            "5 vblanks should clamp to MAX_SUBSTEPS (4) to prevent spiral of death"
+        );
+        assert_eq!(
+            compute_substeps(100),
+            MAX_SUBSTEPS,
+            "100 vblanks (heavy CD seek) must clamp to MAX_SUBSTEPS"
+        );
+
+        // (b) Fixed-timestep simulation pacing equivalence
+        // Regardless of whether frames are drawn at 60 FPS (1 vblank/frame),
+        // 30 FPS (2 vblanks/frame), or mixed drop rates, running sub-steps
+        // advances play_time and stage_time by the exact same total ticks for a
+        // given elapsed real time (here 60 VBlanks = 1.0 second NTSC).
+        let mut ticks_60fps = 0u32;
+        for _ in 0..60 {
+            let substeps = compute_substeps(1);
+            for _ in 0..substeps {
+                ticks_60fps += 1;
+            }
+        }
+        assert_eq!(ticks_60fps, 60, "60 FPS for 60 frames = 60 ticks");
+
+        let mut ticks_30fps = 0u32;
+        for _ in 0..30 {
+            let substeps = compute_substeps(2);
+            for _ in 0..substeps {
+                ticks_30fps += 1;
+            }
+        }
+        assert_eq!(
+            ticks_30fps, 60,
+            "30 FPS for 30 frames (2 vblanks/frame) must execute exactly 60 ticks"
+        );
+
+        let mut ticks_variable = 0u32;
+        let vblank_stream = [
+            1u32, 2, 1, 3, 2, 1, 2, 1, 1, 2, 4, 1, 2, 1, 2, 1, 1, 2, 1, 1, 2, 1, 3, 2, 1, 2, 1, 1,
+            2, 1, 2, 1, 1, 2, 1, 1, 2, 1, 1,
+        ];
+        let total_vblanks: u32 = vblank_stream.iter().sum();
+        assert_eq!(total_vblanks, 60);
+        for &vb in &vblank_stream {
+            let substeps = compute_substeps(vb);
+            for _ in 0..substeps {
+                ticks_variable += 1;
+            }
+        }
+        assert_eq!(
+            ticks_variable, 60,
+            "Variable frame rate must maintain identical 60 Hz simulation pacing"
+        );
+
+        // (c) Input edge-trigger safety across sub-steps
+        // A single-frame button press (such as CROSS for jump) must only fire once
+        // on sub-step 0, and not re-trigger on subsequent sub-steps within the same frame.
+        let prev_buttons_start = 0u16; // ButtonState::NONE
+        let current_buttons = 0x4000u16; // Button CROSS pressed
+        let substeps = compute_substeps(2); // 30 FPS frame
+        let mut jump_triggers = 0;
+        let mut walk_steps = 0;
+
+        for step in 0..substeps {
+            let step_prev = if step == 0 {
+                prev_buttons_start
+            } else {
+                current_buttons
+            };
+            let just_cross = (current_buttons & 0x4000 != 0) && (step_prev & 0x4000 == 0);
+            let is_cross_held = current_buttons & 0x4000 != 0;
+
+            if just_cross {
+                jump_triggers += 1;
+            }
+            if is_cross_held {
+                walk_steps += 1;
+            }
+        }
+        assert_eq!(
+            jump_triggers, 1,
+            "One-shot edge trigger must fire exactly once during multi-substep frame"
+        );
+        assert_eq!(
+            walk_steps, 2,
+            "Continuous button hold must remain active across all sub-steps"
+        );
+
+        // (d) Boss intro cutscene pacing under frame drops
+        // Cutscene timer must advance by substeps each frame so the 240-frame
+        // cutscene finishes in exactly 240 VBlanks (4.0s) even at 30 FPS.
+        let mut boss_timer: u16 = 0;
+        let mut render_frames = 0;
+        while boss_timer < BOSS_INTRO_FRAMES {
+            render_frames += 1;
+            let substeps = compute_substeps(2); // 30 FPS
+            boss_timer = boss_timer.saturating_add(substeps as u16);
+        }
+        assert_eq!(boss_timer, BOSS_INTRO_FRAMES);
+        assert_eq!(
+            render_frames, 120,
+            "At 30 FPS (2 vblanks/frame), 240-tick cutscene completes in 120 render frames"
+        );
+    }
+    suite_passed(
+        "Fixed-timestep sub-stepping pacing, clamp bounds & input edge-trigger invariant test",
+    );
 
     use core::sync::atomic::Ordering;
     let suites = SUITES_PASSED.load(Ordering::Relaxed);

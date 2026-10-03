@@ -8,6 +8,7 @@ use crate::entities::EntityManager;
 use crate::level::{Act, Level, TILE_SZ};
 use crate::platypus::{Platypus, PlayerState};
 use crate::renderer::Renderer;
+use plattypus_core::compute_substeps;
 use psx_gpu as gpu;
 use psx_pad::{button, AnalogSticks, ButtonState, PadMode, PadState};
 
@@ -179,8 +180,11 @@ impl Game {
 
     pub fn tick(&mut self) {
         self.frame = self.frame.wrapping_add(1);
-        AudioManager::update();
-        self.memcard.update();
+        let substeps = compute_substeps(self.renderer.vblanks_per_frame);
+        for _ in 0..substeps {
+            AudioManager::update();
+            self.memcard.update();
+        }
 
         let (rumble_small, rumble_large) = self.platty.get_rumble_state();
         let pad = self.dualshock.poll(rumble_small, rumble_large);
@@ -642,106 +646,140 @@ impl Game {
                     self.load_act(Act::Act1_1Drainage);
                     self.return_to_title();
                 } else {
-                    *timer += 1;
+                    for _ in 0..substeps {
+                        *timer += 1;
 
-                    // Simulated demo inputs for each act (gameplay only, no CODEC)
-                    // DOWN = North (-Z), UP = South (+Z) [controls now inverted]
-                    let sim_buttons = match *act {
-                        Act::Act1_1Drainage | Act::Act1_2Barracks => {
-                            if *timer < 50 {
-                                ButtonState::from_bits(button::UP)
-                            } else if *timer < 100 {
-                                ButtonState::from_bits(button::LEFT)
-                            } else {
-                                ButtonState::from_bits(button::CIRCLE | button::UP)
+                        // Simulated demo inputs for each act (gameplay only, no CODEC)
+                        // DOWN = North (-Z), UP = South (+Z) [controls now inverted]
+                        let sim_buttons = match *act {
+                            Act::Act1_1Drainage | Act::Act1_2Barracks => {
+                                if *timer < 50 {
+                                    ButtonState::from_bits(button::UP)
+                                } else if *timer < 100 {
+                                    ButtonState::from_bits(button::LEFT)
+                                } else {
+                                    ButtonState::from_bits(button::CIRCLE | button::UP)
+                                }
                             }
-                        }
-                        Act::Act1_3MechBoss
-                        | Act::Act2_3JetSkiBoss
-                        | Act::Act3_3SniperBoss
-                        | Act::Act4_3ExcavatorBoss => {
-                            if *timer < 50 {
-                                ButtonState::from_bits(button::DOWN)
-                            } else if *timer < 100 {
-                                ButtonState::from_bits(button::LEFT)
-                            } else {
-                                ButtonState::from_bits(button::CIRCLE | button::DOWN)
+                            Act::Act1_3MechBoss
+                            | Act::Act2_3JetSkiBoss
+                            | Act::Act3_3SniperBoss
+                            | Act::Act4_3ExcavatorBoss => {
+                                if *timer < 50 {
+                                    ButtonState::from_bits(button::DOWN)
+                                } else if *timer < 100 {
+                                    ButtonState::from_bits(button::LEFT)
+                                } else {
+                                    ButtonState::from_bits(button::CIRCLE | button::DOWN)
+                                }
                             }
-                        }
-                        Act::Act2_1Rapids | Act::Act2_2Mangroves => {
-                            if *timer < 50 {
-                                ButtonState::from_bits(button::RIGHT)
-                            } else if *timer < 90 {
-                                ButtonState::from_bits(button::CROSS)
-                            } else {
-                                ButtonState::from_bits(button::LEFT)
+                            Act::Act2_1Rapids | Act::Act2_2Mangroves => {
+                                if *timer < 50 {
+                                    ButtonState::from_bits(button::RIGHT)
+                                } else if *timer < 90 {
+                                    ButtonState::from_bits(button::CROSS)
+                                } else {
+                                    ButtonState::from_bits(button::LEFT)
+                                }
                             }
-                        }
-                        Act::Act3_1Highway => {
-                            if (*timer / 25) % 2 == 0 {
-                                ButtonState::from_bits(button::DOWN)
-                            } else {
-                                ButtonState::NONE
+                            Act::Act3_1Highway => {
+                                if (*timer / 25) % 2 == 0 {
+                                    ButtonState::from_bits(button::DOWN)
+                                } else {
+                                    ButtonState::NONE
+                                }
                             }
-                        }
-                        Act::Act3_2Laneways => {
-                            if *timer < 60 {
-                                ButtonState::from_bits(button::SQUARE | button::DOWN)
-                            } else {
-                                ButtonState::from_bits(button::DOWN)
+                            Act::Act3_2Laneways => {
+                                if *timer < 60 {
+                                    ButtonState::from_bits(button::SQUARE | button::DOWN)
+                                } else {
+                                    ButtonState::from_bits(button::DOWN)
+                                }
                             }
-                        }
-                        Act::Act4_1Dunes | Act::Act4_2PierTrench => {
-                            if (*timer / 30) % 2 == 0 {
-                                ButtonState::from_bits(button::CROSS | button::LEFT | button::DOWN)
-                            } else {
-                                ButtonState::from_bits(button::LEFT | button::DOWN)
+                            Act::Act4_1Dunes | Act::Act4_2PierTrench => {
+                                if (*timer / 30) % 2 == 0 {
+                                    ButtonState::from_bits(
+                                        button::CROSS | button::LEFT | button::DOWN,
+                                    )
+                                } else {
+                                    ButtonState::from_bits(button::LEFT | button::DOWN)
+                                }
                             }
-                        }
-                        Act::VrSneaking | Act::VrCqc | Act::VrSonar | Act::VrSpeed => {
-                            if *timer < 60 {
-                                ButtonState::from_bits(button::DOWN)
-                            } else {
-                                ButtonState::from_bits(button::CIRCLE | button::DOWN)
+                            Act::VrSneaking | Act::VrCqc | Act::VrSonar | Act::VrSpeed => {
+                                if *timer < 60 {
+                                    ButtonState::from_bits(button::DOWN)
+                                } else {
+                                    ButtonState::from_bits(button::CIRCLE | button::DOWN)
+                                }
                             }
-                        }
-                    };
+                        };
 
-                    let is_crawling = self.platty.state == PlayerState::BellyCrawl;
-                    let is_sneaking = self.platty.state == PlayerState::Sneaking;
-                    let is_submerged = self.platty.state == PlayerState::Submerged;
+                        let is_crawling = self.platty.state == PlayerState::BellyCrawl;
+                        let is_sneaking = self.platty.state == PlayerState::Sneaking;
+                        let is_submerged = self.platty.state == PlayerState::Submerged;
 
-                    let demo_pad = PadState {
-                        buttons: sim_buttons,
-                        mode: PadMode::Digital,
-                        sticks: AnalogSticks::CENTERED,
-                        id_low: 0x41,
-                    };
+                        let demo_pad = PadState {
+                            buttons: sim_buttons,
+                            mode: PadMode::Digital,
+                            sticks: AnalogSticks::CENTERED,
+                            id_low: 0x41,
+                        };
 
-                    self.platty.update(
-                        &demo_pad,
-                        ButtonState::NONE,
-                        &self.level,
-                        &mut self.entities,
-                    );
-                    self.platty.health = self.platty.max_health;
-                    self.entities.update(
-                        self.level.act,
-                        self.platty.x,
-                        self.platty.y,
-                        self.platty.z,
-                        is_crawling,
-                        is_sneaking,
-                        is_submerged,
-                        self.platty.in_box,
-                        // Input intent, not post-collision velocity. A held
-                        // diagonal stick that truncated to a zero velocity
-                        // read as a motionless box, which is exactly what makes
-                        // the cardboard box harmless.
-                        self.platty.input_moving,
-                        self.platty.noise_radius,
-                        &self.level,
-                    );
+                        self.platty.update(
+                            &demo_pad,
+                            ButtonState::NONE,
+                            &self.level,
+                            &mut self.entities,
+                        );
+                        self.platty.health = self.platty.max_health;
+                        self.entities.update(
+                            self.level.act,
+                            self.platty.x,
+                            self.platty.y,
+                            self.platty.z,
+                            is_crawling,
+                            is_sneaking,
+                            is_submerged,
+                            self.platty.in_box,
+                            // Input intent, not post-collision velocity. A held
+                            // diagonal stick that truncated to a zero velocity
+                            // read as a motionless box, which is exactly what makes
+                            // the cardboard box harmless.
+                            self.platty.input_moving,
+                            self.platty.noise_radius,
+                            &self.level,
+                        );
+
+                        // Cycle to next demo act every 180 frames (3 seconds)
+                        if *timer >= 180 {
+                            *timer = 0;
+                            match *act {
+                                Act::Act1_1Drainage => {
+                                    *act = Act::Act1_3MechBoss;
+                                    self.load_act(Act::Act1_3MechBoss);
+                                }
+                                Act::Act1_3MechBoss => {
+                                    *act = Act::Act2_1Rapids;
+                                    self.load_act(Act::Act2_1Rapids);
+                                }
+                                Act::Act2_1Rapids => {
+                                    *act = Act::Act3_1Highway;
+                                    self.load_act(Act::Act3_1Highway);
+                                }
+                                Act::Act3_1Highway => {
+                                    *act = Act::Act4_1Dunes;
+                                    self.load_act(Act::Act4_1Dunes);
+                                }
+                                _ => {
+                                    self.load_act(Act::Act1_1Drainage);
+                                    self.return_to_title();
+                                    return;
+                                }
+                            }
+                            break;
+                        }
+                    }
+
                     self.renderer
                         .update_camera(self.platty.x, self.platty.y, self.platty.z);
 
@@ -755,37 +793,6 @@ impl Game {
                     );
                     self.renderer
                         .draw_hud(&self.platty, &self.entities, &self.level, self.frame);
-
-                    // Cycle to next demo act every 180 frames (3 seconds)
-                    if *timer >= 180 {
-                        *timer = 0;
-                        match *act {
-                            Act::Act1_1Drainage => {
-                                *act = Act::Act1_3MechBoss;
-                                self.load_act(Act::Act1_3MechBoss);
-                            }
-                            Act::Act1_3MechBoss => {
-                                *act = Act::Act2_1Rapids;
-                                self.load_act(Act::Act2_1Rapids);
-                            }
-                            Act::Act2_1Rapids => {
-                                *act = Act::Act3_1Highway;
-                                self.load_act(Act::Act3_1Highway);
-                            }
-                            Act::Act3_1Highway => {
-                                *act = Act::Act4_1Dunes;
-                                self.load_act(Act::Act4_1Dunes);
-                            }
-                            Act::Act4_1Dunes => {
-                                self.load_act(Act::Act1_1Drainage);
-                                self.return_to_title();
-                            }
-                            _ => {
-                                self.load_act(Act::Act1_1Drainage);
-                                self.return_to_title();
-                            }
-                        }
-                    }
                 }
             }
             GameState::IntroCodec => {
@@ -834,7 +841,7 @@ impl Game {
                 self.codec.draw(&self.renderer.font);
             }
             GameState::ChapterTitleCard { act, ref mut timer } => {
-                *timer = timer.saturating_add(1);
+                *timer = timer.saturating_add(substeps as u16);
                 let elapsed = *timer;
 
                 self.snap_camera_to_player();
@@ -855,10 +862,11 @@ impl Game {
                 }
             }
             GameState::BossIntroCutscene { act, ref mut timer } => {
-                *timer = timer.saturating_add(1);
+                let prev_timer = *timer;
+                *timer = timer.saturating_add(substeps as u16);
                 let elapsed = *timer;
 
-                if elapsed == 1 {
+                if prev_timer == 0 && elapsed >= 1 {
                     AudioManager::play_alert();
                 }
 
@@ -916,194 +924,208 @@ impl Game {
                     self.card_present = probe_card_present();
                     self.state = GameState::InGameCodec;
                 } else {
-                    // Update player and 3D entities
-                    let is_crawling = self.platty.state == PlayerState::BellyCrawl;
-                    let is_sneaking = self.platty.state == PlayerState::Sneaking;
-                    let is_submerged = self.platty.state == PlayerState::Submerged;
+                    for step in 0..substeps {
+                        let step_prev_buttons = if step == 0 {
+                            self.prev_buttons
+                        } else {
+                            buttons
+                        };
 
-                    let prev_alert = self.entities.alert_state;
-                    self.mission_stats.play_time_frames =
-                        self.mission_stats.play_time_frames.saturating_add(1);
-                    self.stage_time_frames = self.stage_time_frames.saturating_add(1);
+                        // Update player and 3D entities
+                        let is_crawling = self.platty.state == PlayerState::BellyCrawl;
+                        let is_sneaking = self.platty.state == PlayerState::Sneaking;
+                        let is_submerged = self.platty.state == PlayerState::Submerged;
 
-                    self.platty
-                        .update(&pad, self.prev_buttons, &self.level, &mut self.entities);
-                    self.entities.update(
-                        self.level.act,
-                        self.platty.x,
-                        self.platty.y,
-                        self.platty.z,
-                        is_crawling,
-                        is_sneaking,
-                        is_submerged,
-                        self.platty.in_box,
-                        // Input intent, not post-collision velocity. A held
-                        // diagonal stick that truncated to a zero velocity
-                        // read as a motionless box, which is exactly what makes
-                        // the cardboard box harmless.
-                        self.platty.input_moving,
-                        self.platty.noise_radius,
-                        &self.level,
-                    );
+                        let prev_alert = self.entities.alert_state;
+                        self.mission_stats.play_time_frames =
+                            self.mission_stats.play_time_frames.saturating_add(1);
+                        self.stage_time_frames = self.stage_time_frames.saturating_add(1);
 
-                    let was_alert = matches!(prev_alert, crate::entities::AlertState::Alert(_));
-                    let is_alert = matches!(
-                        self.entities.alert_state,
-                        crate::entities::AlertState::Alert(_)
-                    );
-                    if !was_alert && is_alert {
-                        self.mission_stats.alerts_count =
-                            self.mission_stats.alerts_count.saturating_add(1);
-                        self.stage_alerts = self.stage_alerts.saturating_add(1);
-                    }
+                        self.platty.update(
+                            &pad,
+                            step_prev_buttons,
+                            &self.level,
+                            &mut self.entities,
+                        );
+                        self.entities.update(
+                            self.level.act,
+                            self.platty.x,
+                            self.platty.y,
+                            self.platty.z,
+                            is_crawling,
+                            is_sneaking,
+                            is_submerged,
+                            self.platty.in_box,
+                            // Input intent, not post-collision velocity. A held
+                            // diagonal stick that truncated to a zero velocity
+                            // read as a motionless box, which is exactly what makes
+                            // the cardboard box harmless.
+                            self.platty.input_moving,
+                            self.platty.noise_radius,
+                            &self.level,
+                        );
 
-                    if self.platty.screen_shake > 0 {
-                        self.renderer.screen_shake = self.platty.screen_shake as i16;
-                        self.platty.screen_shake = 0;
-                    }
-                    self.renderer
-                        .update_camera(self.platty.x, self.platty.y, self.platty.z);
-
-                    // Check Game Over (health 0)
-                    if self.platty.health == 0 {
-                        self.idle_timer = 0;
-                        self.state = GameState::GameOver;
-                        AudioManager::stop_all();
-                        AudioManager::play_hit();
-                        self.prev_buttons = ButtonState::NONE;
-                        return;
-                    }
-
-                    // Check exit or goal reached
-                    let reached_exit = match self.level.act {
-                        Act::Act1_3MechBoss => {
-                            // Stage ends immediately when the mech boss is defeated,
-                            // consistent with how the other boss stages (Act2/3/4) work.
-                            self.entities.boss_mech.is_defeated()
+                        let was_alert = matches!(prev_alert, crate::entities::AlertState::Alert(_));
+                        let is_alert = matches!(
+                            self.entities.alert_state,
+                            crate::entities::AlertState::Alert(_)
+                        );
+                        if !was_alert && is_alert {
+                            self.mission_stats.alerts_count =
+                                self.mission_stats.alerts_count.saturating_add(1);
+                            self.stage_alerts = self.stage_alerts.saturating_add(1);
                         }
-                        Act::Act2_3JetSkiBoss => {
-                            self.entities.boss_jetski.is_defeated()
-                                || self.platty.z <= 3 * TILE_SZ
-                                || self.level.is_exit_at(self.platty.x, self.platty.z)
-                        }
-                        Act::Act3_3SniperBoss => self.entities.boss_sniper.is_defeated(),
-                        Act::Act4_3ExcavatorBoss => self.entities.boss_excavator.is_defeated(),
-                        Act::Act2_1Rapids => {
-                            self.platty.z <= 3 * TILE_SZ
-                                || self.level.is_exit_at(self.platty.x, self.platty.z)
-                        }
-                        Act::Act3_1Highway => {
-                            self.platty.z <= 3 * TILE_SZ
-                                || self.level.is_exit_at(self.platty.x, self.platty.z)
-                        }
-                        _ => self.level.is_exit_at(self.platty.x, self.platty.z),
-                    };
 
-                    if reached_exit {
-                        if self.level.act.is_vr() {
-                            let vr_idx = (self.level.act as u8).saturating_sub(12);
-                            self.save_data.vr_cleared |= 1 << vr_idx;
-                            // If all 4 VR sims cleared, reward with Tuxedo & Wireframe
-                            if (self.save_data.vr_cleared & 0x0F) == 0x0F {
+                        if self.platty.screen_shake > 0 {
+                            self.renderer.screen_shake = self.platty.screen_shake as i16;
+                            self.platty.screen_shake = 0;
+                        }
+
+                        // Check Game Over (health 0)
+                        if self.platty.health == 0 {
+                            self.idle_timer = 0;
+                            self.state = GameState::GameOver;
+                            AudioManager::stop_all();
+                            AudioManager::play_hit();
+                            self.prev_buttons = ButtonState::NONE;
+                            return;
+                        }
+
+                        // Check exit or goal reached
+                        let reached_exit = match self.level.act {
+                            Act::Act1_3MechBoss => {
+                                // Stage ends immediately when the mech boss is defeated,
+                                // consistent with how the other boss stages (Act2/3/4) work.
+                                self.entities.boss_mech.is_defeated()
+                            }
+                            Act::Act2_3JetSkiBoss => {
+                                self.entities.boss_jetski.is_defeated()
+                                    || self.platty.z <= 3 * TILE_SZ
+                                    || self.level.is_exit_at(self.platty.x, self.platty.z)
+                            }
+                            Act::Act3_3SniperBoss => self.entities.boss_sniper.is_defeated(),
+                            Act::Act4_3ExcavatorBoss => self.entities.boss_excavator.is_defeated(),
+                            Act::Act2_1Rapids => {
+                                self.platty.z <= 3 * TILE_SZ
+                                    || self.level.is_exit_at(self.platty.x, self.platty.z)
+                            }
+                            Act::Act3_1Highway => {
+                                self.platty.z <= 3 * TILE_SZ
+                                    || self.level.is_exit_at(self.platty.x, self.platty.z)
+                            }
+                            _ => self.level.is_exit_at(self.platty.x, self.platty.z),
+                        };
+
+                        if reached_exit {
+                            if self.level.act.is_vr() {
+                                let vr_idx = (self.level.act as u8).saturating_sub(12);
+                                self.save_data.vr_cleared |= 1 << vr_idx;
+                                // If all 4 VR sims cleared, reward with Tuxedo & Wireframe
+                                if (self.save_data.vr_cleared & 0x0F) == 0x0F {
+                                    self.save_data.tuxedo_unlocked = 1;
+                                    self.save_data.wireframe_unlocked = 1;
+                                }
+                                // A VR clear never advances the campaign; the sims
+                                // have no place in the linear order.
+                                self.commit_progress(None);
+                                AudioManager::stop_all();
+                                AudioManager::play_fanfare();
+                                self.state = GameState::VrMenu;
+                            } else if self.level.act == Act::Act4_3ExcavatorBoss {
+                                // The final boss also settles the campaign records
+                                // (best time, rank, unlocks) before the one write.
+                                // Grade the mission that was just played, not the
+                                // whole campaign. The ranks are written around a
+                                // single clean run: feeding campaign-cumulative
+                                // time and damage asked for all twelve acts in
+                                // under seven minutes with no damage and no
+                                // alerts, which made Rank S -- and with it the
+                                // Stealth Camo unlock -- impossible.
+                                let time_s = self.stage_time_frames / self.frames_per_second();
+                                let stage_damage = self
+                                    .platty
+                                    .total_damage
+                                    .saturating_sub(self.stage_start_damage);
+                                let stage_takedowns = self
+                                    .platty
+                                    .takedowns
+                                    .saturating_sub(self.stage_start_takedowns);
+                                let final_rank = crate::save::Codename::evaluate(
+                                    self.stage_alerts,
+                                    stage_damage,
+                                    time_s,
+                                    stage_takedowns,
+                                );
+                                // The campaign record is the best rank earned on any
+                                // stage, so a player has to actually go and earn it.
+                                let codename = crate::save::Codename::from_index(
+                                    self.best_stage_rank.min(final_rank.rank()),
+                                );
+
+                                // Award unlocks
                                 self.save_data.tuxedo_unlocked = 1;
                                 self.save_data.wireframe_unlocked = 1;
+                                if codename == crate::save::Codename::BigPlatypus {
+                                    self.save_data.camo_unlocked = 1;
+                                }
+
+                                // Records for the mission just finished, matching
+                                // the per-stage figures the rank is graded on.
+                                self.save_data.best_time_seconds =
+                                    self.save_data.best_time_seconds.min(time_s);
+                                self.save_data.alerts_count =
+                                    self.save_data.alerts_count.min(self.stage_alerts);
+
+                                let name_bytes = codename.name().as_bytes();
+                                for (i, b) in self.save_data.best_codename.iter_mut().enumerate() {
+                                    *b = if i < name_bytes.len() {
+                                        name_bytes[i]
+                                    } else {
+                                        b' '
+                                    };
+                                }
+
+                                self.commit_progress(Some(self.level.act));
+                                self.video.start_outro();
+                                self.state = GameState::OutroVideo { codename };
+                            } else {
+                                // Grade this stage too and carry the best rank into
+                                // the campaign record. Only grading the final boss
+                                // left Speedy Wallaby, Tasmanian Devil, Lurking
+                                // Echidna, Iron Bill, Sly Possum, Bush Koala, Venomous
+                                // Taipan, Wombat Tunnel and Cardboard Hermit
+                                // unreachable -- Act 4-3 has no sentries, no
+                                // tripwires and (before the boss hit-test landed) no
+                                // way to take damage, so it was always evaluated as
+                                // (0 alerts, 0 damage, t, 0 takedowns).
+                                let time_s = self.stage_time_frames / self.frames_per_second();
+                                let stage_damage = self
+                                    .platty
+                                    .total_damage
+                                    .saturating_sub(self.stage_start_damage);
+                                let stage_takedowns = self
+                                    .platty
+                                    .takedowns
+                                    .saturating_sub(self.stage_start_takedowns);
+                                let stage_rank = crate::save::Codename::evaluate(
+                                    self.stage_alerts,
+                                    stage_damage,
+                                    time_s,
+                                    stage_takedowns,
+                                );
+                                self.best_stage_rank = self.best_stage_rank.min(stage_rank.rank());
+
+                                self.commit_progress(Some(self.level.act));
+                                self.state = GameState::StageClear;
+                                AudioManager::stop_all();
+                                AudioManager::play_fanfare();
                             }
-                            // A VR clear never advances the campaign; the sims
-                            // have no place in the linear order.
-                            self.commit_progress(None);
-                            AudioManager::stop_all();
-                            AudioManager::play_fanfare();
-                            self.state = GameState::VrMenu;
-                        } else if self.level.act == Act::Act4_3ExcavatorBoss {
-                            // The final boss also settles the campaign records
-                            // (best time, rank, unlocks) before the one write.
-                            // Grade the mission that was just played, not the
-                            // whole campaign. The ranks are written around a
-                            // single clean run: feeding campaign-cumulative
-                            // time and damage asked for all twelve acts in
-                            // under seven minutes with no damage and no
-                            // alerts, which made Rank S -- and with it the
-                            // Stealth Camo unlock -- impossible.
-                            let time_s = self.stage_time_frames / self.frames_per_second();
-                            let stage_damage = self
-                                .platty
-                                .total_damage
-                                .saturating_sub(self.stage_start_damage);
-                            let stage_takedowns = self
-                                .platty
-                                .takedowns
-                                .saturating_sub(self.stage_start_takedowns);
-                            let final_rank = crate::save::Codename::evaluate(
-                                self.stage_alerts,
-                                stage_damage,
-                                time_s,
-                                stage_takedowns,
-                            );
-                            // The campaign record is the best rank earned on any
-                            // stage, so a player has to actually go and earn it.
-                            let codename = crate::save::Codename::from_index(
-                                self.best_stage_rank.min(final_rank.rank()),
-                            );
-
-                            // Award unlocks
-                            self.save_data.tuxedo_unlocked = 1;
-                            self.save_data.wireframe_unlocked = 1;
-                            if codename == crate::save::Codename::BigPlatypus {
-                                self.save_data.camo_unlocked = 1;
-                            }
-
-                            // Records for the mission just finished, matching
-                            // the per-stage figures the rank is graded on.
-                            self.save_data.best_time_seconds =
-                                self.save_data.best_time_seconds.min(time_s);
-                            self.save_data.alerts_count =
-                                self.save_data.alerts_count.min(self.stage_alerts);
-
-                            let name_bytes = codename.name().as_bytes();
-                            for (i, b) in self.save_data.best_codename.iter_mut().enumerate() {
-                                *b = if i < name_bytes.len() {
-                                    name_bytes[i]
-                                } else {
-                                    b' '
-                                };
-                            }
-
-                            self.commit_progress(Some(self.level.act));
-                            self.video.start_outro();
-                            self.state = GameState::OutroVideo { codename };
-                        } else {
-                            // Grade this stage too and carry the best rank into
-                            // the campaign record. Only grading the final boss
-                            // left Speedy Wallaby, Tasmanian Devil, Lurking
-                            // Echidna, Iron Bill, Sly Possum, Bush Koala, Venomous
-                            // Taipan, Wombat Tunnel and Cardboard Hermit
-                            // unreachable -- Act 4-3 has no sentries, no
-                            // tripwires and (before the boss hit-test landed) no
-                            // way to take damage, so it was always evaluated as
-                            // (0 alerts, 0 damage, t, 0 takedowns).
-                            let time_s = self.stage_time_frames / self.frames_per_second();
-                            let stage_damage = self
-                                .platty
-                                .total_damage
-                                .saturating_sub(self.stage_start_damage);
-                            let stage_takedowns = self
-                                .platty
-                                .takedowns
-                                .saturating_sub(self.stage_start_takedowns);
-                            let stage_rank = crate::save::Codename::evaluate(
-                                self.stage_alerts,
-                                stage_damage,
-                                time_s,
-                                stage_takedowns,
-                            );
-                            self.best_stage_rank = self.best_stage_rank.min(stage_rank.rank());
-
-                            self.commit_progress(Some(self.level.act));
-                            self.state = GameState::StageClear;
-                            AudioManager::stop_all();
-                            AudioManager::play_fanfare();
+                            break;
                         }
                     }
+
+                    self.renderer
+                        .update_camera(self.platty.x, self.platty.y, self.platty.z);
 
                     // Render 3D World & HUD
                     self.renderer.begin_frame();
