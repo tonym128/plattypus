@@ -12,16 +12,10 @@ use plattypus_core::compute_substeps;
 use psx_gpu as gpu;
 use psx_pad::{button, AnalogSticks, ButtonState, PadMode, PadState};
 
-/// One full turn of the boss intro camera orbit, in the 256-units-per-
-/// revolution that `sin_1_3_12` indexes its table with.
-const ORBIT_TURN_UNITS: u32 = 256;
-/// Frames in the boss intro cutscene. The camera sweeps exactly one turn
-/// across them.
+/// Frames in the stage intro cutscene before it automatically turns back.
 const BOSS_INTRO_FRAMES: u16 = 240;
-/// Radius, in world units, of the boss intro camera orbit.
-const BOSS_ORBIT_RADIUS: i32 = 450;
-/// Camera height for the boss intro orbit.
-const BOSS_ORBIT_HEIGHT: i32 = -300;
+/// Frames for the quick camera turn-back animation when beginning stage gameplay.
+pub const TURN_BACK_FRAMES: u16 = 16;
 /// Follow-camera height above the player, and how far behind the player the
 /// camera sits.
 const CAMERA_HEIGHT_OFFSET: i32 = -280;
@@ -70,10 +64,12 @@ pub enum GameState {
     BossIntroCutscene {
         act: Act,
         timer: u16,
+        turn_back_timer: u16,
     },
     ChapterTitleCard {
         act: Act,
         timer: u16,
+        turn_back_timer: u16,
     },
     StageSelect,
     ConfirmNewCampaign,
@@ -399,6 +395,7 @@ impl Game {
                             self.state = GameState::BossIntroCutscene {
                                 act: target_act,
                                 timer: 0,
+                                turn_back_timer: 0,
                             };
                         } else {
                             let briefing = get_act_dialogue(target_act);
@@ -817,6 +814,7 @@ impl Game {
                             self.state = GameState::BossIntroCutscene {
                                 act: self.level.act,
                                 timer: 0,
+                                turn_back_timer: 0,
                             };
                         } else if matches!(
                             self.level.act,
@@ -828,6 +826,7 @@ impl Game {
                             self.state = GameState::ChapterTitleCard {
                                 act: self.level.act,
                                 timer: 0,
+                                turn_back_timer: 0,
                             };
                             AudioManager::play_electro();
                         } else {
@@ -840,17 +839,37 @@ impl Game {
                 self.renderer.begin_frame();
                 self.codec.draw(&self.renderer.font);
             }
-            GameState::ChapterTitleCard { act, ref mut timer } => {
-                *timer = timer.saturating_add(substeps as u16);
+            GameState::ChapterTitleCard {
+                act,
+                ref mut timer,
+                ref mut turn_back_timer,
+            } => {
+                if *turn_back_timer == 0 {
+                    *timer = timer.saturating_add(substeps as u16);
+                    if *timer >= 180 || just_cross || just_start {
+                        *turn_back_timer = 1;
+                    }
+                } else if just_cross || just_start {
+                    *turn_back_timer = TURN_BACK_FRAMES;
+                } else {
+                    *turn_back_timer = turn_back_timer.saturating_add(substeps as u16);
+                }
                 let elapsed = *timer;
 
-                self.snap_camera_to_player();
-
-                let skip = elapsed >= 180 || just_cross || just_start;
-                if skip {
+                if *turn_back_timer >= TURN_BACK_FRAMES {
+                    self.snap_camera_to_player();
                     self.state = GameState::Playing;
                     AudioManager::play_jump();
                 } else {
+                    let (cx, cy, cz, pitch, yaw) = calculate_stage_intro_camera(
+                        self.platty.x,
+                        self.platty.y,
+                        self.platty.z,
+                        elapsed,
+                        *turn_back_timer,
+                    );
+                    self.renderer.set_camera_view(cx, cy, cz, pitch, yaw);
+
                     self.renderer.begin_frame();
                     self.renderer.draw_3d_scene(
                         &self.level,
@@ -861,42 +880,42 @@ impl Game {
                     self.renderer.draw_chapter_title_card(act, elapsed);
                 }
             }
-            GameState::BossIntroCutscene { act, ref mut timer } => {
+            GameState::BossIntroCutscene {
+                act,
+                ref mut timer,
+                ref mut turn_back_timer,
+            } => {
                 let prev_timer = *timer;
-                *timer = timer.saturating_add(substeps as u16);
+                if *turn_back_timer == 0 {
+                    *timer = timer.saturating_add(substeps as u16);
+                    if *timer >= BOSS_INTRO_FRAMES || just_cross || just_start {
+                        *turn_back_timer = 1;
+                    }
+                } else if just_cross || just_start {
+                    *turn_back_timer = TURN_BACK_FRAMES;
+                } else {
+                    *turn_back_timer = turn_back_timer.saturating_add(substeps as u16);
+                }
                 let elapsed = *timer;
 
                 if prev_timer == 0 && elapsed >= 1 {
                     AudioManager::play_alert();
                 }
 
-                // Smooth cinematic camera orbit around boss
-                let (bx, bz) = match act {
-                    Act::Act1_3MechBoss => (self.entities.boss_mech.x, self.entities.boss_mech.z),
-                    Act::Act2_3JetSkiBoss => {
-                        (self.entities.boss_jetski.x, self.entities.boss_jetski.z)
-                    }
-                    Act::Act3_3SniperBoss => {
-                        (self.entities.boss_sniper.x, self.entities.boss_sniper.z)
-                    }
-                    Act::Act4_3ExcavatorBoss => (
-                        self.entities.boss_excavator.x,
-                        self.entities.boss_excavator.z,
-                    ),
-                    _ => (self.platty.x, self.platty.z),
-                };
-
-                let (orbit_x, orbit_z) = boss_orbit_offset(elapsed);
-                self.renderer.cam_x = bx + orbit_x;
-                self.renderer.cam_y = BOSS_ORBIT_HEIGHT;
-                self.renderer.cam_z = bz + orbit_z;
-
-                let skip = elapsed >= BOSS_INTRO_FRAMES || just_cross || just_start;
-                if skip {
+                if *turn_back_timer >= TURN_BACK_FRAMES {
                     self.snap_camera_to_player();
                     self.state = GameState::Playing;
                     AudioManager::play_alert();
                 } else {
+                    let (cx, cy, cz, pitch, yaw) = calculate_stage_intro_camera(
+                        self.platty.x,
+                        self.platty.y,
+                        self.platty.z,
+                        elapsed,
+                        *turn_back_timer,
+                    );
+                    self.renderer.set_camera_view(cx, cy, cz, pitch, yaw);
+
                     self.renderer.begin_frame();
                     self.renderer.draw_3d_scene(
                         &self.level,
@@ -1715,24 +1734,62 @@ fn probe_card_present() -> bool {
     false
 }
 
-/// Camera offset from the boss on frame `frame` of the intro orbit.
+/// Calculates camera position and orientation during stage intro cinematics.
 ///
-/// `sin_1_3_12` indexes its 256-entry table with `angle & 0xFF`, so one
-/// revolution is [`ORBIT_TURN_UNITS`], not the 4096 the old `* 16 & 0x0FFF`
-/// implied: that reduced the angle to `(frame & 0x0F) * 16` and the whole
-/// cutscene to 16 camera positions, repeated 15 times. Scaling the frame index
-/// by a full turn and dividing once spreads the remainder over the cutscene,
-/// so the step is 1 or 2 units and the sweep takes
-/// `BOSS_INTRO_FRAMES` distinct positions -- far above the 60 a smooth orbit
-/// needs.
-fn boss_orbit_offset(frame: u16) -> (i32, i32) {
-    let angle = (frame as u32 * ORBIT_TURN_UNITS / BOSS_INTRO_FRAMES as u32) as u16;
-    let sin_v = psx_gte_core::transform::sin_1_3_12(angle) as i32;
-    let cos_v = psx_gte_core::transform::cos_1_3_12(angle) as i32;
-    (
-        (sin_v * BOSS_ORBIT_RADIUS) >> 12,
-        (cos_v * BOSS_ORBIT_RADIUS) >> 12,
-    )
+/// While `turn_back_timer == 0`, smoothly sweeps an arc around Platty at a lower
+/// hero height and shallower pitch than normal gameplay, showcasing true 3D
+/// depth and verticality while keeping camera Z behind the player so the
+/// painter's algorithm depth sorting stays 100% stable.
+///
+/// When the player presses START / CROSS to begin (or time expires),
+/// `turn_back_timer` increments from 1 to `TURN_BACK_FRAMES`, smoothly and quickly
+/// whipping the camera back to normal gameplay follow parameters using quadratic ease-out.
+fn calculate_stage_intro_camera(
+    px: i32,
+    py: i32,
+    pz: i32,
+    timer: u16,
+    turn_back_timer: u16,
+) -> (i32, i32, i32, u16, u16) {
+    let sweep_progress = ((timer as u32 * 256) / 180) as u16;
+    let sin_sweep = psx_gte_core::transform::sin_1_3_12(sweep_progress) as i32;
+    let cos_sweep = psx_gte_core::transform::cos_1_3_12(sweep_progress) as i32;
+
+    let pan_yaw = ((sin_sweep * 32) >> 12) as i16;
+    let radius = 295 + ((cos_sweep * 25) >> 12);
+    let height = -180 + ((cos_sweep * 25) >> 12);
+    let pitch = (22 + ((cos_sweep * 4) >> 12)) as u16;
+
+    let yaw_u16 = (pan_yaw as u16) & 0xFF;
+    let sin_yaw = psx_gte_core::transform::sin_1_3_12(yaw_u16) as i32;
+    let cos_yaw = psx_gte_core::transform::cos_1_3_12(yaw_u16) as i32;
+
+    let pan_cam_x = px + ((sin_yaw * radius) >> 12);
+    let pan_cam_z = pz - ((cos_yaw * radius) >> 12);
+    let pan_cam_y = py + height;
+
+    if turn_back_timer == 0 {
+        (pan_cam_x, pan_cam_y, pan_cam_z, pitch, yaw_u16)
+    } else {
+        let t_raw = (turn_back_timer.min(TURN_BACK_FRAMES) as i32 * 4096) / TURN_BACK_FRAMES as i32;
+        let rem = 4096 - t_raw;
+        let t_ease = 4096 - ((rem * rem) >> 12);
+
+        let target_cam_x = px;
+        let target_cam_y = py + CAMERA_HEIGHT_OFFSET;
+        let target_cam_z = pz + CAMERA_TRAIL_OFFSET;
+        let target_pitch = crate::renderer::CAM_PITCH as i32;
+
+        let cur_x = pan_cam_x + (((target_cam_x - pan_cam_x) * t_ease) >> 12);
+        let cur_y = pan_cam_y + (((target_cam_y - pan_cam_y) * t_ease) >> 12);
+        let cur_z = pan_cam_z + (((target_cam_z - pan_cam_z) * t_ease) >> 12);
+        let cur_pitch = (pitch as i32 + (((target_pitch - pitch as i32) * t_ease) >> 12)) as u16;
+
+        let cur_yaw = (pan_yaw as i32 - ((pan_yaw as i32 * t_ease) >> 12)) as i16;
+        let out_yaw = (cur_yaw as u16) & 0xFF;
+
+        (cur_x, cur_y, cur_z, cur_pitch, out_yaw)
+    }
 }
 
 /// True when every campaign act has been cleared, as distinct from "Act 4-3 is

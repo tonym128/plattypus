@@ -37,7 +37,7 @@ const FONT_TPAGE: Tpage = Tpage::new(320, 0, TexDepth::Bit4);
 const FONT_CLUT: Clut = Clut::new(320, 256);
 
 /// Camera pitch angle: ~48 degrees downward (34 in 256-per-revolution units)
-const CAM_PITCH: u16 = 34;
+pub const CAM_PITCH: u16 = 34;
 
 // -------------------------------------------------------------------------
 // TEXT FITTING
@@ -211,6 +211,8 @@ pub struct Renderer {
     pub cam_x: i32,
     pub cam_y: i32,
     pub cam_z: i32,
+    pub cam_pitch: u16,
+    pub cam_yaw: u16,
     pub screen_shake: i16,
     pub costume: u8,
     pub wireframe: bool,
@@ -286,6 +288,8 @@ impl Renderer {
             cam_x: 0,
             cam_y: -300,
             cam_z: -260,
+            cam_pitch: CAM_PITCH,
+            cam_yaw: 0,
             screen_shake: 0,
             costume: 0,
             wireframe: false,
@@ -382,7 +386,32 @@ impl Renderer {
             .draw_text_with_spacing(fit.x, y, s, fit.spacing, tint);
     }
 
+    pub fn set_camera_view(&mut self, eye_x: i32, eye_y: i32, eye_z: i32, pitch: u16, yaw: u16) {
+        self.cam_x = eye_x;
+        self.cam_y = eye_y;
+        self.cam_z = eye_z;
+        self.cam_pitch = pitch;
+        self.cam_yaw = yaw;
+
+        let rot = if yaw != 0 {
+            Mat3I16::rotate_x(pitch).mul(&Mat3I16::rotate_y(yaw))
+        } else {
+            Mat3I16::rotate_x(pitch)
+        };
+
+        let trans = rot.transform(Vec3I16::new(
+            (-self.cam_x).clamp(i16::MIN as i32, i16::MAX as i32) as i16,
+            (-self.cam_y).clamp(i16::MIN as i32, i16::MAX as i32) as i16,
+            (-self.cam_z).clamp(i16::MIN as i32, i16::MAX as i32) as i16,
+        ));
+
+        scene::load_rotation(&rot);
+        scene::load_translation(Vec3I32::new(trans[0], trans[1], trans[2]));
+    }
+
     pub fn update_camera(&mut self, player_x: i32, player_y: i32, player_z: i32) {
+        self.cam_pitch = CAM_PITCH;
+        self.cam_yaw = 0;
         let target_x = player_x;
         let target_y = player_y - 280;
         let target_z = player_z - 240;
@@ -433,8 +462,9 @@ impl Renderer {
         }
 
         // Row-based depth sorting (far to near) with perspective frustum culling
+        let z_extra = if self.cam_yaw != 0 { 896 } else { 768 };
         let min_gz = ((self.cam_z - 32) / TILE_SZ).clamp(0, GRID_D as i32) as usize;
-        let max_gz = ((self.cam_z + 768) / TILE_SZ + 1).clamp(0, GRID_D as i32) as usize;
+        let max_gz = ((self.cam_z + z_extra) / TILE_SZ + 1).clamp(0, GRID_D as i32) as usize;
 
         for gz in (min_gz..max_gz).rev() {
             let row_z_min = (gz as i32) * TILE_SZ;
@@ -443,7 +473,11 @@ impl Renderer {
             let detail = self.dist_to(self.cam_x, row_z_min) <= TILE_LOD_DISTANCE;
 
             let dz = (row_z_min - self.cam_z).max(48);
-            let half_w = (dz * 9 / 10) + 96;
+            let half_w = if self.cam_yaw != 0 {
+                dz + 180
+            } else {
+                (dz * 9 / 10) + 96
+            };
             let row_min_gx = ((self.cam_x - half_w) / TILE_SZ).clamp(0, GRID_W as i32) as usize;
             let row_max_gx = ((self.cam_x + half_w) / TILE_SZ + 1).clamp(0, GRID_W as i32) as usize;
             let ent_max_dist = half_w + 48;
@@ -4619,7 +4653,7 @@ impl Renderer {
         self.draw_text_clamped(card_x + 12, card_y + 46, sub_name, (120, 240, 180));
 
         if timer > 45 && (timer / 15) % 2 == 0 {
-            self.draw_text_clamped(180, 222, "CROSS: SKIP", (160, 160, 160));
+            self.draw_text_clamped(170, 222, "START / X: BEGIN", (160, 160, 160));
         }
     }
 
@@ -4664,7 +4698,7 @@ impl Renderer {
         self.draw_text_clamped(card_x + 12, card_y + 40, specs, (200, 220, 240));
 
         if timer > 60 && (timer / 15) % 2 == 0 {
-            self.draw_text_clamped(180, 222, "CROSS: SKIP", (160, 160, 160));
+            self.draw_text_clamped(170, 222, "START / X: BEGIN", (160, 160, 160));
         }
     }
 

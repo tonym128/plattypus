@@ -21,6 +21,56 @@ const FPS_PAL: u32 = 50;
 const BOSS_INTRO_FRAMES: u16 = 240;
 const BOSS_ORBIT_RADIUS: i32 = 450;
 const ORBIT_TURN_UNITS: u32 = 256;
+const TURN_BACK_FRAMES: u16 = 16;
+const CAM_PITCH: u16 = 34;
+
+fn calculate_stage_intro_camera(
+    px: i32,
+    py: i32,
+    pz: i32,
+    timer: u16,
+    turn_back_timer: u16,
+) -> (i32, i32, i32, u16, u16) {
+    let sweep_progress = ((timer as u32 * 256) / 180) as u16;
+    let sin_sweep = sin_1_3_12(sweep_progress) as i32;
+    let cos_sweep = cos_1_3_12(sweep_progress) as i32;
+
+    let pan_yaw = ((sin_sweep * 32) >> 12) as i16;
+    let radius = 295 + ((cos_sweep * 25) >> 12);
+    let height = -180 + ((cos_sweep * 25) >> 12);
+    let pitch = (22 + ((cos_sweep * 4) >> 12)) as u16;
+
+    let yaw_u16 = (pan_yaw as u16) & 0xFF;
+    let sin_yaw = sin_1_3_12(yaw_u16) as i32;
+    let cos_yaw = cos_1_3_12(yaw_u16) as i32;
+
+    let pan_cam_x = px + ((sin_yaw * radius) >> 12);
+    let pan_cam_z = pz - ((cos_yaw * radius) >> 12);
+    let pan_cam_y = py + height;
+
+    if turn_back_timer == 0 {
+        (pan_cam_x, pan_cam_y, pan_cam_z, pitch, yaw_u16)
+    } else {
+        let t_raw = (turn_back_timer.min(TURN_BACK_FRAMES) as i32 * 4096) / TURN_BACK_FRAMES as i32;
+        let rem = 4096 - t_raw;
+        let t_ease = 4096 - ((rem * rem) >> 12);
+
+        let target_cam_x = px;
+        let target_cam_y = py - 280;
+        let target_cam_z = pz - 240;
+        let target_pitch = CAM_PITCH as i32;
+
+        let cur_x = pan_cam_x + (((target_cam_x - pan_cam_x) * t_ease) >> 12);
+        let cur_y = pan_cam_y + (((target_cam_y - pan_cam_y) * t_ease) >> 12);
+        let cur_z = pan_cam_z + (((target_cam_z - pan_cam_z) * t_ease) >> 12);
+        let cur_pitch = (pitch as i32 + (((target_pitch - pitch as i32) * t_ease) >> 12)) as u16;
+
+        let cur_yaw = (pan_yaw as i32 - ((pan_yaw as i32 * t_ease) >> 12)) as i16;
+        let out_yaw = (cur_yaw as u16) & 0xFF;
+
+        (cur_x, cur_y, cur_z, cur_pitch, out_yaw)
+    }
+}
 
 /// Mirror of `Game::commit_progress`: the only writer of the campaign clear
 /// count, the high score and the yabby total.
@@ -3376,6 +3426,75 @@ fn main() {
     suite_passed(
         "Fixed-timestep sub-stepping pacing, clamp bounds & input edge-trigger invariant test",
     );
+
+    // 25. Stage Intro 3D Camera Pan & Quick Turn Back Invariant Test
+    {
+        let (px, py, pz) = (256, 0, 512);
+
+        // (a) During stage intro pan (turn_back_timer == 0), verify 3D depth showcase and stability
+        for t in 0..=360 {
+            let (_cx, cy, cz, pitch, yaw) = calculate_stage_intro_camera(px, py, pz, t, 0);
+
+            // Camera must ALWAYS stay behind the player in Z (cz < pz) so painter's algorithm
+            // row depth sorting never inverts.
+            assert!(
+                cz < pz - 150,
+                "Camera at frame {t} must remain behind player: cz={cz}, pz={pz}"
+            );
+
+            // Pitch must be shallower (18..=26) than normal follow cam (34 = 48 deg)
+            assert!(
+                (18..=26).contains(&pitch),
+                "Pitch at frame {t} should be shallower (18..=26) to showcase 3D verticality, got {pitch}"
+            );
+
+            // Camera height must be lower (-155..=-210) than normal (-280) for dramatic perspective
+            assert!(
+                (-210..=-155).contains(&(cy - py)),
+                "Camera relative height at frame {t} should be low hero angle, got {}",
+                cy - py
+            );
+
+            // Yaw must sweep within [-32, 32] units (~ +/-45 degrees)
+            let signed_yaw = if yaw > 128 {
+                yaw as i32 - 256
+            } else {
+                yaw as i32
+            };
+            assert!(
+                (-32..=32).contains(&signed_yaw),
+                "Yaw at frame {t} should sweep within +/-32 units, got {signed_yaw}"
+            );
+        }
+
+        // (b) When player clicks to start, verify smooth and exact quick turn back to normal view
+        // Test starting turn back from various points in the sweep (e.g. t = 15, 45, 90, 135, 180)
+        for &start_t in &[15u16, 45, 90, 135, 180] {
+            let mut prev_dist = i32::MAX;
+            for step in 1..=TURN_BACK_FRAMES {
+                let (cx, cy, cz, pitch, yaw) =
+                    calculate_stage_intro_camera(px, py, pz, start_t, step);
+
+                let dist_to_target =
+                    (cx - px).abs() + (cy - (py - 280)).abs() + (cz - (pz - 240)).abs();
+                assert!(
+                    dist_to_target <= prev_dist,
+                    "Camera transition must smoothly converge to target"
+                );
+                prev_dist = dist_to_target;
+
+                if step == TURN_BACK_FRAMES {
+                    // Final frame must exactly match standard gameplay camera parameters!
+                    assert_eq!(cx, px, "Final cam_x must equal player_x");
+                    assert_eq!(cy, py - 280, "Final cam_y must equal player_y - 280");
+                    assert_eq!(cz, pz - 240, "Final cam_z must equal player_z - 240");
+                    assert_eq!(pitch, CAM_PITCH, "Final pitch must equal CAM_PITCH (34)");
+                    assert_eq!(yaw, 0, "Final yaw must equal 0");
+                }
+            }
+        }
+    }
+    suite_passed("Stage intro 3D camera pan & quick turn back invariant test");
 
     use core::sync::atomic::Ordering;
     let suites = SUITES_PASSED.load(Ordering::Relaxed);
