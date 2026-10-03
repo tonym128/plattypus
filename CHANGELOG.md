@@ -7,7 +7,18 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-10-03
+
 ### Fixed
+
+- **FMV Playback & MDEC DMA Initialization:** Resolved a race condition where MDEC DMA0/DMA1 enables were swallowed by an ongoing MDEC reset on PS1 hardware and PSoXide emulator, causing quantization table uploads to fail and video playback to abort. Enforced proper bus wait cycles using volatile MMIO reads.
+- **Web Drive Range Prefetching:** Synchronized sector prefetch readiness in PSoXide emulator when a drive seek/read target (`setloc_pending`) is scheduled.
+- **Web Player Full Audio & Video Integration:** Master CD-ROM image with CD-DA audio and interleaved XA FMV streams now plays smoothly in the browser.
+
+### Added
+
+- **On-Screen Touch Controls:** Added authentic PlayStation 1 virtual touch controls (D-pad and action buttons) for mobile portrait/landscape gameplay with tactile haptics.
+- **Stage Start Camera Rotation:** 3D camera pan around Platty at the start of each stage to showcase perspective 3D depth, quickly turning back upon input.
 
 - **Intro video no longer stutters.** Presentation is now FIFO-buffered and
   continuous, CD-XA streaming never stops the drive, and every wait pumps the
