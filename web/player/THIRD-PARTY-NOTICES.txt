@@ -1,7 +1,7 @@
 PSoXide web player
 GPL-2.0-or-later
 
-Source: https://github.com/EBonura/PSoXide-emulator/tree/5cffed8f04a85224e1c4e9be73dc55554f97c2ea
+Source: https://github.com/EBonura/PSoXide-emulator/tree/390fd19ba87f3ceb5cf1d287a597a632792afa08
 
 Build: python3 tools/build-web-player.py --out player
 

@@ -124,6 +124,12 @@ pub fn reset() {
     // SAFETY: MDEC control register writes.
     unsafe {
         psx_io::write32(MDEC1, 0x8000_0000);
+        // Wait out the reset cycles (silicon takes up to 39 CPU cycles from busy,
+        // ~13 from idle; any control write arriving within 5 cycles is swallowed).
+        // Volatile reads of MDEC1 cannot be optimized away by LLVM and enforce real bus delays.
+        for _ in 0..16 {
+            let _ = psx_io::read32(MDEC1);
+        }
         psx_io::write32(MDEC1, 0x6000_0000);
     }
     dma::enable_channel(Channel::MdecIn);
