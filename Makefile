@@ -22,16 +22,24 @@ DUCKSTATION_APPIMAGES ?= $(DUCKSTATION_APPIMAGE) \
                          $(HOME)/Downloads/DuckStation-x64.AppImage \
                          $(HOME)/Applications/DuckStation.AppImage
 
-.PHONY: all exe disc iso clean run test help check-media video-bench video-bench-build web
+.PHONY: all exe disc iso clean run test help check-media video-bench video-bench-build web \
+        ci ci-host ci-game ci-disc clippy fmt-check fmt lockfile-check
 
 all: disc iso
 
 help:
 	@echo "Plattypus (PSX / PSoXide) Build Targets:"
+	@echo "  make ci          - Run full GitHub CI test suite locally (host + game + disc)"
+	@echo "  make ci-host     - Run CI Job 1: host checks (fmt-check, clippy, test, lockfiles)"
+	@echo "  make ci-game     - Run CI Job 2: PSX cross-build & RAM budget gate check"
+	@echo "  make ci-disc     - Run CI Job 3: disc & ISO mastering smoke tests"
+	@echo "  make clippy      - Run clippy lint check (-D warnings)"
+	@echo "  make fmt-check   - Check code formatting on all project crates"
+	@echo "  make fmt         - Auto-format all project crates"
+	@echo "  make test        - Run automated host-side game logic test suite"
 	@echo "  make exe         - Compile PSX-EXE (MIPS R3000 bare-metal binary)"
 	@echo "  make disc        - Master bootable PS1 disc image (dist/plattypus.{bin,cue})"
 	@echo "  make iso         - Master cooked PS1 ISO image (dist/plattypus.iso)"
-	@echo "  make test        - Run automated host-side game logic test suite"
 	@echo "  make web         - Serve Plattypus Web Arcade on http://localhost:8080"
 	@echo "  make run         - Run disc in DuckStation, RetroArch, or EMULATOR=... emulator"
 	@echo ""
@@ -47,13 +55,86 @@ help:
 	@echo "  RUNS=N     - repeat the measurement N times and report the median (default 1)"
 	@echo "  SECONDS=N  - wall-clock budget per run (default 150; a full run takes ~60s)"
 
+# --- GitHub CI Equivalent Targets ---------------------------------------------
+ci: ci-host ci-game ci-disc
+	@echo ""
+	@echo "=========================================================="
+	@echo "  ALL GITHUB CI EQUIVALENT CHECKS PASSED SUCCESSFULLY!"
+	@echo "=========================================================="
+
+ci-host: fmt-check clippy test lockfile-check
+	@echo "--- CI Job 1 (Host tests, lint, format) Passed ---"
+
+ci-game: exe
+	@echo "--- CI Job 2 (PSX build & RAM budget gate) ---"
+	@set -euo pipefail; \
+	exe="$(DIST)/plattypus.exe"; \
+	test -f "$$exe"; \
+	size=$$(stat -c%s "$$exe"); \
+	pct=$$(( size * 100 / 2097152 )); \
+	echo "exe = $$size bytes ($$pct% of 2 MB PS1 RAM)"; \
+	if [ "$$size" -ge 2097152 ]; then \
+		echo "ERROR: executable exceeds the 2 MB main RAM of a PlayStation"; \
+		exit 1; \
+	fi
+	@echo "--- CI Job 2 (PSX build) Passed ---"
+
+ci-disc: disc iso
+	@echo "--- CI Job 3 (Disc mastering smoke test) ---"
+	@set -euo pipefail; \
+	grep -q '^FILE' $(DIST)/plattypus.cue; \
+	named=$$(awk '/^FILE/{gsub(/"/,"",$$2); print $$2}' $(DIST)/plattypus.cue | head -1); \
+	echo "cue references: $$named"; \
+	test -f "$$named" || test -f "$(DIST)/$$(basename "$$named")"; \
+	ls -lh $(DIST)/plattypus.bin $(DIST)/plattypus.cue $(DIST)/plattypus.iso
+	@echo "--- CI Job 3 (Disc mastering) Passed ---"
+
+fmt-check:
+	@echo "Checking formatting across project crates..."
+	@for m in game crates/plattypus-core tools/test_game_logic video_bench; do \
+		echo "Checking formatting: $$m"; \
+		cargo fmt --manifest-path "$$m/Cargo.toml" --all -- --check || exit 1; \
+	done
+
+fmt:
+	@echo "Applying formatting across project crates..."
+	@for m in game crates/plattypus-core tools/test_game_logic video_bench; do \
+		echo "Formatting: $$m"; \
+		cargo fmt --manifest-path "$$m/Cargo.toml" --all; \
+	done
+
+clippy:
+	@echo "Running clippy on host crates..."
+	cargo clippy --locked --offline --manifest-path crates/plattypus-core/Cargo.toml --all-targets -- -D warnings
+	cargo clippy --locked --offline --manifest-path tools/test_game_logic/Cargo.toml --all-targets -- -D warnings
+
+test:
+	@echo "Running host-side game logic test suite..."
+	cargo run --locked --offline --manifest-path $(ROOT)/tools/test_game_logic/Cargo.toml
+
+lockfile-check:
+	@echo "Verifying lockfiles agree on registry dependencies..."
+	@set -euo pipefail; \
+	game_lockfile="/tmp/game.lock.reg"; \
+	video_lockfile="/tmp/video_bench.lock.reg"; \
+	extract_reg() { \
+		awk ' \
+			/^\[\[package\]\]/ { if (reg && name && ver) print name, ver; name=""; ver=""; reg=0 } \
+			/^name = / { name=$$3 } \
+			/^version = / { ver=$$3 } \
+			/^source = "registry/ { reg=1 } \
+			END { if (reg && name && ver) print name, ver } \
+		' "$$1" | sort; \
+	}; \
+	extract_reg game/Cargo.lock > "$$game_lockfile"; \
+	extract_reg video_bench/Cargo.lock > "$$video_lockfile"; \
+	diff -u "$$game_lockfile" "$$video_lockfile"; \
+	echo "Lockfiles agree on registry dependencies."
+
 web:
 	@mkdir -p $(ROOT)/web/roms
 	@cp $(DIST)/plattypus.exe $(DIST)/plattypus.cue $(DIST)/plattypus.bin $(DIST)/plattypus.iso $(ROOT)/web/roms/ 2>/dev/null || true
 	@python3 $(ROOT)/tools/serve_web.py 8080 $(ROOT)/web
-
-test:
-	cargo run --manifest-path $(ROOT)/tools/test_game_logic/Cargo.toml
 
 # ---------------------------------------------------------------------------
 # Intro-video performance measurement.
